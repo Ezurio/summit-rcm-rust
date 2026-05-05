@@ -1,0 +1,12 @@
+[package]
+name = "summit-rcm-plugin-api"
+version = "0.1.0"
+edition = "2024"
+description = "Plugin ABI contract for summit-rcm dynamic plugins"
+license = "LicenseRef-Ezurio-Clause"
+
+[dependencies]
+libc = "0.2"
+
+[lib]
+crate-type = ["rlib"]

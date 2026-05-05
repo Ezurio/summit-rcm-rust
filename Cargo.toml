@@ -1,0 +1,156 @@
+[workspace]
+members = [
+    ".",
+    "crates/plugin-api",
+    "crates/plugin-example",
+]
+
+[package]
+name = "summit-rcm"
+version = "0.1.0"
+edition = "2024"
+description = "Summit RCM - Remote Configuration Manager (Rust/Axum port)"
+authors = ["Ezurio LLC"]
+license = "LicenseRef-Ezurio-Clause"
+autotests = false
+
+[[bin]]
+name = "generate_openapi"
+path = "src/openapi/generate.rs"
+required-features = ["api-docs"]
+
+[[test]]
+name = "at_lookup"
+path = "tests/at_lookup.rs"
+
+[[test]]
+name = "legacy_response"
+path = "tests/legacy_response.rs"
+
+[[test]]
+name = "logs"
+path = "tests/logs.rs"
+
+[[test]]
+name = "plugin_registry"
+path = "tests/plugin_registry.rs"
+
+[[test]]
+name = "plugins"
+path = "tests/plugins.rs"
+
+[[test]]
+name = "no_dead_code_policy"
+path = "tests/unit/no_dead_code_policy.rs"
+
+[features]
+# Default: full REST API (v2 + legacy routes)
+default = ["api-v2", "api-legacy"]
+
+# REST API v2 routes (/api/v2/...) — pulls in Axum automatically
+api-v2 = [
+    "dep:axum",
+    "dep:libloading", "dep:tower-sessions", "tokio/net",
+    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+]
+# Legacy API routes (/api/v1/... and root-path backward-compat) — same Axum stack
+api-legacy = [
+    "dep:axum",
+    "dep:libloading", "dep:tower-sessions", "tokio/net",
+    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+]
+# Serial AT command interface — independent of any REST API
+at-interface = ["dep:tokio-serial", "dep:reqwest", "network", "network-manager", "date-time", "system", "logs", "files", "update"]
+
+# NetworkManager-backed implementation used by the network plugin.
+network-manager = []
+
+# Network-facing routes, AT commands, and non-NetworkManager helpers.
+network = []
+date-time = []
+login = []
+system = []
+logs = []
+files = []
+update = []
+
+# Optional plugins — fully independent; no interface implied.
+# Routes are wired only when the matching interface feature is also active:
+#   plugin + api-v2     → v2 routes
+#   plugin + api-legacy → legacy routes
+#   plugin + at-interface → AT commands
+awm             = []
+bluetooth       = []
+bluetooth-websocket = ["axum/ws"]
+chrony          = []
+fips            = []
+firewall        = []
+log-forwarding  = []
+provisioning    = []
+radio-siso-mode = []
+stunnel         = []
+unauthenticated = []
+all-plugins = [
+    "awm", "bluetooth", "chrony", "fips", "firewall", "log-forwarding",
+    "provisioning", "radio-siso-mode", "stunnel", "unauthenticated",
+    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+]
+api-docs = ["dep:utoipa"]
+swagger-ui = ["api-docs"]
+
+[dependencies]
+# Always required
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+configparser = "3"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std", "tracing-log"] }
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+futures-util = "0.3"
+zbus = { version = "5.15.0", features = ["tokio"] }
+base64 = "0.22"
+parking_lot = "0.12"
+regex = "1"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
+libc = "0.2"
+rustix = { version = "1", features = ["time"] }
+openssl = "0.10"
+openssl-sys = "0.9"
+tokio-openssl = "0.6"
+hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"] }
+summit-rcm-plugin-api = { path = "crates/plugin-api" }
+inventory = "0.3"
+
+# REST API dependencies (enabled by api-v2 and/or api-legacy)
+axum           = { version = "0.8.9", features = ["multipart"], optional = true }
+# Keep reqwest on the native-tls path so Linux builds stay on OpenSSL rather than rustls.
+reqwest        = { version = "0.13.3", default-features = false, features = ["charset", "json", "native-tls"], optional = true }
+libloading     = { version = "0.9.0", optional = true }
+tower-sessions = { version = "0.15.0", optional = true }
+
+# AT interface (feature = "at-interface")
+tokio-serial   = { version = "5", optional = true }
+
+utoipa         = { version = "5.5.0", features = ["axum_extras"], optional = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+tokio-tungstenite = "0.29"
+
+[profile.dev]
+incremental = true
+
+[profile.test]
+incremental = true
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+split-debuginfo = "packed"

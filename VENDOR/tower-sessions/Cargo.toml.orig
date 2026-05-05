@@ -1,0 +1,104 @@
+[workspace]
+members = [".", "memory-store", "tower-sessions-core"]
+resolver = "2"
+
+[workspace.package]
+version = "0.15.0"
+edition = "2021"
+authors = ["Max Countryman <hello@maxcountryman.com>"]
+license = "MIT"
+homepage = "https://github.com/maxcountryman/tower-sessions"
+keywords = ["axum", "session", "sessions", "cookie", "tower"]
+categories = ["asynchronous", "network-programming", "web-programming"]
+repository = "https://github.com/maxcountryman/tower-sessions"
+documentation = "https://docs.rs/tower-sessions"
+readme = "README.md"
+
+[package]
+name = "tower-sessions"
+description = "🥠 Sessions as a `tower` and `axum` middleware."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["axum-core", "memory-store"]
+axum-core = ["tower-sessions-core/axum-core"]
+memory-store = ["tower-sessions-memory-store"]
+signed = ["tower-cookies/signed"]
+private = ["tower-cookies/private"]
+
+[workspace.dependencies]
+tower-sessions = { version = "=0.15.0", path = ".", default-features = false }
+
+tower-sessions-core = { version = "=0.15.0", path = "tower-sessions-core", default-features = false }
+tower-sessions-memory-store = { version = "=0.15.0", path = "memory-store" }
+
+async-trait = "0.1.74"
+parking_lot = { version = "0.12.1", features = ["serde"] }
+rmp-serde = { version = "1.1.2" }
+serde = "1.0.192"
+thiserror = "2.0.0"
+time = "0.3.30"
+tokio = { version = "1.32.0", default-features = false, features = ["sync"] }
+
+[dependencies]
+async-trait = "0.1.73"
+http = "1.0"
+tokio = { version = "1.32.0", features = ["sync"] }
+tower-layer = "0.3.2"
+tower-service = "0.3.2"
+tower-sessions-core = { workspace = true }
+tower-sessions-memory-store = { workspace = true, optional = true }
+tracing = { version = "0.1.40", features = ["log"] }
+tower-cookies = "0.11.0"
+time = { version = "0.3.29", features = ["serde"] }
+
+[dev-dependencies]
+async-trait = "0.1.74"
+anyhow = "1"
+axum = "0.8.1"
+axum-core = "0.5.0"
+futures = { version = "0.3.28", default-features = false, features = [
+  "async-await",
+] }
+http = "1.0"
+http-body-util = "0.1"
+hyper = "1.0"
+reqwest = { version = "0.12.3", default-features = false, features = [
+  "rustls-tls",
+] }
+serde = "1.0.192"
+time = "0.3.30"
+tokio = { version = "1.32.0", features = ["full"] }
+tokio-test = "0.4.3"
+tower = { version = "0.5.0", features = ["util"] }
+tower-cookies = "0.11.0"
+tower-sessions-core = { workspace = true, features = ["deletion-task"] }
+
+[[example]]
+name = "counter"
+required-features = ["axum-core", "memory-store"]
+
+[[example]]
+name = "counter-extractor"
+required-features = ["axum-core", "memory-store"]
+
+[[example]]
+name = "strongly-typed"
+required-features = ["axum-core"]
+
+[[example]]
+name = "signed"
+required-features = ["signed", "memory-store"]

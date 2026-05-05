@@ -1,0 +1,6 @@
+[
+  {"id": "v2_interface_lo", "method": "GET", "path": "/api/v2/network/interfaces/lo", "expected_status": 200, "compare": "json_exact"},
+  {"id": "v2_interface_enp3s0", "method": "GET", "path": "/api/v2/network/interfaces/enp3s0", "expected_status": 200, "compare": "json_exact"},
+  {"id": "v2_interface_wlo1", "method": "GET", "path": "/api/v2/network/interfaces/wlo1", "expected_status": 200, "compare": "json_exact"},
+  {"id": "v2_interface_docker0", "method": "GET", "path": "/api/v2/network/interfaces/docker0", "expected_status": 200, "compare": "json_exact"}
+]

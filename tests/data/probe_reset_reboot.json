@@ -1,0 +1,14 @@
+[
+  {
+    "id": "unauthenticated_reset_reboot_legacy",
+    "method": "GET",
+    "path": "/allowUnauthenticatedResetReboot",
+    "compare": "text_exact"
+  },
+  {
+    "id": "unauthenticated_reset_reboot_v2",
+    "method": "GET",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "compare": "json_exact"
+  }
+]

@@ -1,0 +1,92 @@
+[package]
+name = "tokio-serial"
+version = "5.4.5"
+authors = ["Zac Berkowitz <zac.berkowitz@gmail.com>"]
+description = "A serial port implementation for tokio"
+license = "MIT"
+homepage = "https://github.com/berkowski/tokio-serial"
+repository = "https://github.com/berkowski/tokio-serial"
+documentation = "http://docs.rs/tokio-serial"
+readme = "README.md"
+keywords = ["rs232", "serial", "tokio"]
+categories = ["asynchronous", "hardware-support"]
+edition = "2018"
+
+[package.metadata]
+msrv = "1.46.0"
+
+[package.metadata.docs.rs]
+features = ["codec"]
+
+[features]
+default = []
+libudev = ["mio-serial/libudev"]
+rt = ["tokio/rt-multi-thread"]
+codec = ["tokio-util/codec", "bytes"]
+
+[dependencies.futures]
+version = "0.3"
+
+[dependencies.tokio]
+version = "^1.8"
+default-features = false
+features = ["net"]
+
+[dependencies.tokio-util]
+version = "0.7.12"
+default-features = false
+optional = true
+
+[dev-dependencies.tokio-util]
+version = "0.7.12"
+default-features = false
+features = ["codec"]
+
+[dependencies.mio-serial]
+version = "5.0.3"
+default-features = false
+
+[dependencies.bytes]
+version = "1"
+default-features = false
+optional = true
+
+[dev-dependencies.bytes]
+version = "1"
+
+[dev-dependencies.cpal]
+version = "0.15.3"
+
+[dependencies.log]
+version = "0.4"
+
+[dependencies.cfg-if]
+version = "1"
+
+[dependencies.serialport]
+version = "4"
+default-features = false
+
+[dev-dependencies]
+anyhow = "1.0.91"
+
+[dev-dependencies.tokio]
+version = "^1.8"
+features = [
+  "macros",
+  "rt",
+  "process",
+  "time",
+  "fs",
+  "io-util",
+  "rt-multi-thread",
+]
+default-features = false
+
+[dev-dependencies.env_logger]
+version = "0.10.0"
+
+[[example]]
+name = "serial_println"
+path = "examples/serial_println.rs"
+required-features = ["rt", "codec"]

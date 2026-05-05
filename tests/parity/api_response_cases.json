@@ -1,0 +1,1611 @@
+[
+  {
+    "id": "v2_users",
+    "method": "GET",
+    "path": "/api/v2/login/users",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_user_root",
+    "method": "GET",
+    "ignore_content_type": true,
+    "path": "/api/v2/login/users/root",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_login_bad",
+    "method": "POST",
+    "ignore_content_type": true,
+    "path": "/api/v2/login",
+    "body": {
+      "username": "root",
+      "password": "wrong"
+    },
+    "expected_status": 200,
+    "compare": "text_exact"
+  },
+  {
+    "id": "v2_login_good",
+    "method": "POST",
+    "path": "/api/v2/login",
+    "body": {
+      "username": "root",
+      "password": "summit"
+    },
+    "expected_status": 200,
+    "compare": "text_exact"
+  },
+  {
+    "id": "legacy_users",
+    "method": "GET",
+    "path": "/users",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_login_good",
+    "method": "POST",
+    "path": "/login",
+    "body": {
+      "username": "root",
+      "password": "summit"
+    },
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_version",
+    "method": "GET",
+    "path": "/version",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_network_status",
+    "method": "GET",
+    "path": "/networkStatus",
+    "expected_status": 200,
+    "ignore_body": true,
+    "compare": "json_shape"
+  },
+  {
+    "id": "legacy_definitions",
+    "method": "GET",
+    "path": "/definitions",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_certificates",
+    "method": "GET",
+    "path": "/api/v2/network/certificates",
+    "compare": "text_exact"
+  },
+  {
+    "id": "legacy_certificates",
+    "method": "GET",
+    "path": "/certificates",
+    "expected_status": 200,
+    "ignore_content_type": true,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_certificate_missing",
+    "method": "GET",
+    "path": "/api/v2/network/certificates/missing.crt",
+    "compare": "text_exact"
+  },
+  {
+    "id": "legacy_certificate_missing",
+    "method": "GET",
+    "path": "/certificates?name=missing.crt",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_fips",
+    "method": "GET",
+    "path": "/fips",
+    "plugins": ["fips"],
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_datetime",
+    "method": "GET",
+    "path": "/datetime",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_log_setting",
+    "method": "GET",
+    "path": "/logSetting",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_awm",
+    "method": "GET",
+    "path": "/awm",
+    "expected_status": 200,
+    "plugins": ["awm"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_accesspoints",
+    "method": "GET",
+    "path": "/accesspoints",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_connections",
+    "method": "GET",
+    "path": "/connections",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_connection",
+    "method": "GET",
+    "path": "/connection",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_files",
+    "method": "GET",
+    "path": "/files",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_files_cert_list",
+    "method": "GET",
+    "path": "/files?type=cert",
+    "ignore_status": true,
+    "ignore_content_type": true,
+    "ignore_body": true,
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_files_invalid_type",
+    "method": "GET",
+    "path": "/files?type=bad",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_files_network_missing_password",
+    "method": "GET",
+    "path": "/files?type=network",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_files_network_export",
+    "method": "GET",
+    "path": "/files?type=network&password=summit",
+    "ignore_status": true,
+    "ignore_content_type": true,
+    "expected_status": 200,
+    "compare": "exact",
+    "ignore_body": true
+  },
+  {
+    "id": "legacy_ntp",
+    "method": "GET",
+    "path": "/ntp",
+    "expected_status": 200,
+    "plugins": ["chrony"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_bluetooth",
+    "method": "GET",
+    "path": "/bluetooth",
+    "expected_status": 200,
+    "plugins": ["bluetooth"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_bluetooth_controller0",
+    "method": "GET",
+    "path": "/bluetooth/controller0",
+    "expected_status": 200,
+    "plugins": ["bluetooth"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_firewall",
+    "method": "GET",
+    "path": "/firewall",
+    "expected_status": 200,
+    "plugins": ["firewall"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_log_forwarding",
+    "method": "GET",
+    "path": "/logForwarding",
+    "expected_status": 200,
+    "plugins": ["log-forwarding"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_stunnel",
+    "method": "GET",
+    "path": "/stunnel",
+    "expected_status": 200,
+    "plugins": ["stunnel"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_network_status",
+    "method": "GET",
+    "path": "/api/v2/network/status",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_network_interfaces",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_interface_lo",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/lo",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_interface_enp3s0",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/enp3s0",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_interface_wlo1",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/wlo1",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_interface_docker0",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/docker0",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_interface_enp3s0_stats",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/enp3s0/stats",
+    "compare": "json_shape"
+  },
+  {
+    "id": "v2_interface_docker0_stats",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/docker0/stats",
+    "compare": "json_shape"
+  },
+  {
+    "id": "v2_interface_wlo1_available_ap_channels",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/wlo1/availableApChannels",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_dhcp_leases_invalid",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/__missing_interface__/dhcpLeases",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_network_connections",
+    "method": "GET",
+    "path": "/api/v2/network/connections",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_network_connections_export",
+    "method": "GET",
+    "path": "/api/v2/network/connections/export",
+    "body": {
+      "password": "summit"
+    },
+    "compare": "exact",
+    "ignore_content_type": true,
+    "ignore_body": true
+  },
+  {
+    "id": "v2_connection_id_missing",
+    "method": "GET",
+    "path": "/api/v2/network/connections/id/__missing_connection__",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_connection_uuid_missing",
+    "method": "GET",
+    "path": "/api/v2/network/connections/uuid/00000000-0000-0000-0000-000000000000",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_network_access_points",
+    "method": "GET",
+    "path": "/api/v2/network/accessPoints",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_network_access_points_scan",
+    "method": "GET",
+    "path": "/api/v2/network/accessPoints/scan",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_network_wifi",
+    "method": "GET",
+    "path": "/api/v2/network/wifi",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_awm",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/awm",
+    "expected_status": 200,
+    "plugins": ["awm"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_bluetooth",
+    "method": "GET",
+    "path": "/api/v2/bluetooth",
+    "expected_status": 200,
+    "plugins": ["bluetooth"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_bluetooth_controller0",
+    "method": "GET",
+    "path": "/api/v2/bluetooth/controller0",
+    "expected_status": 200,
+    "plugins": ["bluetooth"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_bluetooth_device_missing",
+    "method": "GET",
+    "path": "/api/v2/bluetooth/controller0/00:00:00:00:00:00",
+    "plugins": ["bluetooth"],
+    "compare": "exact"
+  },
+  {
+    "id": "v2_firewall",
+    "method": "GET",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "expected_status": 200,
+    "plugins": ["firewall"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_log_forwarding",
+    "method": "GET",
+    "path": "/api/v2/system/logs/forwarding",
+    "expected_status": 200,
+    "plugins": ["log-forwarding"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_stunnel",
+    "method": "GET",
+    "path": "/api/v2/network/stunnel",
+    "expected_status": 200,
+    "plugins": ["stunnel"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_fips",
+    "method": "GET",
+    "path": "/api/v2/system/fips",
+    "plugins": ["fips"],
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_datetime",
+    "method": "GET",
+    "path": "/api/v2/system/datetime",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_ntp",
+    "method": "GET",
+    "path": "/api/v2/system/datetime/ntp",
+    "plugins": ["chrony"],
+    "compare": "text_exact"
+  },
+  {
+    "id": "v2_system_power",
+    "method": "GET",
+    "path": "/api/v2/system/power",
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_unauthenticated_reset_reboot",
+    "method": "GET",
+    "path": "/allowUnauthenticatedResetReboot",
+    "expected_status": 200,
+    "plugins": ["unauthenticated"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_unauthenticated_reset_reboot",
+    "method": "GET",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "expected_status": 200,
+    "plugins": ["unauthenticated"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_update",
+    "method": "GET",
+    "path": "/api/v2/system/update",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_logs_config",
+    "method": "GET",
+    "path": "/api/v2/system/logs/config",
+    "compare": "text_exact"
+  },
+  {
+    "id": "v2_logs_webserver",
+    "method": "GET",
+    "path": "/api/v2/system/logs/webserver",
+    "expected_status": 200,
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_version",
+    "method": "GET",
+    "path": "/api/v2/system/version",
+    "compare": "text_exact"
+  },
+  {
+    "id": "v2_interface_wlo1_driver_info",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/wlo1/driverInfo",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_interface_wlo1_station_dump",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/wlo1/stationDump",
+    "compare": "json_shape"
+  },
+  {
+    "id": "v2_interface_wlo1_summit_status",
+    "method": "GET",
+    "path": "/api/v2/network/interfaces/wlo1/summitStatus",
+    "compare": "exact"
+  },
+  {
+    "id": "v2_radio_siso_mode",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_certificate_provisioning",
+    "method": "GET",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_config_export",
+    "method": "GET",
+    "path": "/api/v2/system/config/export",
+    "body": {
+      "password": "summit"
+    },
+    "compare": "exact",
+    "ignore_content_type": true,
+    "ignore_body": true
+  },
+  {
+    "id": "v2_ntp_source_sample",
+    "method": "GET",
+    "path": "/api/v2/system/datetime/ntp/sample",
+    "plugins": ["chrony"],
+    "compare": "exact"
+  },
+  {
+    "id": "v2_system_debug_export",
+    "method": "GET",
+    "path": "/api/v2/system/debug/export",
+    "compare": "exact",
+    "timeout_seconds": 180,
+    "skip_live": true,
+    "skip_reason": "Python export_debug hangs standalone in this environment"
+  },
+  {
+    "id": "v2_logs_data",
+    "method": "GET",
+    "path": "/api/v2/system/logs/data",
+    "compare": "json_schema",
+    "timeout_seconds": 15
+  },
+  {
+    "id": "v2_logs_export",
+    "method": "GET",
+    "path": "/api/v2/system/logs/export",
+    "body": {
+      "password": "summit"
+    },
+    "compare": "exact",
+    "timeout_seconds": 180,
+    "skip_live": true,
+    "skip_reason": "Python export_logs hangs standalone in this environment"
+  },
+  {
+    "id": "legacy_bluetooth_device_missing",
+    "method": "GET",
+    "path": "/bluetooth/controller0/00:00:00:00:00:00",
+    "plugins": ["bluetooth"],
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_certificate_provisioning",
+    "method": "GET",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_file_missing",
+    "method": "GET",
+    "path": "/file?type=cert&file=missing.crt",
+    "ignore_body": true,
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_firewall_add_forward_port",
+    "method": "GET",
+    "path": "/firewall/addForwardPort",
+    "plugins": ["firewall"],
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_firmware",
+    "method": "GET",
+    "path": "/firmware",
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_log_data",
+    "method": "GET",
+    "path": "/logData",
+    "compare": "json_schema",
+    "timeout_seconds": 15
+  },
+  {
+    "id": "legacy_network_interface_lo",
+    "method": "GET",
+    "path": "/networkInterface?name=lo",
+    "ignore_body": true,
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_network_interface_wlo1_available_ap_channels",
+    "method": "GET",
+    "path": "/networkInterfaceAvailableApChannels?name=wlo1",
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_network_interface_wlo1_driver_info",
+    "method": "GET",
+    "path": "/networkInterfaceDriverInfo?interface=wlo1",
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_network_interface_wlo1_station_dump",
+    "method": "GET",
+    "path": "/networkInterfaceStationDump?interface=wlo1",
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_network_interface_lo_statistics",
+    "method": "GET",
+    "path": "/networkInterfaceStatistics?name=lo",
+    "compare": "json_shape"
+  },
+  {
+    "id": "legacy_network_interface_wlo1_summit_status",
+    "method": "GET",
+    "path": "/networkInterfaceSummitStatus?interface=wlo1",
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_network_interfaces",
+    "method": "GET",
+    "path": "/networkInterfaces",
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_ntp_override_sources",
+    "method": "GET",
+    "path": "/ntp/overrideSources",
+    "plugins": ["chrony"],
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_radio_siso_mode",
+    "method": "GET",
+    "path": "/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "compare": "exact"
+  },
+  {
+    "id": "legacy_wifi_enable",
+    "method": "GET",
+    "path": "/wifiEnable",
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_system_power_invalid_state",
+    "method": "PUT",
+    "path": "/api/v2/system/power",
+    "body": {"state": "invalid"},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_system_fips_invalid_state",
+    "method": "PUT",
+    "path": "/api/v2/system/fips",
+    "plugins": ["fips"],
+    "body": {"state": ""},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_system_logs_config_invalid",
+    "method": "PUT",
+    "path": "/api/v2/system/logs/config",
+    "body": {"suppDebugLevel": "invalid", "driverDebugLevel": 9},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_system_logs_webserver_invalid",
+    "method": "PUT",
+    "path": "/api/v2/system/logs/webserver",
+    "body": {"webserverLogLevel": "invalid"},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_system_update_cancel_noop",
+    "method": "PUT",
+    "path": "/api/v2/system/update",
+    "body": {"status": 2, "url": "", "image": "main"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_system_update_upload_wrong_content_type",
+    "method": "POST",
+    "path": "/api/v2/system/update/updateFile",
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 415
+  },
+  {
+    "id": "v2_system_ntp_delete_missing",
+    "method": "DELETE",
+    "path": "/api/v2/system/datetime/ntp/__missing_source__",
+    "plugins": ["chrony"],
+    "compare": "exact",
+    "expected_status": 500
+  },
+  {
+    "id": "v2_firewall_forwarded_ports_invalid_ip_version",
+    "method": "PUT",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "plugins": ["firewall"],
+    "body": [{"port": 8080, "protocol": "tcp", "toport": "8080", "toaddr": "127.0.0.1", "ipVersion": "invalid"}],
+    "compare": "exact",
+    "expected_status": 500
+  },
+  {
+    "id": "legacy_datetime_missing_zone",
+    "method": "PUT",
+    "path": "/datetime",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_fips_invalid_option",
+    "method": "PUT",
+    "path": "/fips",
+    "plugins": ["fips"],
+    "body": {"fips": "invalid"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_log_setting_invalid",
+    "method": "POST",
+    "path": "/logSetting",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_ntp_default_no_command",
+    "method": "PUT",
+    "path": "/ntp",
+    "plugins": ["chrony"],
+    "body": {"sources": []},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_ntp_invalid_command",
+    "method": "PUT",
+    "path": "/ntp/sample",
+    "plugins": ["chrony"],
+    "body": {"sources": []},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_firewall_default_no_command",
+    "method": "PUT",
+    "path": "/firewall",
+    "plugins": ["firewall"],
+    "body": {"port": 8080, "protocol": "tcp", "toport": "8080", "toaddr": "127.0.0.1", "ip_version": "ipv4"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_firewall_invalid_command",
+    "method": "PUT",
+    "path": "/firewall/sample",
+    "plugins": ["firewall"],
+    "body": {"port": 8080, "protocol": "tcp", "toport": "8080", "toaddr": "127.0.0.1", "ip_version": "ipv4"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_certificate_delete_missing",
+    "method": "DELETE",
+    "path": "/api/v2/network/certificates/missing.crt",
+    "compare": "exact",
+    "expected_status": 404
+  },
+  {
+    "id": "v2_connection_create_invalid",
+    "method": "POST",
+    "path": "/api/v2/network/connections",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 400,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_connection_replace_uuid_invalid",
+    "method": "PUT",
+    "path": "/api/v2/network/connections/uuid/__missing__",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 400,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_connection_replace_id_invalid",
+    "method": "PUT",
+    "path": "/api/v2/network/connections/id/__missing__",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 400,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_connection_delete_id_missing",
+    "method": "DELETE",
+    "path": "/api/v2/network/connections/id/__missing__",
+    "compare": "exact",
+    "expected_status": 404
+  },
+  {
+    "id": "v2_connection_delete_uuid_missing",
+    "method": "DELETE",
+    "path": "/api/v2/network/connections/uuid/__missing__",
+    "compare": "exact",
+    "expected_status": 404
+  },
+  {
+    "id": "legacy_connection_create_invalid",
+    "method": "POST",
+    "path": "/connection",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "legacy_connection_activate_missing_uuid",
+    "method": "PUT",
+    "path": "/connection",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "legacy_connection_delete_missing_uuid",
+    "method": "DELETE",
+    "path": "/connection",
+    "ignore_status": true,
+    "ignore_body": true,
+    "compare": "exact",
+    "expected_status": 404
+  },
+  {
+    "id": "legacy_network_interfaces_post_invalid",
+    "method": "POST",
+    "path": "/networkInterfaces",
+    "body": {"interface": "bad", "type": "bad"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_network_interfaces_delete_invalid",
+    "method": "DELETE",
+    "path": "/networkInterfaces?interface=bad",
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_login_delete_no_session",
+    "method": "DELETE",
+    "path": "/api/v2/login",
+    "compare": "exact",
+    "expected_status": 500
+  },
+  {
+    "id": "v2_user_create_invalid",
+    "method": "POST",
+    "path": "/api/v2/login/users",
+    "body": {"username": "", "password": "", "permissions": ""},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_user_delete_missing",
+    "method": "DELETE",
+    "path": "/api/v2/login/users/__missing_user__",
+    "compare": "exact",
+    "expected_status": 404
+  },
+  {
+    "id": "v2_user_patch_invalid",
+    "method": "PATCH",
+    "path": "/api/v2/login/users/root",
+    "body": {"currentPassword": "", "newPassword": ""},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_login_delete_no_session",
+    "method": "DELETE",
+    "path": "/login",
+    "compare": "exact",
+    "expected_status": 500,
+    "ignore_status": true,
+    "ignore_content_type": true,
+    "ignore_body": true
+  },
+  {
+    "id": "legacy_users_post_invalid",
+    "method": "POST",
+    "path": "/users",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_users_delete_invalid",
+    "method": "DELETE",
+    "path": "/users",
+    "body": {},
+    "ignore_status": true,
+    "ignore_body": true,
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_users_put_invalid",
+    "method": "PUT",
+    "path": "/users",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_unauthenticated_enable",
+    "method": "PUT",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_unauthenticated_disable",
+    "method": "DELETE",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_unauthenticated_enable",
+    "method": "PUT",
+    "path": "/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_unauthenticated_disable",
+    "method": "DELETE",
+    "path": "/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_certificate_provisioning_post_invalid_upload",
+    "method": "POST",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_certificate_provisioning_put_invalid_upload",
+    "method": "PUT",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_certificate_provisioning_post_invalid_upload",
+    "method": "POST",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "ignore_content_type": true,
+    "ignore_body": true,
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_certificate_provisioning_put_invalid_upload",
+    "method": "PUT",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_system_config_import_invalid_upload",
+    "method": "PUT",
+    "path": "/api/v2/system/config/import",
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_system_datetime_invalid",
+    "method": "PUT",
+    "path": "/api/v2/system/datetime",
+    "body": {"datetime": "invalid-date"},
+    "compare": "exact",
+    "expected_status": 500
+  },
+  {
+    "id": "v2_log_forwarding_invalid_state",
+    "method": "PUT",
+    "path": "/api/v2/system/logs/forwarding",
+    "plugins": ["log-forwarding"],
+    "body": {"state": "invalid"},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_log_forwarding_invalid_state",
+    "method": "PUT",
+    "path": "/logForwarding",
+    "plugins": ["log-forwarding"],
+    "body": {"state": "invalid"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_stunnel_invalid_state",
+    "method": "PUT",
+    "path": "/api/v2/network/stunnel",
+    "plugins": ["stunnel"],
+    "body": {"state": "invalid"},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_stunnel_invalid_state",
+    "method": "PUT",
+    "path": "/stunnel",
+    "plugins": ["stunnel"],
+    "body": {"state": "invalid"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_awm_noop",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi/awm",
+    "plugins": ["awm"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_awm_invalid_type",
+    "method": "PUT",
+    "path": "/awm",
+    "plugins": ["awm"],
+    "body": {"geolocation_scanning_enable": "invalid"},
+    "ignore_body": true,
+    "compare": "exact",
+    "expected_status": 200,
+    "ignore_status": true,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_radio_siso_invalid",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "body": {"sisoMode": "invalid"},
+    "compare": "exact",
+    "expected_status": 400,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "legacy_radio_siso_invalid",
+    "method": "PUT",
+    "path": "/radioSISOMode?SISO_mode=invalid",
+    "plugins": ["radio-siso-mode"],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_bluetooth_put_empty",
+    "method": "PUT",
+    "path": "/api/v2/bluetooth",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_bluetooth_controller_put_empty",
+    "method": "PUT",
+    "path": "/api/v2/bluetooth/controller0",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_bluetooth_device_put_empty",
+    "method": "PUT",
+    "path": "/api/v2/bluetooth/controller0/00:00:00:00:00:00",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_bluetooth_put_empty",
+    "method": "PUT",
+    "path": "/bluetooth",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_bluetooth_controller_put_empty",
+    "method": "PUT",
+    "path": "/bluetooth/controller0",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_bluetooth_device_put_empty",
+    "method": "PUT",
+    "path": "/bluetooth/controller0/00:00:00:00:00:00",
+    "plugins": ["bluetooth"],
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_accesspoints_scan_request",
+    "method": "PUT",
+    "path": "/accesspoints",
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_accesspoints_scan_request",
+    "method": "PUT",
+    "path": "/api/v2/network/accessPoints/scan",
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_certificate_upload_invalid_upload",
+    "method": "POST",
+    "path": "/api/v2/network/certificates/test.crt",
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_connection_patch_uuid_missing",
+    "method": "PATCH",
+    "path": "/api/v2/network/connections/uuid/__missing__",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 404,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_connection_patch_id_missing",
+    "method": "PATCH",
+    "path": "/api/v2/network/connections/id/__missing__",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 404,
+    "allow_framework_validation_mismatch": true
+  },
+  {
+    "id": "v2_connections_import_invalid_upload",
+    "method": "PUT",
+    "path": "/api/v2/network/connections/import",
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_interface_put_invalid_name",
+    "method": "PUT",
+    "path": "/api/v2/network/interfaces/bad",
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_interface_delete_invalid_name",
+    "method": "DELETE",
+    "path": "/api/v2/network/interfaces/bad",
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_file_delete_invalid",
+    "method": "DELETE",
+    "path": "/file",
+    "body": {},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_firmware_delete_cancel",
+    "method": "DELETE",
+    "path": "/firmware",
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_firmware_post_invalid_url",
+    "method": "POST",
+    "path": "/firmware",
+    "body": {"url": "bad url", "image": "main"},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_firmware_put_invalid_content_type",
+    "method": "PUT",
+    "path": "/firmware",
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 415,
+    "ignore_content_type": true,
+    "ignore_body": true
+  },
+  {
+    "id": "v2_wifi_noop_skip",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi",
+    "body": {"wifiRadioSoftwareEnabled": false},
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Mutates host Wi-Fi state and needs environment-specific no-op selection"
+  },
+  {
+    "id": "v2_ntp_put_skip",
+    "method": "PUT",
+    "path": "/api/v2/system/datetime/ntp",
+    "plugins": ["chrony"],
+    "body": [],
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Mutates host chrony configuration in the test environment"
+  },
+  {
+    "id": "v2_factory_reset_skip",
+    "method": "PUT",
+    "path": "/api/v2/system/factoryReset",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Destructive system reset endpoint is not safe to execute in live parity"
+  },
+  {
+    "id": "legacy_factory_reset_skip",
+    "method": "PUT",
+    "path": "/factoryReset",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Destructive system reset endpoint is not safe to execute in live parity"
+  },
+  {
+    "id": "legacy_file_upload_timezone",
+    "method": "POST",
+    "path": "/file",
+    "multipart": [
+      {"name": "type", "text": "timezone"},
+      {"name": "file", "filename": "tz.bin", "content": "fixture timezone data", "content_type": "application/octet-stream"}
+    ],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_files_import_invalid_password",
+    "method": "PUT",
+    "path": "/files?type=network",
+    "multipart": [
+      {"name": "archive", "filename": "connections.zip", "content": "not a real zip archive", "content_type": "application/zip"}
+    ],
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "legacy_poweroff_skip",
+    "method": "PUT",
+    "path": "/poweroff",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
+    "id": "legacy_reboot_skip",
+    "method": "PUT",
+    "path": "/reboot",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
+    "id": "legacy_suspend_skip",
+    "method": "PUT",
+    "path": "/suspend",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
+    "id": "legacy_wifi_enable_skip",
+    "method": "PUT",
+    "path": "/wifiEnable?enable=0",
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Mutates host Wi-Fi state and needs environment-specific no-op selection"
+  },
+  {
+    "id": "v2_firewall_get_initial_state",
+    "method": "GET",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "plugins": ["firewall"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Firewall: Get initial forwarded ports state for validation baseline"
+  },
+  {
+    "id": "v2_firewall_add_port_8888",
+    "method": "PUT",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "plugins": ["firewall"],
+    "body": [{"port": 8888, "protocol": "tcp", "toport": "8080", "toaddr": "127.0.0.1", "ipVersion": "ipv4"}],
+    "compare": "exact",
+    "description": "Firewall: Add test port 8888→127.0.0.1:8080 and verify response reflects it"
+  },
+  {
+    "id": "v2_firewall_verify_port_added",
+    "method": "GET",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "plugins": ["firewall"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Firewall: Verify port 8888 persists in GET after PUT (logic: state should reflect persistent storage)"
+  },
+  {
+    "id": "v2_firewall_remove_port_8888",
+    "method": "PUT",
+    "path": "/api/v2/network/firewall/forwardedPorts",
+    "plugins": ["firewall"],
+    "body": [],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Firewall: Clear ports and verify response"
+  },
+  {
+    "id": "v2_chrony_get_initial_sources",
+    "method": "GET",
+    "path": "/api/v2/system/datetime/ntp",
+    "plugins": ["chrony"],
+    "compare": "exact",
+    "description": "Chrony: Get initial NTP sources (mixed static from config + dynamic from chronyc)"
+  },
+  {
+    "id": "v2_chrony_add_source",
+    "method": "PUT",
+    "path": "/api/v2/system/datetime/ntp",
+    "plugins": ["chrony"],
+    "body": [
+      {"address": "fixture.static.example", "type": "static"},
+      {"address": "test.ntp.example.com", "type": "static"}
+    ],
+    "compare": "exact",
+    "description": "Chrony: Add NTP source"
+  },
+  {
+    "id": "v2_chrony_verify_source_added",
+    "method": "GET",
+    "path": "/api/v2/system/datetime/ntp",
+    "plugins": ["chrony"],
+    "compare": "exact",
+    "description": "Chrony: Verify added source appears in next GET (logic: static sources persist in /etc/chrony/supplemental.sources)"
+  },
+  {
+    "id": "legacy_chrony_get_sources_mixed",
+    "method": "GET",
+    "path": "/ntp",
+    "plugins": ["chrony"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Chrony: Legacy endpoint should list all sources with type classification (static vs dynamic)"
+  },
+  {
+    "id": "v2_awm_get_state",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/awm",
+    "plugins": ["awm"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "AWM: Get current geolocation scanning state from config file"
+  },
+  {
+    "id": "v2_awm_enable_scanning",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi/awm",
+    "plugins": ["awm"],
+    "body": {"geolocationScanningEnabled": 1},
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "AWM: Enable geolocation scanning and verify response reflects change"
+  },
+  {
+    "id": "v2_awm_verify_state_changed",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/awm",
+    "plugins": ["awm"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "AWM: Verify scanning state persists (logic: should read from config file)"
+  },
+  {
+    "id": "v2_awm_disable_scanning",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi/awm",
+    "plugins": ["awm"],
+    "body": {"geolocationScanningEnabled": 0},
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "AWM: Disable scanning"
+  },
+  {
+    "id": "legacy_awm_get_with_response_fields",
+    "method": "GET",
+    "path": "/awm",
+    "plugins": ["awm"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "AWM: Legacy endpoint should include SDCERR, InfoMsg, and geolocation_scanning_enable fields in response logic"
+  },
+  {
+    "id": "v2_provisioning_get_state",
+    "method": "GET",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Provisioning: Response should include provisioning state (0/1/2), client cert hash, CA validity"
+  },
+  {
+    "id": "legacy_provisioning_get_state",
+    "method": "GET",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Provisioning: Legacy endpoint response logic should include SDCERR, provisioning state, cert hashes"
+  },
+  {
+    "id": "v2_log_forwarding_get_state",
+    "method": "GET",
+    "path": "/api/v2/system/logs/forwarding",
+    "plugins": ["log-forwarding"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Log-Forwarding: Response should reflect current forwarding state and settings"
+  },
+  {
+    "id": "v2_stunnel_get_state",
+    "method": "GET",
+    "path": "/api/v2/network/stunnel",
+    "plugins": ["stunnel"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Stunnel: Response should include stunnel state and configuration"
+  },
+  {
+    "id": "v2_radio_siso_get_state",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Radio SISO: Response should reflect current SISO mode from system state"
+  },
+  {
+    "id": "v2_radio_siso_set_mode",
+    "method": "PUT",
+    "path": "/api/v2/network/wifi/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "body": {"sisoMode": "auto"},
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Radio SISO: Set mode and verify response reflects the configured state",
+    "skip_live": true,
+    "skip_reason": "Requires host radio mode mutation; Rust and Python currently reject the change identically in this environment"
+  },
+  {
+    "id": "v2_radio_siso_verify_persisted",
+    "method": "GET",
+    "path": "/api/v2/network/wifi/radioSISOMode",
+    "plugins": ["radio-siso-mode"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Radio SISO: Verify mode persists in next GET (logic: state should be read from persistent storage)"
+  },
+  {
+    "id": "legacy_firewall_add_port_response_logic",
+    "method": "GET",
+    "path": "/firewall",
+    "plugins": ["firewall"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Firewall (legacy): Response should include current forwarded ports with proper field names (port, protocol, toport, toaddr, ip_version)"
+  },
+  {
+    "id": "legacy_chrony_override_sources",
+    "method": "PUT",
+    "path": "/ntp/overrideSources",
+    "plugins": ["chrony"],
+    "body": {"sources": ["0.pool.ntp.org"]},
+    "expected_status": 200,
+    "compare": "exact",
+    "description": "Chrony (legacy): Override sources command should succeed and persist"
+  },
+  {
+    "id": "v2_fips_get_state",
+    "method": "GET",
+    "path": "/api/v2/system/fips",
+    "plugins": ["fips"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "FIPS: Response should indicate FIPS module state (enabled/disabled)"
+  },
+  {
+    "id": "v2_unauthenticated_get_state",
+    "method": "GET",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Unauthenticated: Response should indicate whether unauthenticated reset/reboot is allowed"
+  },
+  {
+    "id": "v2_unauthenticated_enable_and_verify",
+    "method": "PUT",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "body": {},
+    "expected_status": 200,
+    "compare": "exact",
+    "description": "Unauthenticated: Enable and verify response reflects enabled state"
+  },
+  {
+    "id": "v2_unauthenticated_verify_persisted",
+    "method": "GET",
+    "path": "/api/v2/system/allowUnauthenticatedResetReboot",
+    "plugins": ["unauthenticated"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Unauthenticated: Verify enabled state persists in next GET"
+  },
+  {
+    "id": "v2_bluetooth_get_discovered_devices",
+    "method": "GET",
+    "path": "/api/v2/bluetooth",
+    "plugins": ["bluetooth"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Bluetooth: Response should list discovered devices with current discovery state from BlueZ D-Bus"
+  },
+  {
+    "id": "v2_bluetooth_controller_state",
+    "method": "GET",
+    "path": "/api/v2/bluetooth/controller0",
+    "plugins": ["bluetooth"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Bluetooth: Controller response should include powered, discovering, and other controller properties from BlueZ"
+  }
+]

@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../summit-rcm"
+		},
+		{
+			"path": "../../../../cp_linux-12/som-external/externals/weblcm-python"
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}

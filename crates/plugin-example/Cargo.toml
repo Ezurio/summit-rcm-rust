@@ -1,0 +1,16 @@
+[package]
+name = "summit-rcm-plugin-example"
+version = "0.1.0"
+edition = "2024"
+description = "Example out-of-tree plugin for summit-rcm — shows how to implement the plugin ABI"
+license = "LicenseRef-Ezurio-Clause"
+
+[lib]
+name = "summit_rcm_plugin_example"
+# cdylib = shared library loaded at runtime by the summit-rcm plugin loader
+crate-type = ["cdylib"]
+
+[dependencies]
+summit-rcm-plugin-api = { path = "../plugin-api" }
+libc = "0.2"
+serde_json = "1"

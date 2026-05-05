@@ -1,0 +1,421 @@
+[
+  {
+    "id": "at_communication_check",
+    "command": "AT"
+  },
+  {
+    "id": "at_echo_disable_actual",
+    "command": "ATE0",
+    "expected_rust_response": "OK",
+    "expected_python_response": "OK"
+  },
+  {
+    "id": "at_echo_enable_actual",
+    "command": "ATE1",
+    "expected_rust_response": "OK",
+    "expected_python_response": "OK"
+  },
+  {
+    "id": "at_echo_toggle_sequence",
+    "steps": [
+      {
+        "command": "ATE1",
+        "expected_rust_response": "OK",
+        "expected_python_response": "OK"
+      },
+      {
+        "command": "AT",
+        "strip_command_echo": false,
+        "expected_rust_response": "AT\n\nOK",
+        "expected_python_response": "AT\n\nOK"
+      },
+      {
+        "command": "ATE0",
+        "expected_rust_response": "OK",
+        "expected_python_response": "OK"
+      },
+      {
+        "command": "AT",
+        "strip_command_echo": false,
+        "expected_rust_response": "OK",
+        "expected_python_response": "OK"
+      }
+    ]
+  },
+  {
+    "id": "at_version_actual",
+    "command": "AT+VER",
+    "expected_rust_regex": "\\+VER: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+VER: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_datetime_actual",
+    "command": "AT+DATETIME",
+    "expected_rust_regex": "\\+DATETIME: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+DATETIME: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_ping_loopback_actual",
+    "command": "AT+PING=127.0.0.1,1,4",
+    "expected_rust_regex": "\\+PING: [0-9]+(?:\\.[0-9]+)?\\nOK",
+    "expected_python_regex": "\\+PING: [0-9]+(?:\\.[0-9]+)?\\nOK"
+  },
+  {
+    "id": "at_echo_enable_usage",
+    "command": "ATE1?",
+    "expected_rust_response": "ATE1",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_echo_disable_usage",
+    "command": "ATE0?",
+    "expected_rust_response": "ATE0",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_version_usage",
+    "command": "AT+VER?",
+    "expected_rust_response": "AT+VER",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_ping_usage",
+    "command": "AT+PING?",
+    "expected_rust_response": "AT+PING=<target>[,<timeout>[,<protocol>]]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_connact_usage",
+    "command": "AT+CONNACT?",
+    "expected_rust_response": "AT+CONNACT=<uuid>|<id>,<activate>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_power_usage",
+    "command": "AT+POWER?",
+    "expected_rust_response": "AT+POWER=<state>  (0=on, 1=off, 2=suspend, 3=reboot)",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_factreset_usage",
+    "command": "AT+FACTRESET?",
+    "expected_rust_response": "AT+FACTRESET",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_datetime_usage",
+    "command": "AT+DATETIME?",
+    "expected_rust_response": "AT+DATETIME[=<ISO8601>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_tzset_usage",
+    "command": "AT+TZSET?",
+    "expected_rust_response": "AT+TZSET=<timezone>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_tzget_usage",
+    "command": "AT+TZGET?",
+    "expected_rust_response": "AT+TZGET",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_connlist_usage",
+    "command": "AT+CONNLIST?",
+    "expected_rust_response": "AT+CONNLIST",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_connmod_usage",
+    "command": "AT+CONNMOD?",
+    "expected_rust_response": "AT+CONNMOD=<json>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_netif_usage",
+    "command": "AT+NETIF?",
+    "expected_rust_response": "AT+NETIF[=<name>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_netifstat_usage",
+    "command": "AT+NETIFSTAT?",
+    "expected_rust_response": "AT+NETIFSTAT=<name>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_netifdrvinf_usage",
+    "command": "AT+NETIFDRVINF?",
+    "expected_rust_response": "AT+NETIFDRVINF=<name>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_netifvirt_usage",
+    "command": "AT+NETIFVIRT?",
+    "expected_rust_response": "AT+NETIFVIRT=<name>,<action>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_wlist_usage",
+    "command": "AT+WLIST?",
+    "expected_rust_response": "AT+WLIST[=<iface>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_wscan_usage",
+    "command": "AT+WSCAN?",
+    "expected_rust_response": "AT+WSCAN[=<iface>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_wenable_usage",
+    "command": "AT+WENABLE?",
+    "expected_rust_response": "AT+WENABLE[=<0|1>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_whard_usage",
+    "command": "AT+WHARD?",
+    "expected_rust_response": "AT+WHARD",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_cipstart_usage",
+    "command": "AT+CIPSTART?",
+    "expected_rust_response": "AT+CIPSTART=<id>,<type>,<addr>,<port>,<keepalive>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_cipclose_usage",
+    "command": "AT+CIPCLOSE?",
+    "expected_rust_response": "AT+CIPCLOSE=<id>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_cipsend_usage",
+    "command": "AT+CIPSEND?",
+    "expected_rust_response": "AT+CIPSEND=<id>,<length>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_cipssl_usage",
+    "command": "AT+CIPSSL?",
+    "expected_rust_response": "AT+CIPSSL=<connection_id>,<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httpconf_usage",
+    "command": "AT+HTTPCONF?",
+    "expected_rust_response": "AT+HTTPCONF=<host>,<port>,<method>,<url>,<timeout>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httpexe_usage",
+    "command": "AT+HTTPEXE?",
+    "expected_rust_response": "AT+HTTPEXE=<length>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httpaddhdr_usage",
+    "command": "AT+HTTPADDHDR?",
+    "expected_rust_response": "AT+HTTPADDHDR=<key>,<value>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httprshdr_usage",
+    "command": "AT+HTTPRSHDR?",
+    "expected_rust_response": "AT+HTTPRSHDR=<0|1>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httpclr_usage",
+    "command": "AT+HTTPCLR?",
+    "expected_rust_response": "AT+HTTPCLR",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_httpssl_usage",
+    "command": "AT+HTTPSSL?",
+    "expected_rust_response": "AT+HTTPSSL=<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_certget_usage",
+    "command": "AT+CERTGET?",
+    "expected_rust_response": "AT+CERTGET=<name>[,<password>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_filesdel_usage",
+    "command": "AT+FILESDEL?",
+    "expected_rust_response": "AT+FILESDEL=<type>,<name>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fileslist_usage",
+    "command": "AT+FILESLIST?",
+    "expected_rust_response": "AT+FILESLIST[=<type>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_filesexp_usage",
+    "command": "AT+FILESEXP?",
+    "expected_rust_response": "AT+FILESEXP",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_filesup_usage",
+    "command": "AT+FILESUP?",
+    "expected_rust_response": "AT+FILESUP=<type>,<name>,<length>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fwrun_usage",
+    "command": "AT+FWRUN?",
+    "expected_rust_response": "AT+FWRUN=<url>,<image>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fwsend_usage",
+    "command": "AT+FWSEND?",
+    "expected_rust_response": "AT+FWSEND=<length>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fwstatus_usage",
+    "command": "AT+FWSTATUS?",
+    "expected_rust_response": "AT+FWSTATUS",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_logget_usage",
+    "command": "AT+LOGGET?",
+    "expected_rust_response": "AT+LOGGET=<type>,<priority>,<days>",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_logdebug_usage",
+    "command": "AT+LOGDEBUG?",
+    "expected_rust_response": "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_awmmode_actual",
+    "command": "AT+AWMMODE",
+    "plugins": ["awm"],
+    "expected_rust_regex": "\\+AWMMODE: [01]\\nOK",
+    "expected_python_regex": "\\+AWMMODE: [01]\\nOK"
+  },
+  {
+    "id": "at_awmscan_actual",
+    "command": "AT+AWMSCAN",
+    "plugins": ["awm"],
+    "expected_rust_regex": "(?:\\+AWMSCAN: [0-9]+\\nOK|ERROR)",
+    "expected_python_regex": "(?:\\+AWMSCAN: [0-9]+\\nOK|ERROR)"
+  },
+  {
+    "id": "at_ntpget_actual",
+    "command": "AT+NTPGET",
+    "plugins": ["chrony"],
+    "expected_rust_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*OK|ERROR)",
+    "expected_python_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*OK|ERROR)"
+  },
+  {
+    "id": "at_ntpconf_invalid_actual",
+    "command": "AT+NTPCONF=",
+    "plugins": ["chrony"],
+    "expected_rust_response": "ERROR",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fips_actual",
+    "command": "AT+FIPS",
+    "plugins": ["fips"],
+    "expected_rust_regex": "\\+FIPS: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+FIPS: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_logfwd_actual",
+    "command": "AT+LOGFWD",
+    "plugins": ["log-forwarding"],
+    "expected_rust_regex": "\\+LOGFWD: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+LOGFWD: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_sisomode_actual",
+    "command": "AT+SISOMODE",
+    "plugins": ["radio-siso-mode"],
+    "expected_rust_regex": "(?:\\+SISOMODE: -?[0-9]+\\nOK|ERROR)",
+    "expected_python_regex": "(?:\\+SISOMODE: -?[0-9]+\\nOK|ERROR)"
+  },
+  {
+    "id": "at_awmmode_usage",
+    "command": "AT+AWMMODE?",
+    "plugins": ["awm"],
+    "expected_rust_response": "AT+AWMMODE",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_awmscan_usage",
+    "command": "AT+AWMSCAN?",
+    "plugins": ["awm"],
+    "expected_rust_response": "AT+AWMSCAN[=<attempts>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_ntpget_usage",
+    "command": "AT+NTPGET?",
+    "plugins": ["chrony"],
+    "expected_rust_response": "AT+NTPGET[=<scope>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_ntpconf_usage",
+    "command": "AT+NTPCONF?",
+    "plugins": ["chrony"],
+    "expected_rust_response": "AT+NTPCONF=<command>,<source1>[,<source2>...]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_fips_usage",
+    "command": "AT+FIPS?",
+    "plugins": ["fips"],
+    "expected_rust_response": "AT+FIPS[=<state>[,<reboot>]]  (state: 0=fips, 1=fips_wifi, 2=unset)",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_logfwd_usage",
+    "command": "AT+LOGFWD?",
+    "plugins": ["log-forwarding"],
+    "expected_rust_response": "AT+LOGFWD[=<active|inactive>]",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_sisomode_usage",
+    "command": "AT+SISOMODE?",
+    "plugins": ["radio-siso-mode"],
+    "expected_rust_response": "AT+SISOMODE[=<-1|0|1|2>]  (-1=system default, 0=MIMO, 1=ANT0, 2=ANT1)",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_unknown_command",
+    "command": "AT+DOESNOTEXIST"
+  },
+  {
+    "id": "at_ping_missing_target",
+    "command": "AT+PING="
+  },
+  {
+    "id": "at_connact_missing_activate",
+    "command": "AT+CONNACT=profile"
+  },
+  {
+    "id": "at_netifstat_missing_name",
+    "command": "AT+NETIFSTAT="
+  },
+  {
+    "id": "at_connmod_not_implemented",
+    "command": "AT+CONNMOD={}"
+  }
+]

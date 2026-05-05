@@ -1,0 +1,14 @@
+[package]
+name = "io-kit-sys"
+description = "Bindings to IOKit for macOS"
+homepage = "https://github.com/jtakakura/io-kit-rs"
+repository = "https://github.com/jtakakura/io-kit-rs"
+version = "0.4.1"
+authors = ["Junji Takakura <j.takakura@gmail.com>"]
+license = "MIT / Apache-2.0"
+build = "build.rs"
+edition = "2021"
+
+[dependencies]
+core-foundation-sys = "0.8.6"
+mach2 = "0.4.2"

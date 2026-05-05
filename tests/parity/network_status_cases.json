@@ -1,0 +1,1 @@
+[{"id": "legacy_network_status", "method": "GET", "path": "/networkStatus", "expected_status": 200, "compare": "json_exact"}, {"id": "v2_network_status", "method": "GET", "path": "/api/v2/network/status", "compare": "exact"}]

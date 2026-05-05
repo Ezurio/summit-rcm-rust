@@ -1,0 +1,4 @@
+[
+  {"id": "v2_controller", "method": "GET", "path": "/api/v2/bluetooth/controller0", "compare": "json_exact", "plugins": ["bluetooth"]},
+  {"id": "v1_controller", "method": "GET", "path": "/bluetooth/controller0", "compare": "json_exact", "plugins": ["bluetooth"]}
+]

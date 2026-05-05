@@ -1,0 +1,1 @@
+[{"id": "v2_interface_lo", "method": "GET", "path": "/api/v2/network/interfaces/lo", "expected_status": 200, "compare": "json_exact"}]

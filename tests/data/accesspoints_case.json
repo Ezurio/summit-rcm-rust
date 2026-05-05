@@ -1,0 +1,1 @@
+[{"id": "legacy_accesspoints_probe", "method": "GET", "path": "/accesspoints", "compare": "json_exact"}]

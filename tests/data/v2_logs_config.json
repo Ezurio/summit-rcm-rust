@@ -1,0 +1,1 @@
+[{"id": "v2_logs_config", "method": "GET", "path": "/api/v2/system/logs/config", "compare": "text_exact"}]

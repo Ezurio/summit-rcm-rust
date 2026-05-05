@@ -1,0 +1,182 @@
+//
+// SPDX-License-Identifier: LicenseRef-Ezurio-Clause
+// Copyright (C) 2026 Ezurio LLC.
+//
+
+use anyhow::Result;
+use crate::dbus;
+use crate::dbus::DBUS_PROP_IFACE;
+use zbus::zvariant::OwnedObjectPath;
+
+use super::{
+    NetworkManagerService, NmConnectionSettings, NmProperties, NM_BUS_NAME,
+    NM_CONNECTION_ACTIVE_IFACE, NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE,
+    NM_SETTINGS_IFACE, NM_SETTINGS_OBJ,
+};
+
+impl NetworkManagerService {
+    pub async fn get_properties(obj_path: &str, interface: &str) -> Result<NmProperties> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            obj_path,
+            Some(DBUS_PROP_IFACE),
+            "GetAll",
+            &(interface,),
+        )
+        .await
+    }
+
+    pub async fn get_raw_connection_settings(connection_obj_path: &str) -> Result<NmConnectionSettings> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            connection_obj_path,
+            Some(NM_SETTINGS_CONNECTION_IFACE),
+            "GetSettings",
+            &(),
+        )
+        .await
+    }
+
+    pub async fn get_connection_path_by_uuid(uuid: &str) -> Result<OwnedObjectPath> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_SETTINGS_OBJ,
+            Some(NM_SETTINGS_IFACE),
+            "GetConnectionByUuid",
+            &(uuid,),
+        )
+        .await
+    }
+
+    pub async fn get_active_connection_paths() -> Result<Vec<OwnedObjectPath>> {
+        let props = Self::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
+        let paths = props
+            .get("ActiveConnections")
+            .ok_or_else(|| anyhow::anyhow!("ActiveConnections property missing"))?;
+        dbus::clone_owned_value(paths)?.try_into().map_err(Into::into)
+    }
+
+    pub async fn get_active_connection_path_by_uuid(uuid: &str) -> Result<Option<OwnedObjectPath>> {
+        let connection_path = match Self::get_connection_path_by_uuid(uuid).await {
+            Ok(path) => path,
+            Err(_) => return Ok(None),
+        };
+
+        for active_path in Self::get_active_connection_paths().await? {
+            let props = Self::get_properties(active_path.as_str(), NM_CONNECTION_ACTIVE_IFACE).await?;
+            let Some(connection_value) = props.get("Connection") else {
+                continue;
+            };
+            let active_connection: OwnedObjectPath = dbus::clone_owned_value(connection_value)?.try_into()?;
+            if active_connection == connection_path {
+                return Ok(Some(active_path));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub async fn add_connection_dbus(connection: NmConnectionSettings) -> Result<OwnedObjectPath> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_SETTINGS_OBJ,
+            Some(NM_SETTINGS_IFACE),
+            "AddConnection",
+            &(connection,),
+        )
+        .await
+    }
+
+    pub async fn update_connection_dbus(
+        connection_obj_path: &str,
+        connection: NmConnectionSettings,
+    ) -> Result<()> {
+        Self::system_bus()
+            .await?
+            .call_method(
+                Some(NM_BUS_NAME),
+                connection_obj_path,
+                Some(NM_SETTINGS_CONNECTION_IFACE),
+                "Update",
+                &(connection,),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_connection_dbus(connection_obj_path: &str) -> Result<()> {
+        Self::system_bus()
+            .await?
+            .call_method(
+                Some(NM_BUS_NAME),
+                connection_obj_path,
+                Some(NM_SETTINGS_CONNECTION_IFACE),
+                "Delete",
+                &(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn reload_connections_dbus() -> Result<bool> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_SETTINGS_OBJ,
+            Some(NM_SETTINGS_IFACE),
+            "ReloadConnections",
+            &(),
+        )
+        .await
+    }
+
+    pub async fn get_device_path_by_iface(iface: &str) -> Result<OwnedObjectPath> {
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_MAIN_OBJ,
+            Some(NM_IFACE),
+            "GetDeviceByIpIface",
+            &(iface,),
+        )
+        .await
+    }
+
+    pub async fn activate_connection_dbus(
+        connection_obj_path: &str,
+        device_obj_path: Option<&str>,
+    ) -> Result<OwnedObjectPath> {
+        let specific_object = "/";
+        let device_object = device_obj_path.unwrap_or("/");
+        dbus::call_method_deserialize(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_MAIN_OBJ,
+            Some(NM_IFACE),
+            "ActivateConnection",
+            &(connection_obj_path, device_object, specific_object),
+        )
+        .await
+    }
+
+    pub async fn deactivate_connection_dbus(active_connection_obj_path: &str) -> Result<()> {
+        Self::system_bus()
+            .await?
+            .call_method(
+                Some(NM_BUS_NAME),
+                NM_MAIN_OBJ,
+                Some(NM_IFACE),
+                "DeactivateConnection",
+                &(active_connection_obj_path,),
+            )
+            .await?;
+        Ok(())
+    }
+
+
+}
