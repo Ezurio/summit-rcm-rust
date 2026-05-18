@@ -9,6 +9,8 @@ use futures_util::future::try_join_all;
 use summit_rcm::at_interface;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use summit_rcm::web;
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -20,6 +22,24 @@ async fn wait_for_task(
         .await
         .map_err(|error| anyhow::anyhow!("{name} task failed to join: {error}"))?
         .map_err(|error| anyhow::anyhow!("{name} task failed: {error}"))
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut sigterm = signal(SignalKind::terminate())
+            .expect("SIGTERM handler should be installed");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+        return;
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -40,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
 
     config::SystemSettingsManage::ensure_section();
 
-    let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let mut tasks: Vec<(&'static str, JoinHandle<anyhow::Result<()>>)> = Vec::new();
 
     #[cfg(feature = "at-interface")]
@@ -54,12 +74,23 @@ async fn main() -> anyhow::Result<()> {
             "No features enabled — nothing to do. Enable 'api-v2', 'api-legacy', and/or 'at-interface'."
         );
     } else {
-        try_join_all(
+        let tasks_future = try_join_all(
             tasks
                 .into_iter()
                 .map(|(name, handle)| wait_for_task(name, handle)),
-        )
-        .await?;
+        );
+        tokio::pin!(tasks_future);
+
+        tokio::select! {
+            result = &mut tasks_future => {
+                result?;
+            }
+            _ = shutdown_signal() => {
+                info!("Shutdown signal received");
+                let _ = shutdown_tx.send(true);
+                tasks_future.await?;
+            }
+        }
     }
 
     info!("Summit RCM stopped");

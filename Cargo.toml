@@ -32,6 +32,10 @@ name = "logs"
 path = "tests/logs.rs"
 
 [[test]]
+name = "shutdown"
+path = "tests/shutdown.rs"
+
+[[test]]
 name = "plugin_registry"
 path = "tests/plugin_registry.rs"
 
