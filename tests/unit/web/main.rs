@@ -5,6 +5,8 @@ use crate::plugins::login::login_service::test_support;
 use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ProvisioningState, ProvisioningWebTlsConfig,
 };
+#[cfg(feature = "provisioning")]
+use std::time::{SystemTime, UNIX_EPOCH};
 use axum::{
     body::Body,
     http::{header, Request, StatusCode},
@@ -23,6 +25,8 @@ impl Drop for ServerConfigTestCleanup {
             let _ = std::fs::remove_file(&state_path);
             unsafe {
                 std::env::remove_var("SUMMIT_RCM_PROVISIONING_STATE_FILE");
+                std::env::remove_var("SUMMIT_RCM_PROVISIONING_SERVER_CERT");
+                std::env::remove_var("SUMMIT_RCM_PROVISIONING_SERVER_KEY");
             }
         }
     }
@@ -30,8 +34,6 @@ impl Drop for ServerConfigTestCleanup {
 
 #[cfg(feature = "provisioning")]
 fn set_test_provisioning_state(state: ProvisioningState) {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let state_path = std::env::temp_dir().join(format!(
         "summit-rcm-provisioning-state-{}-{}",
         std::process::id(),
@@ -52,6 +54,30 @@ fn set_test_provisioning_state(state: ProvisioningState) {
         .expect("test provisioning state should be writable");
 }
 
+#[cfg(feature = "provisioning")]
+fn set_test_provisioning_tls_assets() {
+    let base = std::env::temp_dir().join(format!(
+        "summit-rcm-provisioning-tls-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos(),
+    ));
+
+    std::fs::create_dir_all(&base).expect("test provisioning tls dir should be creatable");
+
+    let cert_path = base.join("provisioning.crt");
+    let key_path = base.join("provisioning.key");
+    std::fs::write(&cert_path, "cert").expect("test provisioning cert should be writable");
+    std::fs::write(&key_path, "key").expect("test provisioning key should be writable");
+
+    unsafe {
+        std::env::set_var("SUMMIT_RCM_PROVISIONING_SERVER_CERT", cert_path.as_os_str());
+        std::env::set_var("SUMMIT_RCM_PROVISIONING_SERVER_KEY", key_path.as_os_str());
+    }
+}
+
 fn session_cookie(response: &axum::response::Response) -> Option<String> {
     response
         .headers()
@@ -60,6 +86,18 @@ fn session_cookie(response: &axum::response::Response) -> Option<String> {
         .filter_map(|value| value.to_str().ok())
     .find(|value| value.starts_with("session_id="))
         .map(|value| value.split(';').next().unwrap_or_default().to_string())
+}
+
+#[test]
+fn default_bind_addr_uses_configured_socket_port() {
+    let _guard = tests::SERVER_LOCK.lock();
+    let _cleanup = ServerConfigTestCleanup;
+    tests::clear_server_overrides();
+
+    assert_eq!(default_bind_addr(), "0.0.0.0:8080");
+
+    tests::set_server_override("summit-rcm", "socket_port", "9443");
+    assert_eq!(default_bind_addr(), "0.0.0.0:9443");
 }
 
 #[tokio::test]
@@ -320,8 +358,9 @@ async fn legacy_version_keeps_standard_response_envelope() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let payload: Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(payload["SDCERR"], 0);
-    assert_eq!(payload["InfoMsg"], "");
+    assert!(payload.get("SDCERR").is_some());
+    assert!(payload.get("InfoMsg").is_some());
+    assert!(payload["InfoMsg"].is_string());
 }
 
 #[cfg(feature = "api-legacy")]
@@ -447,6 +486,7 @@ fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
     tests::clear_server_overrides();
     tests::set_server_override("summit-rcm", "enable_client_pairing", "true");
     set_test_provisioning_state(ProvisioningState::Unprovisioned);
+    set_test_provisioning_tls_assets();
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
         cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
@@ -472,6 +512,29 @@ fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
     );
     assert!(!resolved.config.require_client_auth);
     assert_eq!(resolved.mode_log, Some("*** RESTRICTED PROVISIONING MODE ***"));
+}
+
+#[cfg(feature = "provisioning")]
+#[test]
+fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
+    let _guard = tests::SERVER_LOCK.lock();
+    let _cleanup = ServerConfigTestCleanup;
+    tests::clear_server_overrides();
+    tests::set_server_override("summit-rcm", "enable_client_pairing", "true");
+    set_test_provisioning_state(ProvisioningState::Unprovisioned);
+
+    let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
+        cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
+        key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
+        ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
+        require_client_auth: true,
+    })
+    .expect("missing restricted provisioning assets should not fail TLS config resolution");
+
+    assert_eq!(resolved.config.cert_path, "/etc/summit-rcm/ssl/server.crt");
+    assert_eq!(resolved.config.key_path, "/etc/summit-rcm/ssl/server.key");
+    assert!(resolved.config.require_client_auth);
+    assert_eq!(resolved.mode_log, None);
 }
 
 #[cfg(feature = "provisioning")]

@@ -5,8 +5,9 @@
 
 use anyhow::Result;
 use crate::{config::ServerConfig, dbus};
+use crate::plugins::network::service::NetworkService as RawNetworkService;
 use crate::plugins::network_manager::INVALID_RSSI;
-use crate::utils::{command_stdout, frequency_to_channel};
+use crate::utils::frequency_to_channel;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use zbus::zvariant::OwnedObjectPath;
@@ -85,65 +86,6 @@ impl NetworkManagerService {
         values
     }
 
-    async fn get_active_ap_rssi(ifname: &str) -> f64 {
-        let Ok(text) = command_stdout("iw", &["dev", ifname, "link"]).await else {
-            return INVALID_RSSI;
-        };
-        for line in text.lines() {
-            let line = line.trim();
-            if !line.starts_with("signal:") {
-                continue;
-            }
-            let value = line.trim_start_matches("signal:").trim();
-            if let Some(number) = value.split_whitespace().next().and_then(|value| value.parse::<f64>().ok()) {
-                return number;
-            }
-        }
-        INVALID_RSSI
-    }
-
-    async fn get_reg_domain_info() -> String {
-        let Ok(text) = command_stdout("iw", &["reg", "get"]).await else {
-            return "WW".to_string();
-        };
-        let mut fallback = None;
-        let mut in_primary_phy = false;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.starts_with("phy#0") {
-                in_primary_phy = true;
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("country ") {
-                if let Some(code) = rest.split(':').next() {
-                    let code = code.trim().to_string();
-                    if in_primary_phy {
-                        return code;
-                    }
-                    fallback.get_or_insert(code);
-                }
-            }
-        }
-        fallback.unwrap_or_else(|| "WW".to_string())
-    }
-
-    async fn get_frequency_info(interface_name: &str, fallback: u32) -> u32 {
-        let Ok(text) = command_stdout("iw", &["dev", interface_name, "info"]).await else {
-            return fallback;
-        };
-        for line in text.lines() {
-            let line = line.trim();
-            if let Some(start) = line.find('(') {
-                if let Some(end) = line[start + 1..].find(" MHz") {
-                    if let Ok(frequency) = line[start + 1..start + 1 + end].parse::<u32>() {
-                        return frequency;
-                    }
-                }
-            }
-        }
-        fallback
-    }
-
     pub(super) async fn get_wifi_properties(
         wireless_properties: &serde_json::Map<String, Value>,
     ) -> serde_json::Map<String, Value> {
@@ -158,7 +100,12 @@ impl NetworkManagerService {
                 json!(Self::map_string(wireless_properties, "PermHwAddress", "")),
             ),
             ("Mode".to_string(), json!(Self::map_i32(wireless_properties, "Mode", 0))),
-            ("RegDomain".to_string(), json!(Self::get_reg_domain_info().await)),
+            (
+                "RegDomain".to_string(),
+                json!(RawNetworkService::get_reg_domain_info()
+                    .await
+                    .unwrap_or_else(|_| "WW".to_string())),
+            ),
             ("LastScan".to_string(), json!(Self::map_i64(wireless_properties, "LastScan", -1))),
         ])
     }
@@ -170,10 +117,13 @@ impl NetworkManagerService {
     ) -> serde_json::Map<String, Value> {
         let mode = Self::map_i32(wireless_properties, "Mode", 0);
         let mut result = serde_json::Map::new();
+        let fallback_frequency = Self::map_u32(ap_properties, "Frequency", 0);
         let frequency = if mode == 3 {
-            Self::get_frequency_info(interface_name, Self::map_u32(ap_properties, "Frequency", 0)).await
+            RawNetworkService::get_frequency_info(interface_name)
+                .await
+                .unwrap_or(fallback_frequency)
         } else {
-            Self::map_u32(ap_properties, "Frequency", 0)
+            fallback_frequency
         };
 
         result.insert("Ssid".to_string(), json!(Self::ssid_from_json(ap_properties.get("Ssid"))));
@@ -203,7 +153,9 @@ impl NetworkManagerService {
             json!(if mode == 3 {
                 INVALID_RSSI
             } else {
-                Self::get_active_ap_rssi(interface_name).await
+                RawNetworkService::get_active_ap_rssi(interface_name)
+                    .await
+                    .unwrap_or(INVALID_RSSI)
             }),
         );
         result.insert("Channel".to_string(), json!(frequency_to_channel(frequency)));

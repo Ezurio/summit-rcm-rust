@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import signal
@@ -32,6 +33,7 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 3.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
 CORE_RUST_PARITY_FEATURES = ("api-v2", "api-legacy")
 FRAMEWORK_VALIDATION_STATUSES = frozenset({400, 415, 422})
+WIRELESS_INTERFACE_PLACEHOLDER = "wlo1"
 
 USER_PERMISSIONS = [
     "status_networking",
@@ -56,6 +58,40 @@ class HttpResponse:
     status: int
     headers: dict[str, str]
     body: bytes
+
+
+class ResolvedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        host: str,
+        *,
+        connect_host: str,
+        server_hostname: str,
+        port: int | None = None,
+        timeout: float = socket._GLOBAL_DEFAULT_TIMEOUT,
+        context: ssl.SSLContext | None = None,
+    ) -> None:
+        super().__init__(host, port=port, timeout=timeout, context=context)
+        self._connect_host = connect_host
+        self._server_hostname_override = server_hostname
+
+    def connect(self) -> None:
+        sock = socket.create_connection((self._connect_host, self.port), self.timeout, self.source_address)
+        if self._tunnel_host:
+            self.sock = sock
+            self._tunnel()
+            sock = self.sock
+        self.sock = self._context.wrap_socket(sock, server_hostname=self._server_hostname_override)
+
+
+def create_parity_ssl_context(ca_cert_path: Path | None) -> ssl.SSLContext:
+    ssl_context = ssl.create_default_context(
+        cafile=str(ca_cert_path) if ca_cert_path is not None else None
+    )
+    verify_x509_strict = getattr(ssl, "VERIFY_X509_STRICT", 0)
+    if verify_x509_strict:
+        ssl_context.verify_flags &= ~verify_x509_strict
+    return ssl_context
 
 
 @dataclass
@@ -178,6 +214,13 @@ def resolve_python_runtime(python_repo: Path, requested_runtime: str) -> str:
             f"Python runtime mismatch: requested {requested_runtime}, but repo {python_repo} looks like {detected}."
         )
     return requested_runtime
+
+
+def python_runtime_executable(python_repo: Path) -> str:
+    venv_python = python_repo / ".venv/bin/python"
+    if venv_python.is_file() and os.access(venv_python, os.X_OK):
+        return str(venv_python)
+    return sys.executable
 
 
 def ensure_mode_supported(mode: str, python_runtime: str) -> None:
@@ -322,13 +365,14 @@ def load_case_operations(cases_path: Path) -> list[tuple[str, str]]:
 
 
 def generate_specs(python_repo: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    python_executable = python_runtime_executable(python_repo)
     with tempfile.TemporaryDirectory(prefix="api-parity-openapi-") as tmp_dir:
         tmp = Path(tmp_dir)
         python_output = tmp / "python-openapi.json"
         rust_output = tmp / "rust-openapi.json"
 
         run_checked(
-            [sys.executable, "generate_docs.py"],
+            [python_executable, "generate_docs.py"],
             cwd=python_repo,
             env={
                 **os.environ,
@@ -1066,6 +1110,8 @@ def write_test_config(
             "-addext",
             "subjectAltName=DNS:localhost,IP:127.0.0.1",
             "-addext",
+                    "basicConstraints=critical,CA:TRUE",
+                    "-addext",
             "extendedKeyUsage=serverAuth",
         ]
     )
@@ -1320,6 +1366,7 @@ def request(
     multipart: list[dict[str, Any]] | None = None,
     cookie: str | None = None,
     ca_cert_path: Path | None = None,
+    connect_host: str | None = None,
     timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     read_body: bool = True,
 ) -> HttpResponse:
@@ -1357,12 +1404,41 @@ def request(
     if cookie:
         headers["Cookie"] = cookie
 
+    parsed_url = urllib.parse.urlsplit(url)
+
+    if parsed_url.scheme.lower() == "https" and connect_host is not None:
+        ssl_context = create_parity_ssl_context(ca_cert_path)
+        path = parsed_url.path or "/"
+        if parsed_url.query:
+            path = f"{path}?{parsed_url.query}"
+        headers.setdefault("Host", parsed_url.netloc)
+        connection = ResolvedHTTPSConnection(
+            parsed_url.hostname or parsed_url.netloc,
+            connect_host=connect_host,
+            server_hostname=parsed_url.hostname or parsed_url.netloc,
+            port=parsed_url.port or 443,
+            timeout=timeout_seconds,
+            context=ssl_context,
+        )
+        try:
+            connection.request(method, path, body=data, headers=headers)
+            response = connection.getresponse()
+            response_body = response.read() if read_body else b""
+            return HttpResponse(
+                response.status,
+                {k.lower(): v for k, v in response.headers.items()},
+                response_body,
+            )
+        finally:
+            connection.close()
+
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     request_kwargs: dict[str, Any] = {"timeout": timeout_seconds}
     if url.lower().startswith("https://"):
-        ssl_context = ssl.create_default_context(
-            cafile=str(ca_cert_path) if ca_cert_path is not None else None
-        )
+        if parsed_url.hostname in {"127.0.0.1", "localhost"}:
+            ssl_context = ssl._create_unverified_context()
+        else:
+            ssl_context = create_parity_ssl_context(ca_cert_path)
         request_kwargs["context"] = ssl_context
 
     try:
@@ -1382,6 +1458,7 @@ def request_or_error(
     multipart: list[dict[str, Any]] | None = None,
     cookie: str | None = None,
     ca_cert_path: Path | None = None,
+    connect_host: str | None = None,
     timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     read_body: bool = True,
 ) -> tuple[HttpResponse | None, str | None]:
@@ -1394,6 +1471,7 @@ def request_or_error(
                 multipart=multipart,
                 cookie=cookie,
                 ca_cert_path=ca_cert_path,
+                connect_host=connect_host,
                 timeout_seconds=timeout_seconds,
                 read_body=read_body,
             ),
@@ -1409,6 +1487,7 @@ def wait_for_server(
     process: ManagedProcess,
     *,
     ca_cert_path: Path,
+    connect_host: str | None = None,
     request_timeout_seconds: float,
     startup_timeout_seconds: float,
 ) -> str:
@@ -1422,6 +1501,7 @@ def wait_for_server(
                 f"{base_url}/version",
                 "GET",
                 ca_cert_path=ca_cert_path,
+                connect_host=connect_host,
                 timeout_seconds=request_timeout_seconds,
             )
             if response.status in {200, 401, 403, 404, 500}:
@@ -1609,6 +1689,14 @@ def framework_validation_mismatch_allowed(
 
 
 def comparable_body(compare_mode: str, response: HttpResponse) -> Any:
+    if response.status >= 400 and response.body == b"":
+        if compare_mode == "json_exact":
+            return None
+        if compare_mode == "json_shape":
+            return json_shape(None)
+        if compare_mode == "json_schema":
+            return json_schema(None)
+
     if compare_mode == "exact":
         if is_json_content_type(content_type_prefix(response)):
             try:
@@ -1677,6 +1765,102 @@ def response_cookie(response: HttpResponse) -> str | None:
         return None
     cookie = set_cookie.split(";", 1)[0].strip()
     return cookie or None
+
+
+def path_uses_wireless_interface_placeholder(path: str) -> bool:
+    return f"/{WIRELESS_INTERFACE_PLACEHOLDER}" in path or f"={WIRELESS_INTERFACE_PLACEHOLDER}" in path
+
+
+def resolve_wireless_interface_path(path: str, wireless_interface: str | None) -> str:
+    if not wireless_interface or wireless_interface == WIRELESS_INTERFACE_PLACEHOLDER:
+        return path
+
+    split = urllib.parse.urlsplit(path)
+    resolved_path = split.path.replace(
+        f"/{WIRELESS_INTERFACE_PLACEHOLDER}/",
+        f"/{wireless_interface}/",
+    )
+    if resolved_path.endswith(f"/{WIRELESS_INTERFACE_PLACEHOLDER}"):
+        resolved_path = resolved_path[: -len(WIRELESS_INTERFACE_PLACEHOLDER)] + wireless_interface
+
+    query = []
+    for key, value in urllib.parse.parse_qsl(split.query, keep_blank_values=True):
+        if key in {"name", "interface"} and value == WIRELESS_INTERFACE_PLACEHOLDER:
+            query.append((key, wireless_interface))
+        else:
+            query.append((key, value))
+
+    resolved_query = urllib.parse.urlencode(query)
+    return urllib.parse.urlunsplit(("", "", resolved_path, resolved_query, split.fragment))
+
+
+def detect_wireless_interface(
+    base_url: str,
+    *,
+    ca_cert_path: Path | None,
+    connect_host: str | None = None,
+    timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    cookie: str | None = None,
+) -> str | None:
+    interfaces_response, interfaces_error = request_or_error(
+        f"{base_url}/api/v2/network/interfaces",
+        "GET",
+        cookie=cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if interfaces_error or interfaces_response is None or interfaces_response.status != 200:
+        return None
+    if not is_json_content_type(content_type_prefix(interfaces_response)):
+        return None
+
+    try:
+        interface_names = json.loads(interfaces_response.body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(interface_names, list):
+        return None
+
+    names = [name for name in interface_names if isinstance(name, str)]
+    if WIRELESS_INTERFACE_PLACEHOLDER in names:
+        return WIRELESS_INTERFACE_PLACEHOLDER
+
+    for name in names:
+        detail_response, detail_error = request_or_error(
+            f"{base_url}/api/v2/network/interfaces/{urllib.parse.quote(name, safe='')}",
+            "GET",
+            cookie=cookie,
+            ca_cert_path=ca_cert_path,
+            connect_host=connect_host,
+            timeout_seconds=timeout_seconds,
+            read_body=True,
+        )
+        if detail_error or detail_response is None or detail_response.status != 200:
+            continue
+        if not is_json_content_type(content_type_prefix(detail_response)):
+            continue
+        try:
+            detail = json.loads(detail_response.body)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(detail, dict):
+            continue
+        if isinstance(detail.get("wireless"), dict):
+            return name
+        status = detail.get("status")
+        if isinstance(status, dict):
+            device_type = status.get("deviceType")
+            device_type_text = str(status.get("deviceTypeText", "")).lower()
+            if device_type == 2 or "wireless" in device_type_text or "wifi" in device_type_text:
+                return name
+
+    for name in names:
+        if name.startswith(("wl", "wlan", "wlp", "wlo")):
+            return name
+
+    return None
 
 
 def compare_responses(
@@ -1817,7 +2001,7 @@ def run_response_cases(
             )
             python_process = start_process(
                 "python",
-                [sys.executable, "-c", python_wrapper_command(python_runtime)],
+                [python_runtime_executable(python_repo), "-c", python_wrapper_command(python_runtime)],
                 cwd=python_repo,
                 env=python_env,
             )
@@ -1848,12 +2032,24 @@ def run_response_cases(
             failures: list[str] = []
             rust_cookies: dict[str, str] = {}
             python_cookies: dict[str, str] = {}
+            rust_wireless_interface = detect_wireless_interface(
+                rust_base_url,
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
+            python_wireless_interface = detect_wireless_interface(
+                python_base_url,
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
 
             for case in cases:
+                rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
+                python_case_path = resolve_wireless_interface_path(case["path"], python_wireless_interface)
                 if case.get("skip_live"):
                     reason = case.get("skip_reason")
                     suffix = f" ({reason})" if reason else ""
-                    print(f"SKIP {case['id']}: {case['method']} {case['path']}{suffix}")
+                    print(f"SKIP {case['id']}: {case['method']} {rust_case_path}{suffix}")
                     continue
 
                 cookie_key = case.get("use_cookie_from")
@@ -1866,13 +2062,21 @@ def run_response_cases(
                 if should_verify_readback(case):
                     readback_case = find_readback_case(case, cases)
                     if readback_case is not None:
+                        rust_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            rust_wireless_interface,
+                        )
+                        python_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            python_wireless_interface,
+                        )
                         readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
                         readback_timeout_seconds = float(
                             readback_case.get("timeout_seconds", request_timeout_seconds)
                         )
                         readback_read_body = should_read_body(readback_case)
                         rust_readback_before, rust_readback_before_error = request_or_error(
-                            f"{rust_base_url}{readback_case['path']}",
+                            f"{rust_base_url}{rust_readback_path}",
                             readback_case["method"],
                             body=readback_case.get("body"),
                             cookie=rust_cookies.get(readback_cookie_key)
@@ -1883,7 +2087,7 @@ def run_response_cases(
                             read_body=readback_read_body,
                         )
                         python_readback_before, python_readback_before_error = request_or_error(
-                            f"{python_base_url}{readback_case['path']}",
+                            f"{python_base_url}{python_readback_path}",
                             readback_case["method"],
                             body=readback_case.get("body"),
                             cookie=python_cookies.get(readback_cookie_key)
@@ -1900,7 +2104,7 @@ def run_response_cases(
                             continue
 
                 rust_response, rust_error = request_or_error(
-                    f"{rust_base_url}{case['path']}",
+                    f"{rust_base_url}{rust_case_path}",
                     case["method"],
                     body=case.get("body"),
                     multipart=case.get("multipart"),
@@ -1910,7 +2114,7 @@ def run_response_cases(
                     read_body=read_body,
                 )
                 python_response, python_error = request_or_error(
-                    f"{python_base_url}{case['path']}",
+                    f"{python_base_url}{python_case_path}",
                     case["method"],
                     body=case.get("body"),
                     multipart=case.get("multipart"),
@@ -1971,13 +2175,21 @@ def run_response_cases(
                     continue
 
                 if readback_case is not None:
+                    rust_readback_path = resolve_wireless_interface_path(
+                        readback_case["path"],
+                        rust_wireless_interface,
+                    )
+                    python_readback_path = resolve_wireless_interface_path(
+                        readback_case["path"],
+                        python_wireless_interface,
+                    )
                     readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
                     readback_timeout_seconds = float(
                         readback_case.get("timeout_seconds", request_timeout_seconds)
                     )
                     readback_read_body = should_read_body(readback_case)
                     rust_readback_after, rust_readback_after_error = request_or_error(
-                        f"{rust_base_url}{readback_case['path']}",
+                        f"{rust_base_url}{rust_readback_path}",
                         readback_case["method"],
                         body=readback_case.get("body"),
                         multipart=readback_case.get("multipart"),
@@ -1989,7 +2201,7 @@ def run_response_cases(
                         read_body=readback_read_body,
                     )
                     python_readback_after, python_readback_after_error = request_or_error(
-                        f"{python_base_url}{readback_case['path']}",
+                        f"{python_base_url}{python_readback_path}",
                         readback_case["method"],
                         body=readback_case.get("body"),
                         multipart=readback_case.get("multipart"),
@@ -2065,7 +2277,7 @@ def run_response_cases(
                     print(f"PASS {case['id']}: {case['method']} {case['path']}")
                     continue
 
-                print(f"PASS {case['id']}: {case['method']} {case['path']}")
+                print(f"PASS {case['id']}: {case['method']} {rust_case_path}")
 
             if failures:
                 raise ParityError("Representative response parity failed:\n" + "\n".join(failures))

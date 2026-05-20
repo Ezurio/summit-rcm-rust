@@ -274,9 +274,9 @@ fn shared_enum<'a>(e: &'a ast::Enum, intern: &'a Interner) -> Enum<'a> {
     }
 }
 
-fn shared_variant<'a>(v: &'a ast::Variant, intern: &'a Interner) -> EnumVariant<'a> {
+fn shared_variant<'a>(v: &'a ast::Variant, _intern: &'a Interner) -> EnumVariant<'a> {
     EnumVariant {
-        name: intern.intern(&v.name),
+        name: &v.js_name,
         value: v.value,
         comments: v.comments.iter().map(|s| &**s).collect(),
     }
@@ -359,6 +359,9 @@ fn shared_import_kind<'a>(
         ast::ImportKind::String(f) => ImportKind::String(shared_import_string(f, intern)),
         ast::ImportKind::Type(f) => ImportKind::Type(shared_import_type(f, intern)),
         ast::ImportKind::Enum(f) => ImportKind::Enum(shared_import_enum(f, intern)),
+        ast::ImportKind::DynamicUnion(f) => {
+            ImportKind::DynamicUnion(shared_import_dynamic_union(f, intern))
+        }
     })
 }
 
@@ -411,12 +414,39 @@ fn shared_import_enum<'a>(i: &'a ast::StringEnum, _intern: &'a Interner) -> Stri
     StringEnum {
         name: &i.export_name,
         generate_typescript: i.generate_typescript,
+        private: i.private,
         variant_values: i.variant_values.iter().map(|x| &**x).collect(),
         comments: i.comments.iter().map(|s| &**s).collect(),
         js_namespace: i
             .js_namespace
             .as_ref()
             .map(|ns| ns.iter().map(|s| &**s).collect()),
+    }
+}
+
+fn shared_import_dynamic_union<'a>(
+    i: &'a ast::DynamicUnion,
+    _intern: &'a Interner,
+) -> DynamicUnion<'a> {
+    let mut variant_strings = Vec::new();
+    let mut variant_type_cnt = 0;
+
+    for (idx, fields) in i.variant_fields.iter().enumerate() {
+        if fields.is_empty() {
+            variant_strings.push(&*i.variant_values[idx]);
+        } else {
+            variant_type_cnt += 1;
+        }
+    }
+
+    DynamicUnion {
+        name: &i.js_name,
+        generate_typescript: i.generate_typescript,
+        private: i.private,
+        fallback: i.fallback,
+        variant_strings,
+        variant_type_cnt,
+        comments: i.comments.iter().map(|s| &**s).collect(),
     }
 }
 
@@ -427,6 +457,7 @@ fn shared_struct<'a>(s: &'a ast::Struct, intern: &'a Interner) -> Struct<'a> {
         fields: s
             .fields
             .iter()
+            .filter(|f| !f.is_parent)
             .map(|s| shared_struct_field(s, intern))
             .collect(),
         comments: s.comments.iter().map(|s| &**s).collect(),
@@ -437,6 +468,11 @@ fn shared_struct<'a>(s: &'a ast::Struct, intern: &'a Interner) -> Struct<'a> {
             .as_ref()
             .map(|ns| ns.iter().map(|s| &**s).collect()),
         private: s.private,
+        extends: s
+            .extends
+            .as_ref()
+            .and_then(|p| p.segments.last())
+            .map(|seg| intern.intern_str(&seg.ident.to_string())),
     }
 }
 

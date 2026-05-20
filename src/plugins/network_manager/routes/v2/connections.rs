@@ -94,12 +94,12 @@ pub async fn list_connections() -> ListConnectionsResponses {
         Ok(value) => match parse_route_model::<Vec<ConnectionSummary>, _>(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("list_connections invalid shape: {}", error);
+                log::error!("list_connections invalid shape: {}", error);
                 ListConnectionsResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("list_connections: {}", error);
+            log::error!("list_connections: {}", error);
             ListConnectionsResponses::InternalError
         }
     }
@@ -116,7 +116,7 @@ pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertCon
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("create_connection invalid request shape: {}", error);
+            log::error!("create_connection invalid request shape: {}", error);
             return UpsertConnectionResponses::BadRequest;
         }
     };
@@ -130,13 +130,13 @@ pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertCon
                 }
             }
             Err(error) => {
-                tracing::error!("create_connection invalid shape: {}", error);
+                log::error!("create_connection invalid shape: {}", error);
                 UpsertConnectionResponses::InternalError
             }
         },
         Err(error) => {
             let message = error.to_string();
-            tracing::error!("create_connection: {}", message);
+            log::error!("create_connection: {}", message);
             if message.contains("Missing connection section") || message.contains("must have an id element") {
                 UpsertConnectionResponses::BadRequest
             } else {
@@ -158,12 +158,12 @@ pub async fn get_connection_by_uuid(Path(uuid): Path<String>) -> GetConnectionRe
         Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_connection_by_uuid {} invalid shape: {}", uuid, error);
+                log::error!("get_connection_by_uuid {} invalid shape: {}", uuid, error);
                 GetConnectionResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("get_connection_by_uuid {}: {}", uuid, error);
+            log::error!("get_connection_by_uuid {}: {}", uuid, error);
             GetConnectionResponses::NotFound
         }
     }
@@ -185,7 +185,7 @@ pub async fn replace_connection_by_uuid(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("replace_connection_by_uuid {} invalid request shape: {}", uuid, error);
+            log::error!("replace_connection_by_uuid {} invalid request shape: {}", uuid, error);
             return UpsertConnectionResponses::BadRequest;
         }
     };
@@ -199,13 +199,13 @@ pub async fn replace_connection_by_uuid(
                 }
             }
             Err(error) => {
-                tracing::error!("replace_connection_by_uuid {} invalid shape: {}", uuid, error);
+                log::error!("replace_connection_by_uuid {} invalid shape: {}", uuid, error);
                 UpsertConnectionResponses::InternalError
             }
         },
         Err(error) => {
             let message = error.to_string();
-            tracing::error!("replace_connection_by_uuid {}: {}", uuid, message);
+            log::error!("replace_connection_by_uuid {}: {}", uuid, message);
             if message.contains("Missing connection section") || message.contains("must have an id element") {
                 UpsertConnectionResponses::BadRequest
             } else {
@@ -230,7 +230,7 @@ pub async fn patch_connection_by_uuid(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("patch_connection_by_uuid {} invalid request shape: {}", uuid, error);
+            log::error!("patch_connection_by_uuid {} invalid request shape: {}", uuid, error);
             return UpsertConnectionResponses::BadRequest;
         }
     };
@@ -239,17 +239,17 @@ pub async fn patch_connection_by_uuid(
             Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
                 Ok(value) => UpsertConnectionResponses::Ok(value),
                 Err(error) => {
-                    tracing::error!("patch_connection_by_uuid {} invalid shape: {}", uuid, error);
+                    log::error!("patch_connection_by_uuid {} invalid shape: {}", uuid, error);
                     UpsertConnectionResponses::InternalError
                 }
             },
             Err(error) => {
-                tracing::error!("patch_connection_by_uuid {}: {}", uuid, error);
+                log::error!("patch_connection_by_uuid {}: {}", uuid, error);
                 UpsertConnectionResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("patch_connection_by_uuid find {}: {}", uuid, error);
+            log::error!("patch_connection_by_uuid find {}: {}", uuid, error);
             UpsertConnectionResponses::InternalError
         }
     }
@@ -267,12 +267,12 @@ pub async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnec
         Ok(_) => match NetworkService::delete_connection_profile(&uuid).await {
             Ok(()) => DeleteConnectionResponses::Ok,
             Err(error) => {
-                tracing::error!("delete_connection_by_uuid {}: {}", uuid, error);
+                log::error!("delete_connection_by_uuid {}: {}", uuid, error);
                 DeleteConnectionResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("delete_connection_by_uuid find {}: {}", uuid, error);
+            log::error!("delete_connection_by_uuid find {}: {}", uuid, error);
             DeleteConnectionResponses::NotFound
         }
     }
@@ -290,12 +290,12 @@ pub async fn get_connection_by_id(Path(id): Path<String>) -> GetConnectionRespon
         Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_connection_by_id {} invalid shape: {}", id, error);
+                log::error!("get_connection_by_id {} invalid shape: {}", id, error);
                 GetConnectionResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("get_connection_by_id {}: {}", id, error);
+            log::error!("get_connection_by_id {}: {}", id, error);
             GetConnectionResponses::NotFound
         }
     }
@@ -317,7 +317,7 @@ pub async fn replace_connection_by_id(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("replace_connection_by_id {} invalid request shape: {}", id, error);
+            log::error!("replace_connection_by_id {} invalid request shape: {}", id, error);
             return UpsertConnectionResponses::BadRequest;
         }
     };
@@ -331,13 +331,13 @@ pub async fn replace_connection_by_id(
                 }
             }
             Err(error) => {
-                tracing::error!("replace_connection_by_id {} invalid shape: {}", id, error);
+                log::error!("replace_connection_by_id {} invalid shape: {}", id, error);
                 UpsertConnectionResponses::InternalError
             }
         },
         Err(error) => {
             let message = error.to_string();
-            tracing::error!("replace_connection_by_id {}: {}", id, message);
+            log::error!("replace_connection_by_id {}: {}", id, message);
             if message.contains("Missing connection section") || message.contains("must have an id element") {
                 UpsertConnectionResponses::BadRequest
             } else {
@@ -362,7 +362,7 @@ pub async fn patch_connection_by_id(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("patch_connection_by_id {} invalid request shape: {}", id, error);
+            log::error!("patch_connection_by_id {} invalid request shape: {}", id, error);
             return UpsertConnectionResponses::BadRequest;
         }
     };
@@ -370,13 +370,13 @@ pub async fn patch_connection_by_id(
         Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
             Ok(value) => UpsertConnectionResponses::Ok(value),
             Err(error) => {
-                tracing::error!("patch_connection_by_id {} invalid shape: {}", id, error);
+                log::error!("patch_connection_by_id {} invalid shape: {}", id, error);
                 UpsertConnectionResponses::InternalError
             }
         },
         Err(error) => {
             let message = error.to_string();
-            tracing::error!("patch_connection_by_id {}: {}", id, message);
+            log::error!("patch_connection_by_id {}: {}", id, message);
             if message.contains("not found") {
                 UpsertConnectionResponses::InternalError
             } else {
@@ -398,12 +398,12 @@ pub async fn delete_connection_by_id(Path(id): Path<String>) -> DeleteConnection
         Ok(_) => match NetworkService::delete_connection_profile(&id).await {
             Ok(()) => DeleteConnectionResponses::Ok,
             Err(error) => {
-                tracing::error!("delete_connection_by_id {}: {}", id, error);
+                log::error!("delete_connection_by_id {}: {}", id, error);
                 DeleteConnectionResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("delete_connection_by_id find {}: {}", id, error);
+            log::error!("delete_connection_by_id find {}: {}", id, error);
             DeleteConnectionResponses::NotFound
         }
     }
@@ -432,7 +432,7 @@ pub async fn export_connections_route(
     match NetworkService::export_connections(password).await {
         Ok(data) => data.into(),
         Err(e) => {
-            tracing::error!("export_connections: {}", e);
+            log::error!("export_connections: {}", e);
             ExportConnectionsResponses::InternalError
         }
     }
@@ -469,7 +469,7 @@ pub async fn import_connections_route(
     match NetworkService::import_connections(&archive_data, &password).await {
         Ok(()) => ImportConnectionsResponses::Ok,
         Err(error) => {
-            tracing::error!("import_connections: {}", error);
+            log::error!("import_connections: {}", error);
             ImportConnectionsResponses::InternalError
         }
     }

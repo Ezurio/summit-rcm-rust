@@ -5,26 +5,23 @@
 
 //! Raw network helpers that do not depend on NetworkManager.
 
-use anyhow::Result;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use anyhow::{Result, anyhow};
 use crate::dbus;
-use crate::utils::command_status_ok;
+use crate::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
+use crate::plugins::network::types::{
+    AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
+};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use crate::utils::command_stdout;
-use serde_json::{json, Value};
+use std::collections::BTreeMap;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::HashMap;
 use std::path::Path;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use zbus::zvariant::OwnedObjectPath;
 
 pub struct NetworkService;
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 const WPA_OBJ: &str = "/fi/w1/wpa_supplicant1";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 const WPA_IFACE: &str = "fi.w1.wpa_supplicant1";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 const SUPPLICANT_INTERFACE_IFACE: &str = "fi.w1.wpa_supplicant1.Interface";
 
 pub(crate) fn wifi_driver_debug_param() -> &'static str {
@@ -36,56 +33,48 @@ pub(crate) fn wifi_driver_debug_param() -> &'static str {
 }
 
 impl NetworkService {
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    fn first_token(value: &str) -> &str {
-        value.split_whitespace().next().unwrap_or("")
+    async fn with_nl80211<T, F>(operation: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Nl80211Client) -> Result<T> + Send + 'static,
+    {
+        tokio::task::spawn_blocking(move || {
+            let mut client = Nl80211Client::connect()?;
+            operation(&mut client)
+        })
+        .await
+        .map_err(|error| anyhow!("nl80211 task failed: {}", error))?
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    fn parse_rate_field(value: Option<&str>) -> Value {
-        let Some(raw) = value else {
-            return Value::Null;
-        };
-
-        let rate = Self::first_token(raw)
-            .parse::<f64>()
-            .ok()
-            .map(|bitrate| (bitrate * 1000.0).round() as i64);
-        let channel_width = raw
-            .split_whitespace()
-            .find_map(|part| part.strip_suffix("MHz"))
-            .and_then(|width| width.parse::<i64>().ok())
-            .or(Some(20));
-
-        json!({
-            "rate": rate,
-            "channelWidth": channel_width,
+    fn station_rate_info(rate: Option<NlStationRateInfo>) -> Option<StationRateInfo> {
+        rate.map(|rate| StationRateInfo {
+            rate: rate.rate,
+            channel_width: rate.channel_width,
         })
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    fn normalize_station_fields(fields: &serde_json::Map<String, Value>) -> Value {
-        let get = |key: &str| fields.get(key).and_then(Value::as_str);
-
-        json!({
-            "signal": get("signal").and_then(|raw| Self::first_token(raw).parse::<i64>().ok()),
-            "inactive": get("inactive time").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "connectedTime": get("connected time").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "rxPackets": get("rx packets").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "txPackets": get("tx packets").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "beaconRx": get("beacon rx").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "rxRate": Self::parse_rate_field(get("rx bitrate")),
-            "txRate": Self::parse_rate_field(get("tx bitrate")),
-            "rxBytes": get("rx bytes").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "txBytes": get("tx bytes").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "rxDuration": get("rx duration").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "txRetries": get("tx retries").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "txFailed": get("tx failed").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "beaconLoss": get("beacon loss").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "rxDropMisc": get("rx drop misc").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "dtimPeriod": get("DTIM period").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-            "beaconInterval": get("beacon interval").and_then(|raw| Self::first_token(raw).parse::<u64>().ok()),
-        })
+    fn station_info(station: NlStationInfo) -> Station {
+        Station {
+            signal: station.signal,
+            inactive: station.inactive,
+            connected_time: station.connected_time,
+            rx_packets: station.rx_packets,
+            tx_packets: station.tx_packets,
+            rx_bytes: station.rx_bytes,
+            tx_bytes: station.tx_bytes,
+            rx_rate: Self::station_rate_info(station.rx_rate),
+            tx_rate: Self::station_rate_info(station.tx_rate),
+            beacon_rx: station.beacon_rx,
+            beacon_loss: station.beacon_loss,
+            rx_duration: station.rx_duration,
+            tx_retries: station.tx_retries,
+            tx_failed: station.tx_failed,
+            rx_drop_misc: station.rx_drop_misc,
+            dtim_period: station.dtim_period,
+            beacon_interval: station.beacon_interval,
+        }
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -99,13 +88,11 @@ impl NetworkService {
             .unwrap_or(false)
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
         let conn = dbus::system_bus().await?.clone();
         dbus::get_property(&conn, WPA_IFACE, WPA_OBJ, WPA_IFACE, "Interfaces").await
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supplicant_interface_name(interface_obj_path: &str) -> Result<String> {
         let conn = dbus::system_bus().await?.clone();
         dbus::get_property(
@@ -118,36 +105,32 @@ impl NetworkService {
         .await
     }
 
-    pub async fn get_interface_statistics(name: &str, is_legacy: bool) -> Result<Value> {
-        let base = format!("/sys/class/net/{}/statistics", name);
-        let stat_names: &[(&str, &str, &str)] = &[
-            ("rxBytes", "rx_bytes", "rx_bytes"),
-            ("rxPackets", "rx_packets", "rx_packets"),
-            ("rxErrors", "rx_errors", "rx_errors"),
-            ("rxDropped", "rx_dropped", "rx_dropped"),
-            ("multicast", "multicast", "multicast"),
-            ("txBytes", "tx_bytes", "tx_bytes"),
-            ("txPackets", "tx_packets", "tx_packets"),
-            ("txErrors", "tx_errors", "tx_errors"),
-            ("txDropped", "tx_dropped", "tx_dropped"),
-        ];
-
-        let mut map = serde_json::Map::new();
-        for (v2_key, legacy_key, file_name) in stat_names {
-            let key = if is_legacy { legacy_key } else { v2_key };
-            let path = format!("{}/{}", base, file_name);
-            let value: i64 = tokio::fs::read_to_string(&path)
-                .await
-                .ok()
-                .and_then(|content| content.trim().parse().ok())
-                .unwrap_or(-1);
-            map.insert(key.to_string(), json!(value));
-        }
-
-        Ok(Value::Object(map))
+    async fn read_interface_stat(base: &str, file_name: &str) -> i64 {
+        let path = format!("{}/{}", base, file_name);
+        tokio::fs::read_to_string(&path)
+            .await
+            .ok()
+            .and_then(|content| content.trim().parse().ok())
+            .unwrap_or(-1)
     }
 
-    pub async fn get_interface_driver_info(name: &str) -> Result<Value> {
+    pub async fn get_interface_statistics(name: &str) -> Result<InterfaceStats> {
+        let base = format!("/sys/class/net/{}/statistics", name);
+
+        Ok(InterfaceStats {
+            rx_bytes: Self::read_interface_stat(&base, "rx_bytes").await,
+            rx_packets: Self::read_interface_stat(&base, "rx_packets").await,
+            rx_errors: Self::read_interface_stat(&base, "rx_errors").await,
+            rx_dropped: Self::read_interface_stat(&base, "rx_dropped").await,
+            multicast: Self::read_interface_stat(&base, "multicast").await,
+            tx_bytes: Self::read_interface_stat(&base, "tx_bytes").await,
+            tx_packets: Self::read_interface_stat(&base, "tx_packets").await,
+            tx_errors: Self::read_interface_stat(&base, "tx_errors").await,
+            tx_dropped: Self::read_interface_stat(&base, "tx_dropped").await,
+        })
+    }
+
+    pub async fn get_interface_driver_info(name: &str) -> Result<InterfaceDriverInfo> {
         if name.is_empty() {
             anyhow::bail!("No interface name provided");
         }
@@ -158,7 +141,10 @@ impl NetworkService {
             let adopted = tokio::fs::read_to_string(&cc_file).await?.trim().to_string();
             tokio::fs::write(&cc_file, "1").await?;
             let otp = tokio::fs::read_to_string(&cc_file).await?.trim().to_string();
-            return Ok(json!({ "adoptedCountryCode": adopted, "otpCountryCode": otp }));
+            return Ok(InterfaceDriverInfo {
+                adopted_country_code: adopted,
+                otp_country_code: otp,
+            });
         }
 
         let info_file = format!("/sys/class/net/{}/phy80211/device/lrd/info", name);
@@ -169,57 +155,53 @@ impl NetworkService {
         let info = tokio::fs::read_to_string(&info_file).await?;
         let re = regex::Regex::new(r"Country code\s*:\s*'(?P<adopted>.*)'\s*\('(?P<otp>.*)'\)")?;
         if let Some(caps) = re.captures(&info) {
-            return Ok(json!({
-                "adoptedCountryCode": caps["adopted"].to_string(),
-                "otpCountryCode": caps["otp"].to_string(),
-            }));
+            return Ok(InterfaceDriverInfo {
+                adopted_country_code: caps["adopted"].to_string(),
+                otp_country_code: caps["otp"].to_string(),
+            });
         }
 
         anyhow::bail!("Unable to retrieve driver info")
     }
 
+    pub async fn get_reg_domain_info() -> Result<String> {
+        Self::with_nl80211(|client| client.get_reg_domain_primary()).await
+    }
+
+    pub async fn get_frequency_info(interface_name: &str) -> Result<u32> {
+        let interface_name = interface_name.to_string();
+        Self::with_nl80211(move |client| client.get_frequency_info(&interface_name)).await
+    }
+
+    pub async fn get_active_ap_rssi(interface_name: &str) -> Result<f64> {
+        let interface_name = interface_name.to_string();
+        Self::with_nl80211(move |client| client.get_active_ap_rssi(&interface_name)).await
+    }
+
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_interface_available_ap_channels(ifname: &str) -> Result<Vec<Value>> {
-        let phy_text = command_stdout("iw", &["dev", ifname, "info"]).await?;
-        let phy = phy_text
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("wiphy "))
-            .map(|value| format!("phy{}", value.trim()))
-            .ok_or_else(|| anyhow::anyhow!("Could not determine phy for {}", ifname))?;
-
-        let info_text = command_stdout("iw", &["phy", &phy, "info"]).await?;
-        let freq_re = regex::Regex::new(r"\*\s+(\d+(?:\.\d+)?) MHz \[(\d+)\]")?;
-        let mut channels = Vec::new();
-
-        for line in info_text.lines() {
-            let lower = line.to_lowercase();
-            if lower.contains("disabled") || lower.contains("no ir") || lower.contains("radar") {
-                continue;
-            }
-            if let Some(caps) = freq_re.captures(line) {
-                let freq = caps[1]
-                    .parse::<f64>()
-                    .ok()
-                    .map(|value| value.round() as u32)
-                    .unwrap_or(0);
-                let channel = crate::utils::frequency_to_channel(freq);
-                channels.push(json!({ "channel": channel, "frequency": freq }));
-            }
-        }
-
-        Ok(channels)
+    pub async fn get_interface_available_ap_channels(ifname: &str) -> Result<Vec<AvailableApChannel>> {
+        let ifname = ifname.to_string();
+        let channels = Self::with_nl80211(move |client| client.get_available_ap_channels(&ifname)).await?;
+        Ok(channels
+            .into_iter()
+            .map(|channel| AvailableApChannel {
+                channel: i64::from(channel.channel),
+                frequency: i64::from(channel.frequency),
+            })
+            .collect())
     }
 
     pub async fn add_virtual_interface() -> Result<bool> {
-        command_status_ok("iw", &["phy", "phy0", "interface", "add", "wlan1", "type", "station"]).await
+        Self::with_nl80211(|client| client.add_virtual_interface("wlan1")).await?;
+        Ok(true)
     }
 
     pub async fn remove_virtual_interface() -> Result<bool> {
-        command_status_ok("ip", &["link", "delete", "wlan1"]).await
+        Self::with_nl80211(|client| client.remove_virtual_interface("wlan1")).await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_summit_status(ifname: &str) -> Result<Value> {
+    pub async fn get_summit_status(ifname: &str) -> Result<SummitStatus> {
         let target = if ifname.is_empty() { "wlan0" } else { ifname };
         let interface_paths = Self::get_supplicant_interfaces().await?;
 
@@ -238,41 +220,27 @@ impl NetworkService {
                 "SummitStatus",
             )
             .await?;
-            return Ok(json!(summit_status));
+            return Ok(SummitStatus {
+                best: summit_status.get("best").cloned(),
+                last: summit_status.get("last").cloned(),
+            });
         }
 
         anyhow::bail!("interface not found")
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_station_dump(ifname: &str) -> Result<Value> {
-        let text = command_stdout("iw", &["dev", ifname, "station", "dump"]).await?;
-        let mut stations = serde_json::Map::new();
-        let mut current_mac = String::new();
-        let mut current: serde_json::Map<String, Value> = serde_json::Map::new();
-
-        for line in text.lines() {
-            let line = line.trim();
-            if line.starts_with("Station ") {
-                if !current_mac.is_empty() {
-                    stations.insert(current_mac.clone(), Self::normalize_station_fields(&current));
-                }
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                current_mac = parts.get(1).unwrap_or(&"").to_string();
-                current = serde_json::Map::new();
-            } else if let Some((key, value)) = line.split_once(':') {
-                current.insert(key.trim().to_string(), json!(value.trim()));
-            }
+    pub async fn get_station_dump(ifname: &str) -> Result<BTreeMap<String, Station>> {
+        let ifname = ifname.to_string();
+        let raw_stations = Self::with_nl80211(move |client| client.get_station_dump(&ifname)).await?;
+        let mut stations = BTreeMap::new();
+        for (mac, station) in raw_stations {
+            stations.insert(mac, Self::station_info(station));
         }
-
-        if !current_mac.is_empty() {
-            stations.insert(current_mac, Self::normalize_station_fields(&current));
-        }
-
-        Ok(Value::Object(stations))
+        Ok(stations)
     }
 
-    pub async fn get_interface_stats(name: &str) -> Result<Value> {
-        Self::get_interface_statistics(name, false).await
+    pub async fn get_interface_stats(name: &str) -> Result<InterfaceStats> {
+        Self::get_interface_statistics(name).await
     }
 }

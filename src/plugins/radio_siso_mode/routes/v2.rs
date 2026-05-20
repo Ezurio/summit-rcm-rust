@@ -6,7 +6,7 @@
 use crate::plugins::radio_siso_mode::service::{RadioSISOMode, RadioSISOModeService};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;

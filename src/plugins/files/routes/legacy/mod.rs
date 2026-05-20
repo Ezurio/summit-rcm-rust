@@ -293,7 +293,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
         return match NetworkService::export_connections(password).await {
             Ok(archive) => archive.into(),
             Err(error) => {
-                tracing::error!("Could not export connections: {}", error);
+                log::error!("Could not export connections: {}", error);
                 GetFilesLegacyResponses::InternalError
             }
         };
@@ -307,7 +307,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
             files,
         }),
         Err(error) => {
-            tracing::error!("Could not list {} files: {}", file_type, error);
+            log::error!("Could not list {} files: {}", file_type, error);
             GetFilesLegacyResponses::InternalError
         }
     }
@@ -370,7 +370,7 @@ pub async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyR
             match FilesService::export_system_config(password).await {
                 Ok(archive) => archive.into(),
                 Err(error) => {
-                    tracing::error!("Could not export system config: {}", error);
+                    log::error!("Could not export system config: {}", error);
                     GetSingleFileLegacyResponses::InternalError
                 }
             }
@@ -383,7 +383,7 @@ pub async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyR
             match FilesService::export_logs(password).await {
                 Ok(archive) => archive.into(),
                 Err(error) => {
-                    tracing::error!("Could not export log data: {}", error);
+                    log::error!("Could not export log data: {}", error);
                     GetSingleFileLegacyResponses::InternalError
                 }
             }
@@ -391,7 +391,7 @@ pub async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyR
         "debug" => match FilesService::export_debug().await {
             Ok(archive) => archive.into(),
             Err(error) => {
-                tracing::error!("Could not export debug info: {}", error);
+                log::error!("Could not export debug info: {}", error);
                 GetSingleFileLegacyResponses::InternalError
             }
         },

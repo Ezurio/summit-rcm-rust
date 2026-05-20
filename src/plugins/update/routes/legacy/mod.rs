@@ -140,7 +140,7 @@ pub async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacyRespons
         Ok(_) => legacy_operation_response(SdcerrCode::Success.as_i32(), "").into(),
         Err(error) if error.to_string().contains("no update in progress") => PutSwupdateLegacyResponses::BadRequest,
         Err(error) => {
-            tracing::error!("put_swupdate_legacy: {}", error);
+            log::error!("put_swupdate_legacy: {}", error);
             PutSwupdateLegacyResponses::InternalError
         }
     }

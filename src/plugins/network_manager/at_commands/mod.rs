@@ -11,7 +11,7 @@ use crate::plugins::network_manager::service::NetworkService;
 use crate::publication::PublishedAtCommand;
 use async_trait::async_trait;
 use serde_json::{Value, from_str, to_string};
-use tracing::error;
+use log::error;
 
 pub struct ConnectionList;
 

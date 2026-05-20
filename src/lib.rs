@@ -14,6 +14,8 @@ pub mod archive;
 pub mod certificates;
 #[path = "support/utils.rs"]
 pub mod utils;
+#[path = "support/nl80211.rs"]
+pub mod nl80211;
 
 #[path = "app/loader.rs"]
 pub mod plugin_loader;

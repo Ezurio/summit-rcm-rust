@@ -11,7 +11,7 @@ use crate::plugins::files::FilesService;
 use crate::publication::PublishedAtCommand;
 use crate::services::at_files_service::AtFilesService;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
 
 enum FilesListType {
     CertAndPac,

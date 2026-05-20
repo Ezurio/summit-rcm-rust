@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.71"
 name = "tokio"
-version = "1.52.2"
+version = "1.52.3"
 authors = ["Tokio Contributors <team@tokio.rs>"]
 build = false
 autolib = false

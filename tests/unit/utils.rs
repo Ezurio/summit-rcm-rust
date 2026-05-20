@@ -1,4 +1,6 @@
-use super::should_ignore_certificate_time_verify_error;
+use super::{
+    should_ignore_certificate_time_verify_error,
+};
 use openssl::x509::X509VerifyResult;
 
 #[test]

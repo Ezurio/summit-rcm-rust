@@ -23,6 +23,9 @@ impl NetworkManagerService {
                 .entry("802-11-wireless".to_string())
                 .or_default();
             for (key, value) in wireless {
+                if value.is_null() {
+                    continue;
+                }
                 if key == "ssid" {
                     if let Some(ssid) = value.as_str() {
                         target.insert(key.clone(), Self::into_owned_value(ssid.as_bytes().to_vec())?);
@@ -47,6 +50,9 @@ impl NetworkManagerService {
                 .entry("802-11-wireless-security".to_string())
                 .or_default();
             for (key, value) in wireless_security {
+                if value.is_null() {
+                    continue;
+                }
                 if ["pairwise", "group", "proto"].contains(&key.as_str()) {
                     let values = if let Some(items) = value.as_array() {
                         items
@@ -68,6 +74,9 @@ impl NetworkManagerService {
         if let Some(auth_8021x) = root.get("802-1x").and_then(|value| value.as_object()) {
             let target = new_connection.entry("802-1x".to_string()).or_default();
             for (key, value) in auth_8021x {
+                if value.is_null() {
+                    continue;
+                }
                 if [
                     "eap",
                     "phase2-auth",
@@ -129,6 +138,9 @@ impl NetworkManagerService {
         if let Some(ipv4) = root.get("ipv4").and_then(|value| value.as_object()) {
             let target = new_connection.entry("ipv4".to_string()).or_default();
             for (key, value) in ipv4 {
+                if value.is_null() {
+                    continue;
+                }
                 match key.as_str() {
                     "address-data" => {
                         let gateway = ipv4
@@ -175,6 +187,9 @@ impl NetworkManagerService {
         if let Some(ipv6) = root.get("ipv6").and_then(|value| value.as_object()) {
             let target = new_connection.entry("ipv6".to_string()).or_default();
             for (key, value) in ipv6 {
+                if value.is_null() {
+                    continue;
+                }
                 match key.as_str() {
                     "address-data" => {
                         let gateway = ipv6

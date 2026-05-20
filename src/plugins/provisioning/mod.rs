@@ -6,6 +6,7 @@
 use axum::Router;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::publication::{RouteAuthPolicy, RoutePublication};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) const DEVICE_SERVER_KEY_PATH: &str = "/etc/summit-rcm/provisioning/dev.key";
 pub(crate) const DEVICE_SERVER_CSR_PATH: &str = "/etc/summit-rcm/provisioning/dev.csr";
@@ -21,8 +22,27 @@ pub(crate) const PROVISIONING_STATE_FILE_PATH: &str = "/etc/summit-rcm/provision
 pub(crate) const CERT_TEMP_PATH: &str = "/tmp/dev.crt";
 pub(crate) const CONFIG_FILE_TEMP_PATH: &str = "/tmp/dev.cnf";
 
+#[cfg(not(test))]
+static ENABLE_CLIENT_PAIRING: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn initialize_enable_client_pairing() {
+	#[cfg(not(test))]
+	ENABLE_CLIENT_PAIRING.store(
+		crate::config::ServerConfig::get_bool("summit-rcm", "enable_client_pairing", false),
+		Ordering::Relaxed,
+	);
+}
+
 pub(crate) fn enable_client_pairing() -> bool {
-	crate::config::ServerConfig::get_bool("summit-rcm", "enable_client_pairing", false)
+	#[cfg(test)]
+	{
+		return crate::config::ServerConfig::get_bool("summit-rcm", "enable_client_pairing", false);
+	}
+
+	#[cfg(not(test))]
+	{
+		ENABLE_CLIENT_PAIRING.load(Ordering::Relaxed)
+	}
 }
 
 pub mod service;
@@ -33,7 +53,13 @@ pub mod routes;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 fn add_base_api_middleware(api: Router) -> Router {
-	api.layer(axum::middleware::from_fn(middleware::require_provisioning))
+	initialize_enable_client_pairing();
+	middleware::initialize_disable_certificate_expiry_verification();
+	if enable_client_pairing() {
+		api.layer(axum::middleware::from_fn(middleware::require_provisioning))
+	} else {
+		api
+	}
 }
 
 #[cfg(feature = "api-v2")]

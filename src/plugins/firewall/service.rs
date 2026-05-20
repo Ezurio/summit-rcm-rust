@@ -8,7 +8,7 @@ use crate::utils::command_output;
 use parking_lot::Mutex;
 use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";

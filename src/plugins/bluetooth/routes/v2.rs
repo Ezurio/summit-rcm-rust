@@ -9,7 +9,7 @@ use crate::plugins::bluetooth::routes::common::{
     BluetoothDeviceModel, BluetoothQuery, BluetoothStateResponse,
 };
 #[cfg(feature = "bluetooth-websocket")]
-use crate::plugins::bluetooth::routes::common::bluetooth_websocket_upgrade_response;
+use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
 use crate::plugins::bluetooth::service::BluetoothService;
 use axum::{extract::{Path, Query}, Json};
 #[cfg(feature = "bluetooth-websocket")]
@@ -94,7 +94,7 @@ pub async fn get_bluetooth(Query(query): Query<BluetoothQuery>) -> GetBluetoothR
         Ok(value) => match parse_bluetooth_state_response(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_bluetooth invalid response shape: {}", error);
+                log::error!("get_bluetooth invalid response shape: {}", error);
                 GetBluetoothResponses::InternalError
             }
         },
@@ -113,7 +113,7 @@ pub async fn put_bluetooth(Json(body): Json<BluetoothCommandRequest>) -> PutBlue
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth invalid request shape: {}", error);
+            log::error!("put_bluetooth invalid request shape: {}", error);
             return PutBluetoothResponses::BadRequest;
         }
     };
@@ -135,7 +135,7 @@ pub async fn put_bluetooth(Json(body): Json<BluetoothCommandRequest>) -> PutBlue
             }
         }
         Err(error) => {
-            tracing::error!("put_bluetooth invalid response shape: {}", error);
+            log::error!("put_bluetooth invalid response shape: {}", error);
             PutBluetoothResponses::InternalError
         }
     }
@@ -159,7 +159,7 @@ pub async fn get_bluetooth_controller(
         Ok(value) => match parse_bluetooth_state_response(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_bluetooth_controller {} invalid response shape: {}", controller, error);
+                log::error!("get_bluetooth_controller {} invalid response shape: {}", controller, error);
                 GetBluetoothResponses::InternalError
             }
         },
@@ -182,7 +182,7 @@ pub async fn put_bluetooth_controller(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth_controller {} invalid request shape: {}", controller, error);
+            log::error!("put_bluetooth_controller {} invalid request shape: {}", controller, error);
             return PutBluetoothResponses::BadRequest;
         }
     };
@@ -202,7 +202,7 @@ pub async fn put_bluetooth_controller(
             }
         }
         Err(error) => {
-            tracing::error!("put_bluetooth_controller {} invalid response shape: {}", controller, error);
+            log::error!("put_bluetooth_controller {} invalid response shape: {}", controller, error);
             PutBluetoothResponses::InternalError
         }
     }
@@ -225,7 +225,7 @@ pub async fn get_bluetooth_device(
         Ok(value) => match parse_bluetooth_device_response(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
+                log::error!("get_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
                 GetBluetoothDeviceResponses::InternalError
             }
         },
@@ -251,7 +251,7 @@ pub async fn put_bluetooth_device(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth_device {} {} invalid request shape: {}", controller, device, error);
+            log::error!("put_bluetooth_device {} {} invalid request shape: {}", controller, device, error);
             return PutBluetoothResponses::BadRequest;
         }
     };
@@ -273,7 +273,7 @@ pub async fn put_bluetooth_device(
             }
         }
         Err(error) => {
-            tracing::error!("put_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
+            log::error!("put_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
             PutBluetoothResponses::InternalError
         }
     }

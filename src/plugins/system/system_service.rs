@@ -11,7 +11,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use std::sync::LazyLock;
 use std::path::Path;
-use tracing::{error, info};
+use log::{error, info};
 
 const LOGIND_BUS_NAME: &str = "org.freedesktop.login1";
 const LOGIND_MAIN_OBJ: &str = "/org/freedesktop/login1";

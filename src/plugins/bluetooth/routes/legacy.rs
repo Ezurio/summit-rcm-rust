@@ -9,7 +9,7 @@ use crate::plugins::bluetooth::routes::common::{
     BluetoothDeviceModel, BluetoothQuery,
 };
 #[cfg(feature = "bluetooth-websocket")]
-use crate::plugins::bluetooth::routes::common::bluetooth_websocket_upgrade_response;
+use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
 use crate::plugins::bluetooth::service::BluetoothService;
 use axum::{extract::{Path, Query}, Json};
 #[cfg(feature = "bluetooth-websocket")]
@@ -139,7 +139,7 @@ pub async fn get_bluetooth_legacy(Query(query): Query<BluetoothQuery>) -> GetBlu
     match parse_legacy_bluetooth_state_response(BluetoothService::get_state_legacy(None, None, query.filters()).await) {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("get_bluetooth_legacy invalid response shape: {}", error);
+            log::error!("get_bluetooth_legacy invalid response shape: {}", error);
             GetBluetoothLegacyResponses::BadRequest
         }
     }
@@ -156,14 +156,14 @@ pub async fn put_bluetooth_legacy(Json(body): Json<BluetoothCommandRequest>) -> 
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth_legacy invalid request shape: {}", error);
+            log::error!("put_bluetooth_legacy invalid request shape: {}", error);
             return PutBluetoothLegacyResponses::BadRequest;
         }
     };
     match parse_legacy_bluetooth_control_response(BluetoothService::handle_command(None, None, &body).await) {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("put_bluetooth_legacy invalid response shape: {}", error);
+            log::error!("put_bluetooth_legacy invalid response shape: {}", error);
             PutBluetoothLegacyResponses::BadRequest
         }
     }
@@ -186,7 +186,7 @@ pub async fn get_bluetooth_controller_legacy(
     match parse_legacy_bluetooth_state_response(BluetoothService::get_state_legacy(Some(&controller), None, query.filters()).await) {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("get_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
+            log::error!("get_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
             GetBluetoothLegacyResponses::BadRequest
         }
     }
@@ -207,14 +207,14 @@ pub async fn put_bluetooth_controller_legacy(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth_controller_legacy {} invalid request shape: {}", controller, error);
+            log::error!("put_bluetooth_controller_legacy {} invalid request shape: {}", controller, error);
             return PutBluetoothLegacyResponses::BadRequest;
         }
     };
     match parse_legacy_bluetooth_control_response(BluetoothService::handle_command(Some(&controller), None, &body).await) {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("put_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
+            log::error!("put_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
             PutBluetoothLegacyResponses::BadRequest
         }
     }
@@ -264,7 +264,7 @@ pub async fn get_bluetooth_device_legacy(
     match BluetoothService::get_device_state_v2(&controller, &device).await.and_then(|value| parse_bluetooth_device_response(value).map_err(Into::into)) {
         Ok(device) => legacy_bluetooth_device_response(ok_response(""), device).into(),
         Err(error) => {
-            tracing::error!("get_bluetooth_device_legacy {} {}: {}", controller, device, error);
+            log::error!("get_bluetooth_device_legacy {} {}: {}", controller, device, error);
             GetBluetoothDeviceLegacyResponses::BadRequest
         }
     }
@@ -292,10 +292,16 @@ pub async fn put_bluetooth_device_legacy(
                 rssi: None,
                 tx_power: None,
                 max_tx_power: None,
-                hid_connections: None,
+                #[cfg(feature = "bluetooth-hid")]
+                hid: crate::plugins::bluetooth::routes::hid::BluetoothHidControlResponse {
+                    hid_connections: None,
+                },
                 started: None,
                 port: None,
-                gatt_connections: None,
+                #[cfg(feature = "bluetooth-vsp")]
+                vsp: crate::plugins::bluetooth::routes::vsp::BluetoothVspControlResponse {
+                    gatt_connections: None,
+                },
             },
         )
         .into();
@@ -304,14 +310,14 @@ pub async fn put_bluetooth_device_legacy(
     let body = match serde_json::to_value(body) {
         Ok(body) => body,
         Err(error) => {
-            tracing::error!("put_bluetooth_device_legacy {} {} invalid request shape: {}", controller, device, error);
+            log::error!("put_bluetooth_device_legacy {} {} invalid request shape: {}", controller, device, error);
             return PutBluetoothDeviceLegacyResponses::BadRequest;
         }
     };
     match parse_legacy_bluetooth_control_response(BluetoothService::handle_command(Some(&controller), Some(&device), &body).await) {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("put_bluetooth_device_legacy {} {} invalid response shape: {}", controller, device, error);
+            log::error!("put_bluetooth_device_legacy {} {} invalid response shape: {}", controller, device, error);
             PutBluetoothDeviceLegacyResponses::BadRequest
         }
     }

@@ -31,7 +31,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::sync::Arc;
-use tracing::{error, info};
+use log::{error, info};
 
 use summit_rcm_plugin_api::{cstr_to_string, PluginHandle};
 
@@ -232,14 +232,19 @@ fn load_one(
     let name = unsafe { cstr_to_string((*handle).name) };
     let version = unsafe { cstr_to_string((*handle).version) };
     let route_count = unsafe { (*handle).route_count };
-    info!("Plugin '{}' v{} — {} route(s)", name, version, route_count);
+    let should_log_routes = ServerConfig::get_bool("summit-rcm", "log_routes_loaded", false);
+    if should_log_routes {
+        info!("Plugin '{}' v{} — {} route(s)", name, version, route_count);
+    }
 
     let mut route_list = Vec::new();
     for i in 0..route_count {
         let rd = unsafe { &*(*handle).routes.add(i) };
         let method = unsafe { cstr_to_string(rd.method) };
         let path_str = unsafe { cstr_to_string(rd.path) };
-        info!("  {} {}", method, path_str);
+        if should_log_routes {
+            info!("  {} {}", method, path_str);
+        }
         route_list.push(PublishedRoute::leak(method, path_str));
     }
 
@@ -257,6 +262,10 @@ fn load_one(
 /// Load all `*.so` plugins from the plugin directory and extend `router`.
 pub fn load_plugins(mut router: Router) -> Router {
     let plugin_dir = ServerConfig::get_string("summit-rcm", "plugin_dir", "/usr/lib/summit-rcm/plugins");
+
+    if !std::path::Path::new(&plugin_dir).exists() {
+        return router;
+    }
 
     let entries = match std::fs::read_dir(&plugin_dir) {
         Ok(e) => e,

@@ -54,6 +54,13 @@ pub mod routes;
 pub use self::system_service::SystemService;
 pub use self::version_service::VersionService;
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+fn initialize_system_settings(api: axum::Router) -> axum::Router {
+	#[cfg(feature = "api-legacy")]
+	routes::legacy::definitions::initialize_sessions_enabled();
+	api
+}
+
 crate::declare_plugin_api! {
 	route_table {
 		v2 => [
@@ -105,6 +112,7 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "system",
+	base_api: initialize_system_settings,
 	at_commands: (
 		at_commands::PUBLISHED_COMMANDS,
 		at_commands::add_at_commands,

@@ -10,7 +10,7 @@ use crate::plugins::fips::service::FipsService;
 use crate::plugins::system::PowerState;
 use crate::publication::PublishedAtCommand;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
 
 pub struct Fips;
 

@@ -9,7 +9,7 @@ use crate::at_interface::commands;
 use std::sync::{LazyLock, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
-use tracing::error;
+use log::error;
 
 #[derive(Clone, PartialEq)]
 enum FsmState {

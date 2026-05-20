@@ -1,4 +1,4 @@
-#[cfg(feature = "bluetooth-websocket")]
+#[cfg(any(feature = "bluetooth", feature = "bluetooth-websocket"))]
 #[path = "plugins/bluetooth.rs"]
 mod bluetooth;
 

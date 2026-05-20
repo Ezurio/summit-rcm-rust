@@ -6,10 +6,13 @@
 //! Network interface endpoints.
 
 use crate::plugins::network::service::NetworkService;
+pub use crate::plugins::network::types::{
+    AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
+    VirtualInterfaceResponse,
+};
 use axum::extract::Path;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum PutInterfaceResponses {
@@ -69,81 +72,6 @@ crate::define_json_response_family! {
         InternalError => 500
     }
     from SummitStatus => Ok;
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct VirtualInterfaceResponse {
-    pub name: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct AvailableApChannel {
-    pub frequency: i64,
-    pub channel: i64,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct InterfaceStats {
-    pub rx_bytes: i64,
-    pub rx_packets: i64,
-    pub rx_errors: i64,
-    pub rx_dropped: i64,
-    pub multicast: i64,
-    pub tx_bytes: i64,
-    pub tx_packets: i64,
-    pub tx_errors: i64,
-    pub tx_dropped: i64,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct InterfaceDriverInfo {
-    pub adopted_country_code: String,
-    pub otp_country_code: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct StationRateInfo {
-    pub rate: Option<i64>,
-    pub channel_width: Option<i64>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct Station {
-    pub signal: Option<i64>,
-    pub inactive: Option<i64>,
-    pub connected_time: Option<i64>,
-    pub rx_packets: Option<i64>,
-    pub tx_packets: Option<i64>,
-    pub rx_bytes: Option<i64>,
-    pub tx_bytes: Option<i64>,
-    pub rx_rate: Option<StationRateInfo>,
-    pub tx_rate: Option<StationRateInfo>,
-    pub beacon_rx: Option<i64>,
-    pub beacon_loss: Option<i64>,
-    pub rx_duration: Option<i64>,
-    pub tx_retries: Option<i64>,
-    pub tx_failed: Option<i64>,
-    pub rx_drop_misc: Option<i64>,
-    pub dtim_period: Option<i64>,
-    pub beacon_interval: Option<i64>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct SummitStatus {
-    pub best: Option<String>,
-    pub last: Option<String>,
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -207,13 +135,7 @@ pub async fn delete_interface(Path(name): Path<String>) -> DeleteInterfaceRespon
 ))]
 pub async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsResponses {
     match NetworkService::get_interface_stats(&name).await {
-        Ok(value) => match serde_json::from_value::<InterfaceStats>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                error!("get_interface_stats {} invalid response shape: {}", name, error);
-                GetInterfaceStatsResponses::InternalError
-            }
-        },
+        Ok(value) => value.into(),
         Err(error) => {
             error!("get_interface_stats {}: {}", name, error);
             GetInterfaceStatsResponses::InternalError
@@ -230,13 +152,7 @@ pub async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsR
 ))]
 pub async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterfaceDriverInfoResponses {
     match NetworkService::get_interface_driver_info(&name).await {
-        Ok(value) => match serde_json::from_value::<InterfaceDriverInfo>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                error!("get_interface_driver_info {} invalid response shape: {}", name, error);
-                GetInterfaceDriverInfoResponses::InternalError
-            }
-        },
+        Ok(value) => value.into(),
         Err(error) => {
             error!("get_interface_driver_info {}: {}", name, error);
             if error.to_string().contains("No interface name")
@@ -259,13 +175,7 @@ pub async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterface
 ))]
 pub async fn get_interface_available_ap_channels(Path(name): Path<String>) -> GetInterfaceAvailableApChannelsResponses {
     match NetworkService::get_interface_available_ap_channels(&name).await {
-        Ok(value) => match serde_json::from_str::<Vec<AvailableApChannel>>(&serde_json::to_string(&value).unwrap_or_default()) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                error!("get_interface_available_ap_channels {} invalid response shape: {}", name, error);
-                GetInterfaceAvailableApChannelsResponses::InternalError
-            }
-        },
+        Ok(value) => value.into(),
         Err(error) => {
             error!("get_interface_available_ap_channels {}: {}", name, error);
             GetInterfaceAvailableApChannelsResponses::InternalError
@@ -282,13 +192,7 @@ pub async fn get_interface_available_ap_channels(Path(name): Path<String>) -> Ge
 ))]
 pub async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpResponses {
     match NetworkService::get_station_dump(&name).await {
-        Ok(value) => match serde_json::from_value::<BTreeMap<String, Station>>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                error!("get_station_dump {} invalid response shape: {}", name, error);
-                GetStationDumpResponses::InternalError
-            }
-        },
+        Ok(value) => value.into(),
         Err(error) => {
             error!("get_station_dump {}: {}", name, error);
             GetStationDumpResponses::InternalError
@@ -305,13 +209,7 @@ pub async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpRespons
 ))]
 pub async fn get_interface_summit_status(Path(name): Path<String>) -> GetInterfaceSummitStatusResponses {
     match NetworkService::get_summit_status(&name).await {
-        Ok(value) => match serde_json::from_value::<SummitStatus>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                error!("get_interface_summit_status {} invalid response shape: {}", name, error);
-                GetInterfaceSummitStatusResponses::InternalError
-            }
-        },
+        Ok(value) => value.into(),
         Err(error) => {
             error!("get_interface_summit_status {}: {}", name, error);
             if error.to_string().contains("interface not found") {

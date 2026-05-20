@@ -4,7 +4,7 @@
 //
 use crate::web::legacy_response::SdcerrCode;
 use crate::plugins::system::{version_service::VersionInfo, VersionService};
-use tracing::error;
+use log::error;
 
 use serde::{Deserialize, Serialize};
 
@@ -85,11 +85,7 @@ pub async fn get_version_legacy() -> GetVersionLegacyResponses {
         Err(error) => {
             error!("Invalid version info shape: {}", error);
             let error_text = error.to_string();
-            let info_msg = if error_text.contains("No such file or directory") {
-                "An exception occurred while trying to get versioning info: [Errno 2] No such file or directory: 'sdcsupp'".to_string()
-            } else {
-                format!("An exception occurred while trying to get versioning info: {}", error_text)
-            };
+            let info_msg = format!("An exception occurred while trying to get versioning info: {}", error_text);
             LegacyVersionResponse {
                 sdcerr: SdcerrCode::Fail.as_i32(),
                 info_msg,

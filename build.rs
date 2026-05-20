@@ -7,6 +7,12 @@ fn main() {
     emit_rerun_for_dir(Path::new("src"));
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-env-changed=BR2_SUMMIT_BUILD_VERSION");
+
+    let build_version = env::var("BR2_SUMMIT_BUILD_VERSION")
+        .or_else(|_| env::var("CARGO_PKG_VERSION"))
+        .unwrap_or_else(|_| "0.0.0.0".to_string());
+    println!("cargo:rustc-env=SUMMIT_RCM_BUILD_VERSION={build_version}");
 
     if let Err(error) = generate_builtin_plugin_registry() {
         panic!("failed to generate builtin plugin registry: {error}");

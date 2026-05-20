@@ -15,11 +15,13 @@ pub async fn run(
 	let baud_rate = crate::config::ServerConfig::get_u32("summit-rcm", "baud_rate", 0);
 
 	if serial_port.is_empty() || baud_rate == 0 {
-		tracing::warn!(
+		log::warn!(
 			"AT interface enabled but serial port configuration is missing; nothing to do"
 		);
 		return Ok(());
 	}
+
+	log::info!("Listening on {}", serial_port);
 
 	fsm::AtInterface::start(serial_port, baud_rate, shutdown).await
 }

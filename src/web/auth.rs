@@ -10,6 +10,8 @@
 
 use crate::config::ServerConfig;
 use crate::plugins::login::LoginService;
+#[cfg(not(test))]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::middleware::ProvisioningAuthOverride;
@@ -23,9 +25,29 @@ use axum::{
 };
 use tower_sessions::Session;
 
+#[cfg(not(test))]
+static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn initialize_sessions_enabled() {
+    #[cfg(not(test))]
+    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
+}
+
+fn sessions_enabled() -> bool {
+    #[cfg(test)]
+    {
+        return ServerConfig::get_bool("/", "tools.sessions.on", true);
+    }
+
+    #[cfg(not(test))]
+    {
+        SESSIONS_ENABLED.load(Ordering::Relaxed)
+    }
+}
+
 pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
     // If sessions are disabled globally, skip all checks
-    if !ServerConfig::get_bool("/", "tools.sessions.on", true) {
+    if !sessions_enabled() {
         return next.run(req).await;
     }
 
@@ -71,7 +93,7 @@ pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
             unauthorized()
         }
         Err(error) => {
-            tracing::error!("failed to load session: {}", error);
+            log::error!("failed to load session: {}", error);
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())

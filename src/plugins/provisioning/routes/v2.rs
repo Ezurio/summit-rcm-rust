@@ -8,7 +8,7 @@ use crate::plugins::provisioning::service::{
     CertificateProvisioningService, InvalidCertificateError, ProvisioningState,
 };
 use axum::{extract::multipart::MultipartRejection, extract::Multipart};
-use tracing::error;
+use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::openapi_doc;

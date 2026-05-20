@@ -12,22 +12,46 @@ use serde_json::{json, Value as JsonValue};
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::LazyLock;
-use tokio::sync::OnceCell;
+use tokio::sync::Mutex;
 use zbus::{
+    connection::Builder,
     message::Type as MessageType,
     zvariant::{OwnedValue, Type, Value},
     Connection, MatchRule, MessageStream,
 };
 
 pub const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
+pub const TEST_SYSTEM_BUS_ADDRESS_ENV: &str = "SUMMIT_RCM_TEST_SYSTEM_BUS_ADDRESS";
 
-static SYSTEM_BUS: LazyLock<OnceCell<Connection>> = LazyLock::new(OnceCell::new);
+static SYSTEM_BUS_CONNECTIONS: LazyLock<Mutex<HashMap<String, &'static Connection>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn current_system_bus_key() -> String {
+    std::env::var(TEST_SYSTEM_BUS_ADDRESS_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "__system__".to_string())
+}
+
+async fn connect_system_bus(key: &str) -> Result<Connection> {
+    if key == "__system__" {
+        Connection::system().await.map_err(Into::into)
+    } else {
+        Builder::address(key)?.build().await.map_err(Into::into)
+    }
+}
 
 /// Return the shared system bus connection for the application.
 pub async fn system_bus() -> Result<&'static Connection> {
-    SYSTEM_BUS
-        .get_or_try_init(|| async { Connection::system().await.map_err(Into::into) })
-        .await
+    let key = current_system_bus_key();
+
+    if let Some(connection) = SYSTEM_BUS_CONNECTIONS.lock().await.get(&key).copied() {
+        return Ok(connection);
+    }
+
+    let connection = Box::leak(Box::new(connect_system_bus(&key).await?));
+    let mut connections = SYSTEM_BUS_CONNECTIONS.lock().await;
+    Ok(*connections.entry(key).or_insert(connection))
 }
 
 pub async fn call_method_deserialize<T, B>(

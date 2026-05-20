@@ -10,7 +10,8 @@ use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::network::service::NetworkService;
 use crate::publication::PublishedAtCommand;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
+use serde_json::to_string;
 
 pub struct NetworkInterfaceStatistics;
 
@@ -27,7 +28,13 @@ impl Command for NetworkInterfaceStatistics {
         }
 
         match NetworkService::get_interface_stats(name).await {
-            Ok(value) => (true, format!("+NETIFSTAT: {}\r\nOK", value)),
+            Ok(value) => match to_string(&value) {
+                Ok(value) => (true, format!("+NETIFSTAT: {}\r\nOK", value)),
+                Err(error) => {
+                    error!("Network interface stats serialization error: {}", error);
+                    (true, "ERROR".to_string())
+                }
+            },
             Err(error) => {
                 error!("Network interface stats error: {}", error);
                 (true, "ERROR".to_string())
@@ -51,7 +58,13 @@ impl Command for NetworkInterfaceDriverInfo {
         }
 
         match NetworkService::get_interface_driver_info(name).await {
-            Ok(value) => (true, format!("+NETIFDRVINF: {}\r\nOK", value)),
+            Ok(value) => match to_string(&value) {
+                Ok(value) => (true, format!("+NETIFDRVINF: {}\r\nOK", value)),
+                Err(error) => {
+                    error!("Network interface driver info serialization error: {}", error);
+                    (true, "ERROR".to_string())
+                }
+            },
             Err(error) => {
                 error!("Network interface driver info error: {}", error);
                 (true, "ERROR".to_string())

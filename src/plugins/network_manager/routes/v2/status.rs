@@ -26,12 +26,12 @@ pub async fn get_network_status() -> GetNetworkStatusResponses {
         Ok(value) => match serde_json::from_value::<NetworkStatusResponse>(value) {
             Ok(value) => value.into(),
             Err(error) => {
-                tracing::error!("get_network_status invalid response shape: {}", error);
+                log::error!("get_network_status invalid response shape: {}", error);
                 GetNetworkStatusResponses::InternalError
             }
         },
         Err(error) => {
-            tracing::error!("get_network_status: {}", error);
+            log::error!("get_network_status: {}", error);
             GetNetworkStatusResponses::InternalError
         }
     }

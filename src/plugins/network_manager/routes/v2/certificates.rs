@@ -10,7 +10,7 @@ use crate::plugins::files::FilesService;
 use axum::{body::to_bytes, extract::{multipart::MultipartRejection, Multipart, Path}};
 use serde::{Deserialize, Serialize};
 use std::path::Path as FsPath;
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum ListCertificatesResponses {

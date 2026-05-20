@@ -9,7 +9,7 @@ use crate::at_interface::commands::Command;
 use crate::at_interface::fsm::FsmHandle;
 use async_trait::async_trait;
 use tokio::process::Command as TokioCommand;
-use tracing::error;
+use log::error;
 
 pub struct CommunicationCheck;
 

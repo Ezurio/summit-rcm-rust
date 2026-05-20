@@ -32,13 +32,14 @@ use openssl::{
 use tokio::net::{TcpListener, TcpStream};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
-use tracing::{info, warn};
+use log::{info, warn};
 
 #[cfg(feature = "provisioning")]
 use axum::Extension;
 
 #[cfg(feature = "api-docs")]
 use self::openapi::OPENAPI_DOC;
+use crate::config::ServerConfig;
 use crate::plugin_loader;
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::service::{
@@ -47,12 +48,11 @@ use crate::plugins::provisioning::service::{
 use self::pkcs11::convert_pkcs11_uri_to_pem;
 use crate::utils::random_token_hex;
 
-fn server_config_string(section: &str, key: &str, default: &str) -> String {
-    crate::config::ServerConfig::get_string(section, key, default)
-}
-
-fn server_config_bool(section: &str, key: &str, fallback: bool) -> bool {
-    crate::config::ServerConfig::get_bool(section, key, fallback)
+fn default_bind_addr() -> String {
+    let port = ServerConfig::get_string("summit-rcm", "socket_port", "8080");
+    let port = port.trim().trim_matches('"');
+    let port = if port.is_empty() { "8080" } else { port };
+    format!("0.0.0.0:{port}")
 }
 
 #[cfg(feature = "swagger-ui")]
@@ -204,21 +204,21 @@ async fn materialize_pkcs11_uri_as_pem(
 
 async fn tls_config_for_current_mode() -> anyhow::Result<ResolvedWebTlsConfig> {
     let mut cert_path =
-        server_config_string("global", "server.ssl_certificate", "/etc/summit-rcm/ssl/server.crt");
+        ServerConfig::get_string("global", "server.ssl_certificate", "/etc/summit-rcm/ssl/server.crt");
     let mut key_path =
-        server_config_string("global", "server.ssl_private_key", "/etc/summit-rcm/ssl/server.key");
-    let mut ca_path = server_config_string(
+        ServerConfig::get_string("global", "server.ssl_private_key", "/etc/summit-rcm/ssl/server.key");
+    let mut ca_path = ServerConfig::get_string(
         "global",
         "server.ssl_certificate_chain",
         "/etc/summit-rcm/ssl/ca.crt",
     );
     #[cfg(feature = "provisioning")]
     let mut require_client_auth =
-        server_config_bool("summit-rcm", "enable_client_auth", false);
+        ServerConfig::get_bool("summit-rcm", "enable_client_auth", false);
     #[cfg(not(feature = "provisioning"))]
     let require_client_auth =
-        server_config_bool("summit-rcm", "enable_client_auth", false);
-    let ignore_client_cert_time = server_config_bool(
+        ServerConfig::get_bool("summit-rcm", "enable_client_auth", false);
+    let ignore_client_cert_time = ServerConfig::get_bool(
         "summit-rcm",
         "disable_certificate_expiry_verification",
         true,
@@ -403,12 +403,25 @@ async fn serve_tls_connection(
 }
 
 fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuthPolicy) -> Router {
+    let should_log_routes = ServerConfig::get_bool("summit-rcm", "log_routes_loaded", false);
     for publication in crate::publication::builtin_publications() {
         debug_assert!(!publication.name.is_empty());
         if let Some(route_publications) = publication.routes {
             for route_publication in route_publications {
                 if route_publication.auth != auth {
                     continue;
+                }
+                if should_log_routes {
+                    let mut last_path = None;
+                    if let Some(routes) = route_publication.common.metadata {
+                        for route in routes {
+                            if last_path == Some(route.path) {
+                                continue;
+                            }
+                            info!("route loaded: {}", route.path);
+                            last_path = Some(route.path);
+                        }
+                    }
                 }
                 api = (route_publication.common.install)(api);
             }
@@ -430,6 +443,8 @@ fn apply_base_api_publications(mut api: Router) -> Router {
 }
 
 pub fn build_router() -> Router {
+    auth::initialize_sessions_enabled();
+
     #[allow(unused_mut)]
     let mut unauthenticated_api = Router::new();
     unauthenticated_api = apply_route_publications(
@@ -472,7 +487,7 @@ pub fn build_router() -> Router {
         );
 
         #[cfg(feature = "swagger-ui")]
-        let base_router = if crate::config::ServerConfig::get_bool(
+        let base_router = if ServerConfig::get_bool(
             "summit-rcm",
             "rest_api_docs_root_redirect",
             true,
@@ -502,7 +517,7 @@ pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result
     let app = build_router();
     let app = plugin_loader::load_plugins(app);
 
-    let bind_addr = std::env::var("SUMMIT_RCM_BIND").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+    let bind_addr = std::env::var("SUMMIT_RCM_BIND").unwrap_or_else(|_| default_bind_addr());
     let listener = TcpListener::bind(&bind_addr).await?;
     info!("Listening on {}", bind_addr);
 
@@ -517,7 +532,7 @@ pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result
 pub fn spawn_task(
     shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
-    tokio::spawn(async move { run(shutdown).await })
+    tokio::task::spawn_local(async move { run(shutdown).await })
 }
 
 #[cfg(test)]

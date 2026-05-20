@@ -7,7 +7,7 @@ use crate::plugins::firewall::service::{
     ADD_PORT, REMOVE_PORT, FirewallService, ForwardedPort, IP_VERSIONS,
 };
 use axum::Json;
-use tracing::error;
+use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;

@@ -10,7 +10,7 @@ use crate::dbus::DBUS_PROP_IFACE;
 use crate::systemd_unit::{SYSTEMD_BUS_NAME, SYSTEMD_UNIT_IFACE};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
-use tracing::error;
+use log::error;
 use zbus::zvariant::OwnedObjectPath;
 
 use super::super::{

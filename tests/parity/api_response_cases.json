@@ -1339,6 +1339,36 @@
     "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
   },
   {
+    "id": "v2_poweroff_skip",
+    "method": "PUT",
+    "path": "/api/v2/system/power",
+    "body": {"state": "off"},
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
+    "id": "v2_reboot_skip",
+    "method": "PUT",
+    "path": "/api/v2/system/power",
+    "body": {"state": "reboot"},
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
+    "id": "v2_suspend_skip",
+    "method": "PUT",
+    "path": "/api/v2/system/power",
+    "body": {"state": "suspend"},
+    "compare": "exact",
+    "expected_status": 200,
+    "skip_live": true,
+    "skip_reason": "Power control endpoint is destructive and not safe to execute in live parity"
+  },
+  {
     "id": "legacy_wifi_enable_skip",
     "method": "PUT",
     "path": "/wifiEnable?enable=0",

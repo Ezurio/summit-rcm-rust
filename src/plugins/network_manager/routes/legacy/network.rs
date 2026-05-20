@@ -14,7 +14,7 @@ use crate::plugins::network_manager::service::NetworkService;
 use axum::{extract::{Path, Query}, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tracing::error;
+use log::error;
 
 fn unmanaged_hardware_devices() -> Vec<String> {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")

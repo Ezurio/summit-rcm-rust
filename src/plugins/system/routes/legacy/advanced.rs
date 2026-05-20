@@ -5,7 +5,7 @@
 use crate::web::legacy_response::SdcerrCode;
 use crate::web::legacy_response::LegacyOperationResponse;
 use crate::plugins::system::{FACTORY_RESET_SCRIPT, PowerState, SystemService};
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum LegacyPowerActionResponses {

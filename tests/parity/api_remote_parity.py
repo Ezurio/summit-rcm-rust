@@ -8,9 +8,7 @@ import json
 import os
 import shlex
 import signal
-import socket
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,10 +20,13 @@ from api_parity import (
     DEFAULT_STARTUP_TIMEOUT_SECONDS,
     USER_PERMISSIONS,
     ParityError,
+     detect_wireless_interface,
     find_readback_case,
+    path_uses_wireless_interface_placeholder,
     parse_plugin_names,
     python_wrapper_command,
     request_or_error,
+    resolve_wireless_interface_path,
     response_cookie,
     response_pair_mismatch,
     run_checked,
@@ -38,30 +39,17 @@ from api_parity import (
 
 DEFAULT_REMOTE_RUST_PORT = 18443
 DEFAULT_REMOTE_PYTHON_PORT = 28443
-
-
-@dataclass
-class ManagedProcess:
-    name: str
-    process: subprocess.Popen[str]
-
-    def stop(self) -> None:
-        if self.process.poll() is not None:
-            return
-        self.process.send_signal(signal.SIGTERM)
-        try:
-            self.process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=5)
-
-    def output(self) -> str:
-        if self.process.stdout is None:
-            return ""
-        try:
-            return self.process.stdout.read()
-        except Exception:
-            return ""
+DIRECT_HTTPS_HOST = os.environ.get("SUMMIT_API_HOST", "test.summit.com")
+DIRECT_HTTPS_CA = Path(
+    os.environ.get(
+        "SUMMIT_API_CA",
+        str(Path(__file__).resolve().parents[2].parent.parent / "board/configs-common/keys/rest-server/ca.crt"),
+    )
+)
+TARGET_SERVER_CERT_PATH = "/etc/summit-rcm/ssl/server.crt"
+TARGET_SERVER_KEY_PATH = "/etc/summit-rcm/ssl/server.key"
+TARGET_SERVER_CA_PATH = "/etc/summit-rcm/ssl/ca.crt"
+DEFAULT_LOGIN_BODY = {"username": "root", "password": "summit"}
 
 
 @dataclass
@@ -117,10 +105,12 @@ def shell_quote(value: str) -> str:
     return shlex.quote(value)
 
 
-def reserve_local_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+def ssh_target_host(target: str) -> str:
+    return target.rsplit("@", 1)[-1]
+
+
+def https_base_url(port: int) -> str:
+    return f"https://{DIRECT_HTTPS_HOST}:{port}"
 
 
 def ssh_base_command(target: str, ssh_options: list[str]) -> list[str]:
@@ -132,7 +122,10 @@ def ssh_base_command(target: str, ssh_options: list[str]) -> list[str]:
 
 
 def ssh_shell_command(target: str, ssh_options: list[str], remote_command: str) -> list[str]:
-    return [*ssh_base_command(target, ssh_options), "sh", "-lc", remote_command]
+    return [
+        *ssh_base_command(target, ssh_options),
+        f"sh -lc {shell_quote(remote_command)}",
+    ]
 
 
 def run_ssh_checked(
@@ -183,36 +176,6 @@ def upload_text(target: str, ssh_options: list[str], remote_path: str, content: 
 
 def ensure_remote_directory(target: str, ssh_options: list[str], remote_path: str) -> None:
     run_ssh_checked(target, ssh_options, f"mkdir -p {shell_quote(remote_path)}")
-
-
-def start_tunnel(
-    name: str,
-    target: str,
-    ssh_options: list[str],
-    *,
-    local_port: int,
-    remote_port: int,
-) -> ManagedProcess:
-    command = ["ssh"]
-    for option in ssh_options:
-        command.extend(["-o", option])
-    command.extend(
-        [
-            "-o",
-            "ExitOnForwardFailure=yes",
-            "-N",
-            "-L",
-            f"{local_port}:127.0.0.1:{remote_port}",
-            target,
-        ]
-    )
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    return ManagedProcess(name, process)
 
 
 def start_remote_process(
@@ -311,38 +274,9 @@ def render_server_config(
             "[global]",
             f"server.ssl_private_key = {key_path}",
             f"server.ssl_certificate = {cert_path}",
-            f"server.ssl_certificate_chain = {cert_path}",
             "",
         ]
     )
-
-
-def generate_tls_materials(temp_dir: Path) -> tuple[Path, Path]:
-    cert_path = temp_dir / "server.crt"
-    key_path = temp_dir / "server.key"
-    run_checked(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-nodes",
-            "-keyout",
-            str(key_path),
-            "-out",
-            str(cert_path),
-            "-days",
-            "1",
-            "-subj",
-            "/CN=127.0.0.1",
-            "-addext",
-            "subjectAltName=DNS:localhost,IP:127.0.0.1",
-            "-addext",
-            "extendedKeyUsage=serverAuth",
-        ]
-    )
-    return cert_path, key_path
 
 
 def is_destructive_skip(case: dict[str, Any]) -> bool:
@@ -350,19 +284,211 @@ def is_destructive_skip(case: dict[str, Any]) -> bool:
     return "not safe to execute" in reason or "destructive" in reason
 
 
-def is_terminal_destructive_case(case: dict[str, Any]) -> bool:
+def power_action_for_case(case: dict[str, Any]) -> str:
     path = str(case.get("path", "")).lower()
-    return any(token in path for token in ("factoryreset", "poweroff", "reboot", "suspend"))
+    if path == "/api/v2/system/power":
+        body = case.get("body")
+        if isinstance(body, dict):
+            return str(body.get("state", "")).lower()
+    return path
+
+
+def is_terminal_destructive_case(case: dict[str, Any]) -> bool:
+    action = power_action_for_case(case)
+    return any(token in action for token in ("factoryreset", "poweroff", "reboot", "suspend"))
 
 
 def is_reboot_like_case(case: dict[str, Any]) -> bool:
-    path = str(case.get("path", "")).lower()
-    return any(token in path for token in ("factoryreset", "reboot"))
+    return "reboot" in power_action_for_case(case)
 
 
 def is_power_loss_case(case: dict[str, Any]) -> bool:
-    path = str(case.get("path", "")).lower()
-    return any(token in path for token in ("poweroff", "suspend"))
+    action = power_action_for_case(case)
+    return any(token in action for token in ("poweroff", "suspend"))
+
+
+def cookie_scope_for_path(path: str) -> str:
+    return "v2" if str(path).startswith("/api/v2/") else "legacy"
+
+
+def is_login_request(case: dict[str, Any]) -> bool:
+    path = str(case.get("path", ""))
+    return case.get("method", "").upper() == "POST" and path in {"/login", "/api/v2/login"}
+
+
+def is_logout_request(case: dict[str, Any]) -> bool:
+    path = str(case.get("path", ""))
+    return case.get("method", "").upper() == "DELETE" and path in {"/login", "/api/v2/login"}
+
+
+def default_cookie_key_for_case(case: dict[str, Any]) -> str | None:
+    return "__default__"
+
+
+def default_store_cookie_key_for_case(case: dict[str, Any]) -> str | None:
+    return "__default__"
+
+
+def request_cookie_value(
+    cookies: dict[str, str],
+    case: dict[str, Any],
+) -> str | None:
+    cookie_key = case.get("use_cookie_from") or default_cookie_key_for_case(case)
+    if not cookie_key:
+        return None
+    return cookies.get(cookie_key)
+
+
+def store_cookie_value(
+    cookies: dict[str, str],
+    case: dict[str, Any],
+    response: Any,
+) -> bool:
+    cookie_key = case.get("store_cookie_as") or default_store_cookie_key_for_case(case)
+    if not cookie_key:
+        return True
+    cookie = response_cookie(response)
+    if not cookie:
+        if is_login_request(case) and cookie_key in cookies:
+            return True
+        return False
+    cookies[cookie_key] = cookie
+    return True
+
+
+def clear_cookie_value(cookies: dict[str, str], case: dict[str, Any]) -> None:
+    cookie_key = case.get("use_cookie_from") or default_cookie_key_for_case(case)
+    if cookie_key:
+        cookies.pop(cookie_key, None)
+
+
+def clear_all_cookie_values(cookies: dict[str, str]) -> None:
+    cookies.clear()
+
+
+def attempt_fresh_direct_login(
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_ip: str,
+    python_ip: str,
+    timeout_seconds: float,
+    cookie_key: str,
+    rust_cookies: dict[str, str],
+    python_cookies: dict[str, str],
+    login_path: str,
+) -> str | None:
+    clear_all_cookie_values(rust_cookies)
+    clear_all_cookie_values(python_cookies)
+    return attempt_direct_login(
+        rust_base_url=rust_base_url,
+        python_base_url=python_base_url,
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        timeout_seconds=timeout_seconds,
+        cookie_key=cookie_key,
+        rust_cookies=rust_cookies,
+        python_cookies=python_cookies,
+        login_path=login_path,
+    )
+
+
+def direct_login_path_for_case(case: dict[str, Any]) -> str:
+    return "/api/v2/login" if cookie_scope_for_path(case.get("path", "")) == "v2" else "/login"
+
+
+def attempt_direct_login(
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_ip: str,
+    python_ip: str,
+    timeout_seconds: float,
+    cookie_key: str,
+    rust_cookies: dict[str, str],
+    python_cookies: dict[str, str],
+    login_path: str,
+) -> str | None:
+    rust_login, rust_error = request_or_error(
+        f"{rust_base_url}{login_path}",
+        "POST",
+        body=DEFAULT_LOGIN_BODY,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=rust_ip,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    python_login, python_error = request_or_error(
+        f"{python_base_url}{login_path}",
+        "POST",
+        body=DEFAULT_LOGIN_BODY,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=python_ip,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if rust_error or python_error:
+        return f"auto-login failed, rust={rust_error or 'ok'}, python={python_error or 'ok'}"
+
+    rust_cookie = response_cookie(rust_login)
+    python_cookie = response_cookie(python_login)
+    if not rust_cookie or not python_cookie:
+        return f"auto-login missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
+
+    rust_cookies[cookie_key] = rust_cookie
+    python_cookies[cookie_key] = python_cookie
+    return None
+
+
+def wait_for_direct_service(
+    name: str,
+    base_url: str,
+    *,
+    connect_host: str,
+    request_timeout_seconds: float,
+    startup_timeout_seconds: float,
+) -> None:
+    deadline = time.time() + startup_timeout_seconds
+    last_error = ""
+    while time.time() < deadline:
+        response, error = request_or_error(
+            f"{base_url}/version",
+            "GET",
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=connect_host,
+            timeout_seconds=request_timeout_seconds,
+            read_body=False,
+        )
+        if error is None and response is not None and response.status in {200, 401, 403, 404, 500}:
+            return
+        last_error = error or f"status {response.status}"
+        time.sleep(0.25)
+    raise ParityError(f"timed out waiting for {name} at {base_url}: {last_error}")
+
+
+def wait_for_direct_recovery(
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_ip: str,
+    python_ip: str,
+    request_timeout_seconds: float,
+    startup_timeout_seconds: float,
+) -> None:
+    wait_for_direct_service(
+        "rust",
+        rust_base_url,
+        connect_host=rust_ip,
+        request_timeout_seconds=request_timeout_seconds,
+        startup_timeout_seconds=startup_timeout_seconds,
+    )
+    wait_for_direct_service(
+        "python",
+        python_base_url,
+        connect_host=python_ip,
+        request_timeout_seconds=request_timeout_seconds,
+        startup_timeout_seconds=startup_timeout_seconds,
+    )
 
 
 def filter_cases(cases: list[dict[str, Any]], requested_case_ids: list[str]) -> list[dict[str, Any]]:
@@ -383,6 +509,7 @@ def order_cases_for_remote_run(cases: list[dict[str, Any]]) -> list[dict[str, An
         cases,
         key=lambda case: (
             is_terminal_destructive_case(case),
+            is_reboot_like_case(case),
             str(case.get("id", "")),
         ),
     )
@@ -443,8 +570,6 @@ def create_remote_runtime_files(
     target: str,
     ssh_options: list[str],
     *,
-    cert_text: str,
-    key_text: str,
     settings_content: str,
     provisioning_state_content: str,
     config_name: str,
@@ -454,8 +579,8 @@ def create_remote_runtime_files(
 ) -> RemoteRuntimeFiles:
     remote_dir = remote_temp_dir(target, ssh_options)
     plugin_dir = f"{remote_dir}/plugins"
-    cert_path = f"{remote_dir}/server.crt"
-    key_path = f"{remote_dir}/server.key"
+    cert_path = TARGET_SERVER_CERT_PATH
+    key_path = TARGET_SERVER_KEY_PATH
     settings_path = f"{remote_dir}/summit-rcm-settings.ini"
     provisioning_state_path = f"{remote_dir}/provisioning-state"
     config_path = f"{remote_dir}/{config_name}"
@@ -471,8 +596,6 @@ def create_remote_runtime_files(
     )
 
     ensure_remote_directory(target, ssh_options, plugin_dir)
-    upload_text(target, ssh_options, cert_path, cert_text)
-    upload_text(target, ssh_options, key_path, key_text)
     upload_text(target, ssh_options, settings_path, settings_content)
     upload_text(target, ssh_options, provisioning_state_path, provisioning_state_content)
     upload_text(target, ssh_options, config_path, config_content)
@@ -525,83 +648,65 @@ def run_remote_terminal_case_once(
     enabled_plugins: list[str],
     python_runtime: bool,
 ) -> TerminalCaseOutcome:
-    local_port = reserve_local_port()
+    settings_content = render_settings_file("summit")
+    provisioning_state_content = "2\n"
 
-    with tempfile.TemporaryDirectory(prefix=f"api-remote-terminal-{label}-") as temp_dir_raw:
-        temp_dir = Path(temp_dir_raw)
-        cert_path, key_path = generate_tls_materials(temp_dir)
-        cert_text = cert_path.read_text()
-        key_text = key_path.read_text()
-        settings_content = render_settings_file("summit")
-        provisioning_state_content = "2\n"
+    remote_files = create_remote_runtime_files(
+        target,
+        ssh_options,
+        settings_content=settings_content,
+        provisioning_state_content=provisioning_state_content,
+        config_name=config_name,
+        port=remote_port,
+        sessions_on=sessions_on,
+        enabled_plugins=enabled_plugins,
+    )
 
-        remote_files = create_remote_runtime_files(
+    runtime: RemoteManagedProcess | None = None
+    try:
+        runtime_env = {
+            "SUMMIT_RCM_BIND": f"0.0.0.0:{remote_port}",
+            "SUMMIT_RCM_SERVER_CONF_FILE": remote_files.config_path,
+            "SUMMIT_RCM_SETTINGS_FILE": remote_files.settings_path,
+            "SUMMIT_RCM_PROVISIONING_STATE_FILE": remote_files.provisioning_state_path,
+            **env_extra,
+        }
+        if python_runtime:
+            runtime_env.setdefault("DOCS_GENERATION", "True")
+
+        runtime = start_remote_process(
+            label,
             target,
             ssh_options,
-            cert_text=cert_text,
-            key_text=key_text,
-            settings_content=settings_content,
-            provisioning_state_content=provisioning_state_content,
-            config_name=config_name,
-            port=remote_port,
-            sessions_on=sessions_on,
-            enabled_plugins=enabled_plugins,
+            pid_file=remote_files.pid_file,
+            command=command,
+            env=runtime_env,
+            workdir=workdir,
         )
 
-        tunnel: ManagedProcess | None = None
-        runtime: RemoteManagedProcess | None = None
-        try:
-            tunnel = start_tunnel(
-                f"{label}-tunnel",
-                target,
-                ssh_options,
-                local_port=local_port,
-                remote_port=remote_port,
-            )
-
-            runtime_env = {
-                "SUMMIT_RCM_BIND": f"127.0.0.1:{remote_port}",
-                "SUMMIT_RCM_SERVER_CONF_FILE": remote_files.config_path,
-                "SUMMIT_RCM_SETTINGS_FILE": remote_files.settings_path,
-                "SUMMIT_RCM_PROVISIONING_STATE_FILE": remote_files.provisioning_state_path,
-                **env_extra,
-            }
-            if python_runtime:
-                runtime_env.setdefault("DOCS_GENERATION", "True")
-
-            runtime = start_remote_process(
-                label,
-                target,
-                ssh_options,
-                pid_file=remote_files.pid_file,
-                command=command,
-                env=runtime_env,
-                workdir=workdir,
-            )
-
-            base_url = wait_for_server(
-                label,
-                f"https://127.0.0.1:{local_port}",
-                runtime,
-                ca_cert_path=cert_path,
-                request_timeout_seconds=request_timeout_seconds,
-                startup_timeout_seconds=startup_timeout_seconds,
-            )
-            response, error = request_or_error(
-                f"{base_url}{case['path']}",
-                case["method"],
-                body=case.get("body"),
-                ca_cert_path=cert_path,
-                timeout_seconds=float(case.get("timeout_seconds", request_timeout_seconds)),
-                read_body=should_read_body(case),
-            )
-            return evaluate_terminal_case_outcome(case, response, error)
-        finally:
-            if runtime is not None:
-                runtime.stop()
-            if tunnel is not None:
-                tunnel.stop()
-            run_ssh_best_effort(target, ssh_options, f"rm -rf {shell_quote(remote_files.remote_dir)}")
+        base_url = wait_for_server(
+            label,
+            https_base_url(remote_port),
+            runtime,
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=ssh_target_host(target),
+            request_timeout_seconds=request_timeout_seconds,
+            startup_timeout_seconds=startup_timeout_seconds,
+        )
+        response, error = request_or_error(
+            f"{base_url}{case['path']}",
+            case["method"],
+            body=case.get("body"),
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=ssh_target_host(target),
+            timeout_seconds=float(case.get("timeout_seconds", request_timeout_seconds)),
+            read_body=should_read_body(case),
+        )
+        return evaluate_terminal_case_outcome(case, response, error)
+    finally:
+        if runtime is not None:
+            runtime.stop()
+        run_ssh_best_effort(target, ssh_options, f"rm -rf {shell_quote(remote_files.remote_dir)}")
 
 
 def run_remote_terminal_case_parity(
@@ -637,7 +742,7 @@ def run_remote_terminal_case_parity(
         workdir=rust_workdir,
         env_extra=rust_env_extra,
         remote_port=remote_rust_port,
-        config_name="summit-rcm-rust.ini",
+        config_name="summit-rcm.ini",
         startup_timeout_seconds=startup_timeout_seconds,
         request_timeout_seconds=request_timeout_seconds,
         sessions_on=sessions_on,
@@ -720,205 +825,198 @@ def run_remote_response_cases(
         return
 
     if shared_cases:
-        rust_local_port = reserve_local_port()
-        python_local_port = reserve_local_port()
+        settings_content = render_settings_file("summit")
+        provisioning_state_content = "2\n"
 
-        with tempfile.TemporaryDirectory(prefix="api-remote-parity-") as temp_dir_raw:
-            temp_dir = Path(temp_dir_raw)
-            cert_path, key_path = generate_tls_materials(temp_dir)
-            settings_content = render_settings_file("summit")
-            provisioning_state_content = "2\n"
+        rust_remote_dir = remote_temp_dir(rust_target, ssh_options)
+        python_remote_dir = remote_temp_dir(python_target, ssh_options)
 
-            rust_remote_dir = remote_temp_dir(rust_target, ssh_options)
-            python_remote_dir = remote_temp_dir(python_target, ssh_options)
+        rust_remote_plugin_dir = f"{rust_remote_dir}/plugins"
+        python_remote_plugin_dir = f"{python_remote_dir}/plugins"
+        rust_remote_settings = f"{rust_remote_dir}/summit-rcm-settings.ini"
+        rust_remote_state = f"{rust_remote_dir}/provisioning-state"
+        rust_remote_config = f"{rust_remote_dir}/summit-rcm.ini"
+        rust_remote_pid = f"{rust_remote_dir}/runtime.pid"
 
-            rust_remote_plugin_dir = f"{rust_remote_dir}/plugins"
-            python_remote_plugin_dir = f"{python_remote_dir}/plugins"
-            rust_remote_cert = f"{rust_remote_dir}/server.crt"
-            rust_remote_key = f"{rust_remote_dir}/server.key"
-            rust_remote_settings = f"{rust_remote_dir}/summit-rcm-settings.ini"
-            rust_remote_state = f"{rust_remote_dir}/provisioning-state"
-            rust_remote_config = f"{rust_remote_dir}/summit-rcm-rust.ini"
-            rust_remote_pid = f"{rust_remote_dir}/runtime.pid"
+        python_remote_settings = f"{python_remote_dir}/summit-rcm-settings.ini"
+        python_remote_state = f"{python_remote_dir}/provisioning-state"
+        python_remote_config = f"{python_remote_dir}/summit-rcm.ini"
+        python_remote_pid = f"{python_remote_dir}/runtime.pid"
 
-            python_remote_cert = f"{python_remote_dir}/server.crt"
-            python_remote_key = f"{python_remote_dir}/server.key"
-            python_remote_settings = f"{python_remote_dir}/summit-rcm-settings.ini"
-            python_remote_state = f"{python_remote_dir}/provisioning-state"
-            python_remote_config = f"{python_remote_dir}/summit-rcm.ini"
-            python_remote_pid = f"{python_remote_dir}/runtime.pid"
+        rust_config = render_server_config(
+            port=remote_rust_port,
+            sessions_on=sessions_on,
+            enabled_plugins=enabled_plugins,
+            plugin_dir=rust_remote_plugin_dir,
+            cert_path=TARGET_SERVER_CERT_PATH,
+            key_path=TARGET_SERVER_KEY_PATH,
+        )
+        python_config = render_server_config(
+            port=remote_python_port,
+            sessions_on=sessions_on,
+            enabled_plugins=enabled_plugins,
+            plugin_dir=python_remote_plugin_dir,
+            cert_path=TARGET_SERVER_CERT_PATH,
+            key_path=TARGET_SERVER_KEY_PATH,
+        )
 
-            rust_config = render_server_config(
-                port=remote_rust_port,
-                sessions_on=sessions_on,
-                enabled_plugins=enabled_plugins,
-                plugin_dir=rust_remote_plugin_dir,
-                cert_path=rust_remote_cert,
-                key_path=rust_remote_key,
+        rust: RemoteManagedProcess | None = None
+        python: RemoteManagedProcess | None = None
+
+        try:
+            ensure_remote_directory(rust_target, ssh_options, rust_remote_plugin_dir)
+            ensure_remote_directory(python_target, ssh_options, python_remote_plugin_dir)
+
+            upload_text(rust_target, ssh_options, rust_remote_settings, settings_content)
+            upload_text(rust_target, ssh_options, rust_remote_state, provisioning_state_content)
+            upload_text(rust_target, ssh_options, rust_remote_config, rust_config)
+
+            upload_text(python_target, ssh_options, python_remote_settings, settings_content)
+            upload_text(python_target, ssh_options, python_remote_state, provisioning_state_content)
+            upload_text(python_target, ssh_options, python_remote_config, python_config)
+
+            rust_runtime_env = {
+                "SUMMIT_RCM_BIND": f"0.0.0.0:{remote_rust_port}",
+                "SUMMIT_RCM_SERVER_CONF_FILE": rust_remote_config,
+                "SUMMIT_RCM_SETTINGS_FILE": rust_remote_settings,
+                "SUMMIT_RCM_PROVISIONING_STATE_FILE": rust_remote_state,
+                **rust_env_extra,
+            }
+            python_runtime_env = {
+                "DOCS_GENERATION": "True",
+                "SUMMIT_RCM_SERVER_CONF_FILE": python_remote_config,
+                "SUMMIT_RCM_SETTINGS_FILE": python_remote_settings,
+                "SUMMIT_RCM_PROVISIONING_STATE_FILE": python_remote_state,
+                **python_env_extra,
+            }
+
+            rust = start_remote_process(
+                "rust",
+                rust_target,
+                ssh_options,
+                pid_file=rust_remote_pid,
+                command=rust_command,
+                env=rust_runtime_env,
+                workdir=rust_workdir,
             )
-            python_config = render_server_config(
-                port=remote_python_port,
-                sessions_on=sessions_on,
-                enabled_plugins=enabled_plugins,
-                plugin_dir=python_remote_plugin_dir,
-                cert_path=python_remote_cert,
-                key_path=python_remote_key,
+            python = start_remote_process(
+                "python",
+                python_target,
+                ssh_options,
+                pid_file=python_remote_pid,
+                command=python_command,
+                env=python_runtime_env,
+                workdir=python_workdir,
             )
 
-            rust: RemoteManagedProcess | None = None
-            python: RemoteManagedProcess | None = None
-            rust_tunnel: ManagedProcess | None = None
-            python_tunnel: ManagedProcess | None = None
+            rust_base_url = wait_for_server(
+                "rust",
+                https_base_url(remote_rust_port),
+                rust,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=ssh_target_host(rust_target),
+                request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+            python_base_url = wait_for_server(
+                "python",
+                https_base_url(remote_python_port),
+                python,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=ssh_target_host(python_target),
+                request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
 
-            try:
-                ensure_remote_directory(rust_target, ssh_options, rust_remote_plugin_dir)
-                ensure_remote_directory(python_target, ssh_options, python_remote_plugin_dir)
+            failures: list[str] = []
+            rust_cookies: dict[str, str] = {}
+            python_cookies: dict[str, str] = {}
+            rust_wireless_interface = detect_wireless_interface(
+                rust_base_url,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=ssh_target_host(rust_target),
+                timeout_seconds=request_timeout_seconds,
+            )
+            python_wireless_interface = detect_wireless_interface(
+                python_base_url,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=ssh_target_host(python_target),
+                timeout_seconds=request_timeout_seconds,
+            )
 
-                rust_cert_text = cert_path.read_text()
-                rust_key_text = key_path.read_text()
-                upload_text(rust_target, ssh_options, rust_remote_cert, rust_cert_text)
-                upload_text(rust_target, ssh_options, rust_remote_key, rust_key_text)
-                upload_text(rust_target, ssh_options, rust_remote_settings, settings_content)
-                upload_text(rust_target, ssh_options, rust_remote_state, provisioning_state_content)
-                upload_text(rust_target, ssh_options, rust_remote_config, rust_config)
+            for case in shared_cases:
+                rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
+                python_case_path = resolve_wireless_interface_path(case["path"], python_wireless_interface)
+                cookie_key = case.get("use_cookie_from")
+                read_body = should_read_body(case)
+                case_timeout_seconds = float(case.get("timeout_seconds", request_timeout_seconds))
+                readback_case = None
+                rust_readback_before = None
+                python_readback_before = None
 
-                python_cert_text = cert_path.read_text()
-                python_key_text = key_path.read_text()
-                upload_text(python_target, ssh_options, python_remote_cert, python_cert_text)
-                upload_text(python_target, ssh_options, python_remote_key, python_key_text)
-                upload_text(python_target, ssh_options, python_remote_settings, settings_content)
-                upload_text(python_target, ssh_options, python_remote_state, provisioning_state_content)
-                upload_text(python_target, ssh_options, python_remote_config, python_config)
-
-                rust_tunnel = start_tunnel(
-                    "rust-tunnel",
-                    rust_target,
-                    ssh_options,
-                    local_port=rust_local_port,
-                    remote_port=remote_rust_port,
-                )
-                python_tunnel = start_tunnel(
-                    "python-tunnel",
-                    python_target,
-                    ssh_options,
-                    local_port=python_local_port,
-                    remote_port=remote_python_port,
-                )
-
-                rust_runtime_env = {
-                    "SUMMIT_RCM_BIND": f"127.0.0.1:{remote_rust_port}",
-                    "SUMMIT_RCM_SERVER_CONF_FILE": rust_remote_config,
-                    "SUMMIT_RCM_SETTINGS_FILE": rust_remote_settings,
-                    "SUMMIT_RCM_PROVISIONING_STATE_FILE": rust_remote_state,
-                    **rust_env_extra,
-                }
-                python_runtime_env = {
-                    "DOCS_GENERATION": "True",
-                    "SUMMIT_RCM_SERVER_CONF_FILE": python_remote_config,
-                    "SUMMIT_RCM_SETTINGS_FILE": python_remote_settings,
-                    "SUMMIT_RCM_PROVISIONING_STATE_FILE": python_remote_state,
-                    **python_env_extra,
-                }
-
-                rust = start_remote_process(
-                    "rust",
-                    rust_target,
-                    ssh_options,
-                    pid_file=rust_remote_pid,
-                    command=rust_command,
-                    env=rust_runtime_env,
-                    workdir=rust_workdir,
-                )
-                python = start_remote_process(
-                    "python",
-                    python_target,
-                    ssh_options,
-                    pid_file=python_remote_pid,
-                    command=python_command,
-                    env=python_runtime_env,
-                    workdir=python_workdir,
-                )
-
-                rust_base_url = wait_for_server(
-                    "rust",
-                    f"https://127.0.0.1:{rust_local_port}",
-                    rust,
-                    ca_cert_path=cert_path,
-                    request_timeout_seconds=request_timeout_seconds,
-                    startup_timeout_seconds=startup_timeout_seconds,
-                )
-                python_base_url = wait_for_server(
-                    "python",
-                    f"https://127.0.0.1:{python_local_port}",
-                    python,
-                    ca_cert_path=cert_path,
-                    request_timeout_seconds=request_timeout_seconds,
-                    startup_timeout_seconds=startup_timeout_seconds,
-                )
-
-                failures: list[str] = []
-                rust_cookies: dict[str, str] = {}
-                python_cookies: dict[str, str] = {}
-
-                for case in shared_cases:
-                    cookie_key = case.get("use_cookie_from")
-                    read_body = should_read_body(case)
-                    case_timeout_seconds = float(case.get("timeout_seconds", request_timeout_seconds))
-                    readback_case = None
-                    rust_readback_before = None
-                    python_readback_before = None
-
-                    if should_verify_readback(case):
-                        readback_case = find_readback_case(case, shared_cases)
-                        if readback_case is not None:
-                            readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
-                            readback_timeout_seconds = float(
-                                readback_case.get("timeout_seconds", request_timeout_seconds)
+                if should_verify_readback(case):
+                    readback_case = find_readback_case(case, shared_cases)
+                    if readback_case is not None:
+                        rust_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            rust_wireless_interface,
+                        )
+                        python_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            python_wireless_interface,
+                        )
+                        readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
+                        readback_timeout_seconds = float(
+                            readback_case.get("timeout_seconds", request_timeout_seconds)
+                        )
+                        readback_read_body = should_read_body(readback_case)
+                        rust_readback_before, rust_readback_before_error = request_or_error(
+                            f"{rust_base_url}{rust_readback_path}",
+                            readback_case["method"],
+                            body=readback_case.get("body"),
+                            cookie=rust_cookies.get(readback_cookie_key)
+                            if readback_cookie_key
+                            else None,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=ssh_target_host(rust_target),
+                            timeout_seconds=readback_timeout_seconds,
+                            read_body=readback_read_body,
+                        )
+                        python_readback_before, python_readback_before_error = request_or_error(
+                            f"{python_base_url}{python_readback_path}",
+                            readback_case["method"],
+                            body=readback_case.get("body"),
+                            cookie=python_cookies.get(readback_cookie_key)
+                            if readback_cookie_key
+                            else None,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=ssh_target_host(python_target),
+                            timeout_seconds=readback_timeout_seconds,
+                            read_body=readback_read_body,
+                        )
+                        if rust_readback_before_error or python_readback_before_error:
+                            failures.append(
+                                f"{case['id']}: pre-readback failed, rust={rust_readback_before_error or 'ok'}, python={python_readback_before_error or 'ok'}"
                             )
-                            readback_read_body = should_read_body(readback_case)
-                            rust_readback_before, rust_readback_before_error = request_or_error(
-                                f"{rust_base_url}{readback_case['path']}",
-                                readback_case["method"],
-                                body=readback_case.get("body"),
-                                cookie=rust_cookies.get(readback_cookie_key)
-                                if readback_cookie_key
-                                else None,
-                                ca_cert_path=cert_path,
-                                timeout_seconds=readback_timeout_seconds,
-                                read_body=readback_read_body,
-                            )
-                            python_readback_before, python_readback_before_error = request_or_error(
-                                f"{python_base_url}{readback_case['path']}",
-                                readback_case["method"],
-                                body=readback_case.get("body"),
-                                cookie=python_cookies.get(readback_cookie_key)
-                                if readback_cookie_key
-                                else None,
-                                ca_cert_path=cert_path,
-                                timeout_seconds=readback_timeout_seconds,
-                                read_body=readback_read_body,
-                            )
-                            if rust_readback_before_error or python_readback_before_error:
-                                failures.append(
-                                    f"{case['id']}: pre-readback failed, rust={rust_readback_before_error or 'ok'}, python={python_readback_before_error or 'ok'}"
-                                )
-                                continue
+                            continue
 
                     rust_response, rust_error = request_or_error(
-                        f"{rust_base_url}{case['path']}",
+                        f"{rust_base_url}{rust_case_path}",
                         case["method"],
                         body=case.get("body"),
                         cookie=rust_cookies.get(cookie_key) if cookie_key else None,
-                        ca_cert_path=cert_path,
+                        ca_cert_path=DIRECT_HTTPS_CA,
+                        connect_host=ssh_target_host(rust_target),
                         timeout_seconds=case_timeout_seconds,
                         read_body=read_body,
                     )
                     python_response, python_error = request_or_error(
-                        f"{python_base_url}{case['path']}",
+                        f"{python_base_url}{python_case_path}",
                         case["method"],
                         body=case.get("body"),
                         cookie=python_cookies.get(cookie_key) if cookie_key else None,
-                        ca_cert_path=cert_path,
+                        ca_cert_path=DIRECT_HTTPS_CA,
+                        connect_host=ssh_target_host(python_target),
                         timeout_seconds=case_timeout_seconds,
                         read_body=read_body,
                     )
@@ -958,30 +1056,40 @@ def run_remote_response_cases(
                         continue
 
                     if readback_case is not None:
+                        rust_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            rust_wireless_interface,
+                        )
+                        python_readback_path = resolve_wireless_interface_path(
+                            readback_case["path"],
+                            python_wireless_interface,
+                        )
                         readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
                         readback_timeout_seconds = float(
                             readback_case.get("timeout_seconds", request_timeout_seconds)
                         )
                         readback_read_body = should_read_body(readback_case)
                         rust_readback_after, rust_readback_after_error = request_or_error(
-                            f"{rust_base_url}{readback_case['path']}",
+                            f"{rust_base_url}{rust_readback_path}",
                             readback_case["method"],
                             body=readback_case.get("body"),
                             cookie=rust_cookies.get(readback_cookie_key)
                             if readback_cookie_key
                             else None,
-                            ca_cert_path=cert_path,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=ssh_target_host(rust_target),
                             timeout_seconds=readback_timeout_seconds,
                             read_body=readback_read_body,
                         )
                         python_readback_after, python_readback_after_error = request_or_error(
-                            f"{python_base_url}{readback_case['path']}",
+                            f"{python_base_url}{python_readback_path}",
                             readback_case["method"],
                             body=readback_case.get("body"),
                             cookie=python_cookies.get(readback_cookie_key)
                             if readback_cookie_key
                             else None,
-                            ca_cert_path=cert_path,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=ssh_target_host(python_target),
                             timeout_seconds=readback_timeout_seconds,
                             read_body=readback_read_body,
                         )
@@ -1033,23 +1141,19 @@ def run_remote_response_cases(
                                 failures.append(mismatch)
                                 continue
 
-                    print(f"PASS {case['id']}: {case['method']} {case['path']}")
+                    print(f"PASS {case['id']}: {case['method']} {rust_case_path}")
 
-                if failures:
-                    raise ParityError("Remote response parity failed:\n" + "\n".join(failures))
+            if failures:
+                raise ParityError("Remote response parity failed:\n" + "\n".join(failures))
 
-                print("Remote shared response parity passed.")
-            finally:
-                if rust is not None:
-                    rust.stop()
-                if python is not None:
-                    python.stop()
-                if rust_tunnel is not None:
-                    rust_tunnel.stop()
-                if python_tunnel is not None:
-                    python_tunnel.stop()
-                run_ssh_best_effort(rust_target, ssh_options, f"rm -rf {shell_quote(rust_remote_dir)}")
-                run_ssh_best_effort(python_target, ssh_options, f"rm -rf {shell_quote(python_remote_dir)}")
+            print("Remote shared response parity passed.")
+        finally:
+            if rust is not None:
+                rust.stop()
+            if python is not None:
+                python.stop()
+            run_ssh_best_effort(rust_target, ssh_options, f"rm -rf {shell_quote(rust_remote_dir)}")
+            run_ssh_best_effort(python_target, ssh_options, f"rm -rf {shell_quote(python_remote_dir)}")
 
     for case in terminal_cases:
         run_remote_terminal_case_parity(
@@ -1074,14 +1178,391 @@ def run_remote_response_cases(
     print("Remote response parity passed.")
 
 
+def run_direct_response_cases(
+    cases: list[dict[str, Any]],
+    *,
+    rust_ip: str,
+    python_ip: str,
+    port: int,
+    request_timeout_seconds: float,
+    startup_timeout_seconds: float,
+    respect_skip_live: bool,
+    allow_destructive: bool,
+) -> None:
+    cases = order_cases_for_remote_run(cases)
+    failures: list[str] = []
+    rust_cookies: dict[str, str] = {}
+    python_cookies: dict[str, str] = {}
+    rust_base_url = https_base_url(port)
+    python_base_url = https_base_url(port)
+    rust_wireless_interface: str | None = None
+    python_wireless_interface: str | None = None
+
+    for case in cases:
+        cookie_key = case.get("use_cookie_from") or default_cookie_key_for_case(case)
+        if path_uses_wireless_interface_placeholder(case["path"]) and (
+            rust_wireless_interface is None or python_wireless_interface is None
+        ):
+            if request_cookie_value(rust_cookies, case) is None or request_cookie_value(python_cookies, case) is None:
+                login_error = attempt_direct_login(
+                    rust_base_url=rust_base_url,
+                    python_base_url=python_base_url,
+                    rust_ip=rust_ip,
+                    python_ip=python_ip,
+                    timeout_seconds=request_timeout_seconds,
+                    cookie_key=cookie_key,
+                    rust_cookies=rust_cookies,
+                    python_cookies=python_cookies,
+                    login_path=direct_login_path_for_case(case),
+                )
+                if login_error is not None:
+                    failures.append(f"{case['id']}: {login_error}")
+                    continue
+            if rust_wireless_interface is None:
+                rust_wireless_interface = detect_wireless_interface(
+                    rust_base_url,
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=rust_ip,
+                    timeout_seconds=request_timeout_seconds,
+                    cookie=request_cookie_value(rust_cookies, case),
+                )
+            if python_wireless_interface is None:
+                python_wireless_interface = detect_wireless_interface(
+                    python_base_url,
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=python_ip,
+                    timeout_seconds=request_timeout_seconds,
+                    cookie=request_cookie_value(python_cookies, case),
+                )
+
+        rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
+        python_case_path = resolve_wireless_interface_path(case["path"], python_wireless_interface)
+        skip_reason = skip_reason_for_remote_case(
+            case,
+            respect_skip_live=respect_skip_live,
+            allow_destructive=allow_destructive,
+        )
+        if skip_reason is not None:
+            print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({skip_reason})")
+            continue
+        if is_power_loss_case(case):
+            raise ParityError(
+                f"{case['id']}: direct response parity does not support poweroff/suspend cases"
+            )
+
+        read_body = should_read_body(case)
+        case_timeout_seconds = float(case.get("timeout_seconds", request_timeout_seconds))
+        readback_case = None
+        rust_readback_before = None
+        python_readback_before = None
+
+        if should_verify_readback(case):
+            readback_case = find_readback_case(case, cases)
+            if readback_case is not None:
+                rust_readback_path = resolve_wireless_interface_path(
+                    readback_case["path"],
+                    rust_wireless_interface,
+                )
+                python_readback_path = resolve_wireless_interface_path(
+                    readback_case["path"],
+                    python_wireless_interface,
+                )
+                readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
+                readback_timeout_seconds = float(
+                    readback_case.get("timeout_seconds", request_timeout_seconds)
+                )
+                readback_read_body = should_read_body(readback_case)
+                rust_readback_before, rust_readback_before_error = request_or_error(
+                    f"{rust_base_url}{rust_readback_path}",
+                    readback_case["method"],
+                    body=readback_case.get("body"),
+                    cookie=rust_cookies.get(readback_cookie_key) if readback_cookie_key else None,
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=rust_ip,
+                    timeout_seconds=readback_timeout_seconds,
+                    read_body=readback_read_body,
+                )
+                python_readback_before, python_readback_before_error = request_or_error(
+                    f"{python_base_url}{python_readback_path}",
+                    readback_case["method"],
+                    body=readback_case.get("body"),
+                    cookie=python_cookies.get(readback_cookie_key) if readback_cookie_key else None,
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=python_ip,
+                    timeout_seconds=readback_timeout_seconds,
+                    read_body=readback_read_body,
+                )
+                if rust_readback_before_error or python_readback_before_error:
+                    failures.append(
+                        f"{case['id']}: pre-readback failed, rust={rust_readback_before_error or 'ok'}, python={python_readback_before_error or 'ok'}"
+                    )
+                    continue
+
+        rust_response, rust_error = request_or_error(
+            f"{rust_base_url}{rust_case_path}",
+            case["method"],
+            body=case.get("body"),
+            cookie=request_cookie_value(rust_cookies, case),
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=rust_ip,
+            timeout_seconds=case_timeout_seconds,
+            read_body=read_body,
+        )
+        python_response, python_error = request_or_error(
+            f"{python_base_url}{python_case_path}",
+            case["method"],
+            body=case.get("body"),
+            cookie=request_cookie_value(python_cookies, case),
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=python_ip,
+            timeout_seconds=case_timeout_seconds,
+            read_body=read_body,
+        )
+
+        if (rust_error or python_error) and is_destructive_skip(case):
+            login_error = attempt_fresh_direct_login(
+                rust_base_url=rust_base_url,
+                python_base_url=python_base_url,
+                rust_ip=rust_ip,
+                python_ip=python_ip,
+                timeout_seconds=case_timeout_seconds,
+                cookie_key=cookie_key,
+                rust_cookies=rust_cookies,
+                python_cookies=python_cookies,
+                login_path=direct_login_path_for_case(case),
+            )
+            if login_error is None:
+                rust_response, rust_error = request_or_error(
+                    f"{rust_base_url}{rust_case_path}",
+                    case["method"],
+                    body=case.get("body"),
+                    cookie=request_cookie_value(rust_cookies, case),
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=rust_ip,
+                    timeout_seconds=case_timeout_seconds,
+                    read_body=read_body,
+                )
+                python_response, python_error = request_or_error(
+                    f"{python_base_url}{python_case_path}",
+                    case["method"],
+                    body=case.get("body"),
+                    cookie=request_cookie_value(python_cookies, case),
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=python_ip,
+                    timeout_seconds=case_timeout_seconds,
+                    read_body=read_body,
+                )
+
+        unauthorized_pair = {
+            rust_response.status if rust_response else None,
+            python_response.status if python_response else None,
+        }
+        if (
+            not rust_error
+            and not python_error
+            and not is_login_request(case)
+            and request_cookie_value(rust_cookies, case) is None
+            and request_cookie_value(python_cookies, case) is None
+            and unauthorized_pair <= {401, 403}
+        ):
+            login_error = attempt_direct_login(
+                rust_base_url=rust_base_url,
+                python_base_url=python_base_url,
+                rust_ip=rust_ip,
+                python_ip=python_ip,
+                timeout_seconds=case_timeout_seconds,
+                cookie_key=cookie_key,
+                rust_cookies=rust_cookies,
+                python_cookies=python_cookies,
+                login_path=direct_login_path_for_case(case),
+            )
+            if login_error is None:
+                rust_response, rust_error = request_or_error(
+                    f"{rust_base_url}{rust_case_path}",
+                    case["method"],
+                    body=case.get("body"),
+                    cookie=request_cookie_value(rust_cookies, case),
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=rust_ip,
+                    timeout_seconds=case_timeout_seconds,
+                    read_body=read_body,
+                )
+                python_response, python_error = request_or_error(
+                    f"{python_base_url}{python_case_path}",
+                    case["method"],
+                    body=case.get("body"),
+                    cookie=request_cookie_value(python_cookies, case),
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    connect_host=python_ip,
+                    timeout_seconds=case_timeout_seconds,
+                    read_body=read_body,
+                )
+            else:
+                failures.append(f"{case['id']}: {login_error}")
+                continue
+
+        if is_reboot_like_case(case):
+            rust_outcome = evaluate_terminal_case_outcome(case, rust_response, rust_error)
+            python_outcome = evaluate_terminal_case_outcome(case, python_response, python_error)
+            if not rust_outcome.accepted or not python_outcome.accepted:
+                failures.append(
+                    f"{case['id']}: destructive parity failed, rust={rust_outcome.detail}, python={python_outcome.detail}"
+                )
+                continue
+            try:
+                wait_for_direct_recovery(
+                    rust_base_url=rust_base_url,
+                    python_base_url=python_base_url,
+                    rust_ip=rust_ip,
+                    python_ip=python_ip,
+                    request_timeout_seconds=request_timeout_seconds,
+                    startup_timeout_seconds=startup_timeout_seconds,
+                )
+            except ParityError as error:
+                failures.append(f"{case['id']}: {error}")
+                continue
+
+            print(
+                f"PASS {case['id']}: {case['method']} {rust_case_path} "
+                f"(rust={rust_outcome.detail}; python={python_outcome.detail})"
+            )
+            continue
+
+        if rust_error or python_error:
+            failures.append(
+                f"{case['id']}: request failed, rust={rust_error or 'ok'}, python={python_error or 'ok'}"
+            )
+            continue
+
+        should_store_cookie = bool(case.get("store_cookie_as")) or is_login_request(case)
+        if should_store_cookie:
+            if not store_cookie_value(rust_cookies, case, rust_response) or not store_cookie_value(
+                python_cookies, case, python_response
+            ):
+                rust_cookie = response_cookie(rust_response)
+                python_cookie = response_cookie(python_response)
+                failures.append(
+                    f"{case['id']}: missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
+                )
+                continue
+
+        mismatch = response_pair_mismatch(
+            case["id"],
+            "rust",
+            rust_response,
+            "python",
+            python_response,
+            case["compare"],
+            expected_status=case.get("expected_status"),
+            allow_framework_validation_mismatch=bool(case.get("allow_framework_validation_mismatch")),
+        )
+        if mismatch is not None:
+            failures.append(mismatch)
+            continue
+
+        if is_logout_request(case):
+            clear_cookie_value(rust_cookies, case)
+            clear_cookie_value(python_cookies, case)
+
+        if readback_case is not None:
+            rust_readback_path = resolve_wireless_interface_path(
+                readback_case["path"],
+                rust_wireless_interface,
+            )
+            python_readback_path = resolve_wireless_interface_path(
+                readback_case["path"],
+                python_wireless_interface,
+            )
+            readback_cookie_key = readback_case.get("use_cookie_from") or cookie_key
+            readback_timeout_seconds = float(readback_case.get("timeout_seconds", request_timeout_seconds))
+            readback_read_body = should_read_body(readback_case)
+            rust_readback_after, rust_readback_after_error = request_or_error(
+                f"{rust_base_url}{rust_readback_path}",
+                readback_case["method"],
+                body=readback_case.get("body"),
+                cookie=rust_cookies.get(readback_cookie_key) if readback_cookie_key else None,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=rust_ip,
+                timeout_seconds=readback_timeout_seconds,
+                read_body=readback_read_body,
+            )
+            python_readback_after, python_readback_after_error = request_or_error(
+                f"{python_base_url}{python_readback_path}",
+                readback_case["method"],
+                body=readback_case.get("body"),
+                cookie=python_cookies.get(readback_cookie_key) if readback_cookie_key else None,
+                ca_cert_path=DIRECT_HTTPS_CA,
+                connect_host=python_ip,
+                timeout_seconds=readback_timeout_seconds,
+                read_body=readback_read_body,
+            )
+            if rust_readback_after_error or python_readback_after_error:
+                failures.append(
+                    f"{case['id']}: post-readback failed, rust={rust_readback_after_error or 'ok'}, python={python_readback_after_error or 'ok'}"
+                )
+                continue
+
+            mismatch = response_pair_mismatch(
+                f"{case['id']} readback",
+                "rust",
+                rust_readback_after,
+                "python",
+                python_readback_after,
+                readback_case["compare"],
+                expected_status=readback_case.get("expected_status"),
+            )
+            if mismatch is not None:
+                failures.append(mismatch)
+                continue
+
+            if (
+                rust_readback_before is not None
+                and python_readback_before is not None
+                and rust_response.status >= 400
+            ):
+                mismatch = response_pair_mismatch(
+                    f"{case['id']} rust-state",
+                    "before",
+                    rust_readback_before,
+                    "after",
+                    rust_readback_after,
+                    readback_case["compare"],
+                )
+                if mismatch is not None:
+                    failures.append(mismatch)
+                    continue
+
+                mismatch = response_pair_mismatch(
+                    f"{case['id']} python-state",
+                    "before",
+                    python_readback_before,
+                    "after",
+                    python_readback_after,
+                    readback_case["compare"],
+                )
+                if mismatch is not None:
+                    failures.append(mismatch)
+                    continue
+
+        print(f"PASS {case['id']}: {case['method']} {rust_case_path}")
+
+    if failures:
+        raise ParityError("Direct response parity failed:\n" + "\n".join(failures))
+
+    print("Direct response parity passed.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run API response parity with both Summit RCM runtimes managed remotely over SSH."
+        description=(
+            "Run API response parity either directly against deployed Rust/Python targets over HTTPS "
+            "or against temporary managed runtimes over SSH. Direct deployed-service parity is the default workflow."
+        )
     )
     parser.add_argument(
         "mode",
         choices=["responses"],
-        help="The remote parity mode to run.",
+        help="Parity mode to run. 'responses' supports both direct deployed-service and managed-runtime transports.",
     )
     parser.add_argument(
         "--cases",
@@ -1097,48 +1578,61 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--rust-ssh",
-        required=True,
-        help="SSH target for the remote Rust runtime, for example root@device.",
+        help="SSH target for a temporary managed Rust runtime, for example root@device. Do not use for normal deployed-service parity.",
     )
     parser.add_argument(
         "--python-ssh",
-        help="SSH target for the remote Python runtime. Defaults to --rust-ssh.",
+        help="SSH target for a temporary managed Python runtime. Defaults to --rust-ssh.",
+    )
+    parser.add_argument(
+        "--rust-ip",
+        help="Direct target IP for deployed Rust service parity over HTTPS. Preferred for normal live parity.",
+    )
+    parser.add_argument(
+        "--python-ip",
+        help="Direct target IP for deployed Python service parity over HTTPS. Defaults to --rust-ip.",
+    )
+    parser.add_argument(
+        "--direct-port",
+        type=int,
+        default=443,
+        help="Direct deployed-service HTTPS port to use with --rust-ip/--python-ip. Defaults to 443.",
     )
     parser.add_argument(
         "--ssh-option",
         action="append",
-        default=["BatchMode=yes", "ConnectTimeout=5", "ConnectionAttempts=1"],
-        help="Additional ssh -o option to apply to every SSH connection.",
+        default=["ConnectTimeout=5", "ConnectionAttempts=1"],
+        help="Additional ssh -o option to apply to every managed-runtime SSH connection.",
     )
     parser.add_argument(
         "--rust-command",
         default="/usr/bin/summit-rcm",
-        help="Shell command used to start the remote Rust runtime.",
+        help="Shell command used to start the temporary managed Rust runtime.",
     )
     parser.add_argument(
         "--python-command",
-        default=f"python3 -c {shell_quote(python_wrapper_command())}",
-        help="Shell command used to start the remote Python runtime.",
+        default=f"python3 -c {shell_quote(python_wrapper_command('summit-rcm'))}",
+        help="Shell command used to start the temporary managed Python runtime.",
     )
     parser.add_argument(
         "--rust-workdir",
-        help="Remote working directory for the Rust command.",
+        help="Remote working directory for the managed Rust command.",
     )
     parser.add_argument(
         "--python-workdir",
-        help="Remote working directory for the Python command.",
+        help="Remote working directory for the managed Python command.",
     )
     parser.add_argument(
         "--rust-env",
         action="append",
         default=[],
-        help="Extra KEY=VALUE environment assignments for the Rust runtime.",
+        help="Extra KEY=VALUE environment assignments for the managed Rust runtime.",
     )
     parser.add_argument(
         "--python-env",
         action="append",
         default=[],
-        help="Extra KEY=VALUE environment assignments for the Python runtime.",
+        help="Extra KEY=VALUE environment assignments for the managed Python runtime.",
     )
     parser.add_argument(
         "--request-timeout-seconds",
@@ -1150,30 +1644,30 @@ def parse_args() -> argparse.Namespace:
         "--startup-timeout-seconds",
         type=float,
         default=DEFAULT_STARTUP_TIMEOUT_SECONDS,
-        help="Server startup timeout for live response parity checks.",
+        help="Server startup timeout for parity checks. Mainly relevant to managed-runtime startup.",
     )
     parser.add_argument(
         "--sessions-on",
         action="store_true",
-        help="Enable session middleware in the temporary parity config.",
+        help="Enable session middleware in the temporary managed-runtime config.",
     )
     parser.add_argument(
         "--plugins",
         action="append",
         default=[],
-        help="Comma-separated plugin names to mark enabled in the temporary parity config.",
+        help="Comma-separated plugin names to mark enabled in the temporary managed-runtime config.",
     )
     parser.add_argument(
         "--rust-port",
         type=int,
         default=DEFAULT_REMOTE_RUST_PORT,
-        help="Remote loopback port for the Rust runtime.",
+        help="Managed-runtime HTTPS port for the temporary Rust instance.",
     )
     parser.add_argument(
         "--python-port",
         type=int,
         default=DEFAULT_REMOTE_PYTHON_PORT,
-        help="Remote loopback port for the Python runtime.",
+        help="Managed-runtime HTTPS port for the temporary Python instance.",
     )
     parser.add_argument(
         "--respect-skip-live",
@@ -1193,6 +1687,10 @@ def main() -> int:
     cases = filter_cases(json.loads(args.cases.read_text()), args.case_id)
     requested_plugins = parse_plugin_names(args.plugins)
     enabled_plugins = selected_plugins(cases, requested_plugins)
+
+    if bool(args.rust_ip) == bool(args.rust_ssh):
+        raise SystemExit("choose exactly one transport: direct (--rust-ip) or managed remote (--rust-ssh)")
+
     python_target = args.python_ssh or args.rust_ssh
 
     selected_destructive = [case["id"] for case in cases if is_terminal_destructive_case(case)]
@@ -1204,26 +1702,38 @@ def main() -> int:
 
     try:
         if args.mode == "responses":
-            run_remote_response_cases(
-                cases,
-                rust_target=args.rust_ssh,
-                python_target=python_target,
-                ssh_options=args.ssh_option,
-                rust_command=args.rust_command,
-                python_command=args.python_command,
-                rust_workdir=args.rust_workdir,
-                python_workdir=args.python_workdir,
-                rust_env_extra=parse_env_assignments(args.rust_env),
-                python_env_extra=parse_env_assignments(args.python_env),
-                remote_rust_port=args.rust_port,
-                remote_python_port=args.python_port,
-                request_timeout_seconds=args.request_timeout_seconds,
-                startup_timeout_seconds=args.startup_timeout_seconds,
-                sessions_on=args.sessions_on,
-                enabled_plugins=enabled_plugins,
-                respect_skip_live=args.respect_skip_live,
-                allow_destructive=args.allow_destructive,
-            )
+            if args.rust_ip:
+                run_direct_response_cases(
+                    cases,
+                    rust_ip=args.rust_ip,
+                    python_ip=args.python_ip or args.rust_ip,
+                    port=args.direct_port,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                    respect_skip_live=args.respect_skip_live,
+                    allow_destructive=args.allow_destructive,
+                )
+            else:
+                run_remote_response_cases(
+                    cases,
+                    rust_target=args.rust_ssh,
+                    python_target=python_target,
+                    ssh_options=args.ssh_option,
+                    rust_command=args.rust_command,
+                    python_command=args.python_command,
+                    rust_workdir=args.rust_workdir,
+                    python_workdir=args.python_workdir,
+                    rust_env_extra=parse_env_assignments(args.rust_env),
+                    python_env_extra=parse_env_assignments(args.python_env),
+                    remote_rust_port=args.rust_port,
+                    remote_python_port=args.python_port,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                    sessions_on=args.sessions_on,
+                    enabled_plugins=enabled_plugins,
+                    respect_skip_live=args.respect_skip_live,
+                    allow_destructive=args.allow_destructive,
+                )
     except ParityError as error:
         print(str(error), file=os.sys.stderr)
         return 1

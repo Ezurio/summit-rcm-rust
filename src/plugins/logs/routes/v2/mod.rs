@@ -14,8 +14,7 @@ use crate::plugins::logs::{DriverLogLevel, JournalLogEntry, JournalctlLogType, L
 use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use tracing::error;
-#[cfg(feature = "api-docs")]
+use log::error;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]

@@ -9,7 +9,7 @@ use crate::services::ssl::AtSslConfig;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use tokio::sync::Mutex;
-use tracing::error;
+use log::error;
 
 #[derive(Debug, Default)]
 pub struct HttpService {

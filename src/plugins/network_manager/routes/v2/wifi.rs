@@ -73,7 +73,7 @@ pub async fn get_wifi() -> GetWifiResponses {
     {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("get_wifi: {}", error);
+            log::error!("get_wifi: {}", error);
             GetWifiResponses::InternalError
         }
     }
@@ -89,7 +89,7 @@ pub async fn get_wifi() -> GetWifiResponses {
 pub async fn set_wifi(Json(body): Json<WifiRequest>) -> SetWifiResponses {
     let _ = (&body.sdcerr, &body.info_msg, &body.wifi_radio_hardware_enabled);
     if let Err(e) = NetworkService::set_wifi_enabled(body.wifi_radio_software_enabled).await {
-        tracing::error!("set_wifi: {}", e);
+        log::error!("set_wifi: {}", e);
         return SetWifiResponses::InternalError;
     }
     match NetworkService::get_wifi_status()
@@ -98,7 +98,7 @@ pub async fn set_wifi(Json(body): Json<WifiRequest>) -> SetWifiResponses {
     {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("set_wifi readback: {}", error);
+            log::error!("set_wifi readback: {}", error);
             SetWifiResponses::InternalError
         }
     }

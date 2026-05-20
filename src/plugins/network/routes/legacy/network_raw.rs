@@ -5,7 +5,7 @@
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::network::service::NetworkService;
-use crate::plugins::network::routes::v2::interfaces::{AvailableApChannel, InterfaceDriverInfo, Station, SummitStatus};
+use crate::plugins::network::routes::v2::interfaces::{AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station};
 use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -159,6 +159,22 @@ fn interface_statistics_response(
     }
 }
 
+impl From<InterfaceStats> for LegacyInterfaceStats {
+    fn from(value: InterfaceStats) -> Self {
+        Self {
+            rx_bytes: value.rx_bytes,
+            rx_packets: value.rx_packets,
+            rx_errors: value.rx_errors,
+            rx_dropped: value.rx_dropped,
+            multicast: value.multicast,
+            tx_bytes: value.tx_bytes,
+            tx_packets: value.tx_packets,
+            tx_errors: value.tx_errors,
+            tx_dropped: value.tx_dropped,
+        }
+    }
+}
+
 fn interface_driver_info_response(
     operation: LegacyOperationResponse,
     driver_info: InterfaceDriverInfo,
@@ -253,14 +269,7 @@ pub async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> Leg
     };
 
     match NetworkService::get_interface_available_ap_channels(&name).await {
-        Ok(channels) => match serde_json::from_str::<Vec<AvailableApChannel>>(&serde_json::to_string(&channels).unwrap_or_default()) {
-            Ok(channels) => available_ap_channels_response(ok_response(""), channels).into(),
-            Err(error) => available_ap_channels_response(
-                fail_response(format!("Invalid available AP channel shape: {}", error)),
-                Vec::new(),
-            )
-            .into(),
-        },
+        Ok(channels) => available_ap_channels_response(ok_response(""), channels).into(),
         Err(error) => available_ap_channels_response(
             fail_response(format!("Could not read available AP channels - {}", error)),
             Vec::new(),
@@ -291,15 +300,8 @@ pub async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) ->
         return interface_statistics_response(fail_response("interface required"), default_statistics).into();
     };
 
-    match NetworkService::get_interface_statistics(&iface, true).await {
-        Ok(stats) => match serde_json::from_value::<LegacyInterfaceStats>(stats) {
-            Ok(statistics) => interface_statistics_response(ok_response(""), statistics).into(),
-            Err(error) => interface_statistics_response(
-                fail_response(format!("Invalid interface statistics shape: {}", error)),
-                default_statistics,
-            )
-            .into(),
-        },
+    match NetworkService::get_interface_statistics(&iface).await {
+        Ok(stats) => interface_statistics_response(ok_response(""), stats.into()).into(),
         Err(error) => interface_statistics_response(fail_response(error.to_string()), default_statistics).into(),
     }
 }
@@ -320,14 +322,7 @@ pub async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -
     };
 
     match NetworkService::get_interface_driver_info(&iface).await {
-        Ok(info) => match serde_json::from_value::<InterfaceDriverInfo>(info) {
-            Ok(driver_info) => interface_driver_info_response(ok_response(""), driver_info).into(),
-            Err(error) => interface_driver_info_response(
-                fail_response(format!("Invalid interface driver info shape: {}", error)),
-                default_driver_info,
-            )
-            .into(),
-        },
+        Ok(info) => interface_driver_info_response(ok_response(""), info).into(),
         Err(error) if error.to_string().contains("Invalid interface name") => {
             interface_driver_info_response(fail_response("Invalid interface name"), default_driver_info).into()
         }
@@ -351,14 +346,7 @@ pub async fn get_station_dump_legacy(Query(q): Query<InterfaceQuery>) -> LegacyS
     };
 
     match NetworkService::get_station_dump(iface).await {
-        Ok(stations) => match serde_json::from_value::<BTreeMap<String, Station>>(stations) {
-            Ok(stations) => station_dump_response(ok_response(""), stations).into(),
-            Err(error) => station_dump_response(
-                fail_response(format!("Invalid station dump shape: {}", error)),
-                BTreeMap::new(),
-            )
-            .into(),
-        },
+        Ok(stations) => station_dump_response(ok_response(""), stations).into(),
         Err(error) => station_dump_response(
             fail_response(format!("Could not retrieve interface station dump - {}", error)),
             BTreeMap::new(),
@@ -379,20 +367,12 @@ pub async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) -> Legacy
     };
 
     match NetworkService::get_summit_status(&iface).await {
-        Ok(status) => match serde_json::from_value::<SummitStatus>(status) {
-            Ok(status) => summit_status_response(
-                ok_response(""),
-                status.last.unwrap_or_default(),
-                status.best.unwrap_or_default(),
-            )
-            .into(),
-            Err(error) => summit_status_response(
-                fail_response(format!("Invalid summit status shape: {}", error)),
-                String::new(),
-                String::new(),
-            )
-            .into(),
-        },
+        Ok(status) => summit_status_response(
+            ok_response(""),
+            status.last.unwrap_or_default(),
+            status.best.unwrap_or_default(),
+        )
+        .into(),
         Err(error) if error.to_string().contains("interface not found") => {
             summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into()
         }

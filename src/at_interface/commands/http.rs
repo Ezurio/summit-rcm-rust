@@ -10,7 +10,7 @@ use crate::at_interface::fsm::FsmHandle;
 use crate::services::http_service::HttpService;
 use crate::services::ssl::AtSslConfig;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
 
 pub struct HTTPConfigureTransaction;
 

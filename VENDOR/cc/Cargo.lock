@@ -16,7 +16,7 @@ checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
 
 [[package]]
 name = "cc"
-version = "1.2.61"
+version = "1.2.62"
 dependencies = [
  "find-msvc-tools",
  "jobserver",

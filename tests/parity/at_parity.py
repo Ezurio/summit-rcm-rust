@@ -27,6 +27,7 @@ from api_parity import (
     ensure_rust_binary,
     parse_plugin_names,
     python_parity_path,
+    python_runtime_executable,
     resolve_python_runtime,
 )
 
@@ -254,8 +255,6 @@ def python_wrapper_command() -> str:
         [
             "import asyncio",
             "from summit_rcm.at_interface.at_interface import ATInterface",
-            "",
-            "ATInterface._set_closing_wait = lambda self, serial_port=None, closing_wait_in=65535: None",
             "",
             "async def main():",
             "    interface = ATInterface()",
@@ -497,6 +496,7 @@ def compare_responses(
         raise ParityError("AT parity is only supported with the summit-rcm Python baseline; weblcm does not support AT.")
 
     enabled_plugins = selected_plugins(cases, requested_plugins)
+    python_executable = python_runtime_executable(python_repo)
     features = rust_at_features(enabled_plugins)
     rust_binary = ensure_rust_binary(bin_name="summit-rcm", features=features)
 
@@ -528,7 +528,7 @@ def compare_responses(
             )
             python_process = start_process(
                 "python",
-                [sys.executable, "-c", python_wrapper_command()],
+                [python_executable, "-c", python_wrapper_command()],
                 cwd=python_repo,
                 env={
                     **os.environ,

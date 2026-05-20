@@ -120,10 +120,6 @@ where
     Ok(command_output(program, args).await?.status.success())
 }
 
-async fn shell_stdout(command: &str) -> Result<String> {
-    command_stdout("/bin/sh", &["-c", command]).await
-}
-
 /// Convert an IEEE 802.11 frequency (in MHz) to a channel number.
 pub fn frequency_to_channel(freq: u32) -> u32 {
     if freq == 2484 {
@@ -148,52 +144,6 @@ pub fn frequency_to_channel(freq: u32) -> u32 {
         return (freq - 56160) / 2160;
     }
     0
-}
-
-/// Return the current root device type by running boot-rootfs.sh
-pub async fn get_root_dev_type() -> anyhow::Result<String> {
-    let root_dev_type = shell_stdout(". boot-rootfs.sh && echo $rootDevType").await?;
-    if !["SD", "MMC", "ubi"].contains(&root_dev_type.as_str()) {
-        anyhow::bail!(
-            "get_root_dev_type: could not determine root device type: {}",
-            root_dev_type
-        );
-    }
-    Ok(root_dev_type)
-}
-
-/// Return whether the system is running on the SD card
-pub async fn get_running_on_sd() -> bool {
-    matches!(get_root_dev_type().await, Ok(t) if t == "SD")
-}
-
-/// Return the current bootside
-pub async fn get_current_side() -> anyhow::Result<String> {
-    let bootside = shell_stdout(". boot-rootfs.sh && getSide && echo $bootside").await?;
-    if !["a", "b"].contains(&bootside.as_str()) {
-        anyhow::bail!(
-            "get_current_side: could not determine boot side: {}",
-            bootside
-        );
-    }
-    Ok(bootside)
-}
-
-/// Return the next bootside
-pub async fn get_next_side() -> anyhow::Result<String> {
-    let next_side = shell_stdout(". boot-rootfs.sh && nextSide").await?;
-    if !["a", "b"].contains(&next_side.as_str()) {
-        anyhow::bail!(
-            "get_next_side: could not determine next boot side: {}",
-            next_side
-        );
-    }
-    Ok(next_side)
-}
-
-/// Retrieve the base hardware part number
-pub async fn get_base_hw_part_number() -> anyhow::Result<String> {
-    shell_stdout(". boot-rootfs.sh && getBaseHwPartNumber").await
 }
 
 pub fn should_ignore_certificate_time_verify_error(result: X509VerifyResult) -> bool {

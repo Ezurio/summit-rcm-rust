@@ -120,7 +120,7 @@ fn wait_for_listening(child: &mut Child, bind_addr: &str, timeout: Duration) {
 fn shutdown_signal_returns_on_sigterm() {
     let temp_dir = unique_temp_dir("summit-rcm-shutdown-test");
     let settings_path = temp_dir.join("summit-rcm-settings.ini");
-    let server_config_path = temp_dir.join("summit-rcm-rust.ini");
+    let server_config_path = temp_dir.join("summit-rcm.ini");
     let cert_path = temp_dir.join("server.crt");
     let key_path = temp_dir.join("server.key");
     let plugin_dir = temp_dir.join("plugins");

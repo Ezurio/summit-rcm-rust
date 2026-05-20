@@ -10,7 +10,7 @@ use crate::plugins::logs::{DriverLogLevel, JournalctlLogType, SupplicantLogLevel
 use crate::publication::PublishedAtCommand;
 use async_trait::async_trait;
 use std::str::FromStr;
-use tracing::error;
+use log::error;
 
 pub struct LogGet;
 

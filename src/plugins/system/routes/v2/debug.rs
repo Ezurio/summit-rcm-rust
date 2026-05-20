@@ -24,7 +24,7 @@ pub async fn get_debug_export() -> ExportDebugResponses {
     match FilesService::export_debug().await {
         Ok(archive) => archive.into(),
         Err(error) => {
-            tracing::error!("get_debug_export: {}", error);
+            log::error!("get_debug_export: {}", error);
             ExportDebugResponses::InternalError
         }
     }

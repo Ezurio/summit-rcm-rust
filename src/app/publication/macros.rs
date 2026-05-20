@@ -69,20 +69,28 @@ macro_rules! __declare_method_router {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __declare_route_publication {
-    (protected $path:expr => { $($methods:tt)+ }) => {{
+    (protected $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
+        const ROUTES: &[$crate::publication::PublishedRoute] = &[
+            $($crate::publication::PublishedRoute::new(stringify!($method), $path),)+
+        ];
         fn install(api: axum::Router) -> axum::Router {
-            api.route($path, $crate::__declare_method_router!($($methods)+))
+            api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
-        $crate::publication::RoutePublication::install_only(
+        $crate::publication::RoutePublication::new(
+            ROUTES,
             install,
             $crate::publication::RouteAuthPolicy::SessionRequired,
         )
     }};
-    (public $path:expr => { $($methods:tt)+ }) => {{
+    (public $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
+        const ROUTES: &[$crate::publication::PublishedRoute] = &[
+            $($crate::publication::PublishedRoute::new(stringify!($method), $path),)+
+        ];
         fn install(api: axum::Router) -> axum::Router {
-            api.route($path, $crate::__declare_method_router!($($methods)+))
+            api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
-        $crate::publication::RoutePublication::install_only(
+        $crate::publication::RoutePublication::new(
+            ROUTES,
             install,
             $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed,
         )

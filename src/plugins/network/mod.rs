@@ -8,6 +8,7 @@ pub mod routes;
 mod at_commands;
 #[path = "service_raw.rs"]
 pub mod service;
+pub mod types;
 
 crate::declare_plugin_api! {
 	route_table {

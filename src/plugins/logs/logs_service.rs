@@ -17,7 +17,7 @@ use time::format_description::FormatItem;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
 use tokio::process::Command;
-use tracing::error;
+use log::error;
 
 static WEBSERVER_LOG_LEVEL: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new("error".to_string()));
 static JOURNALCTL_DAYS_SINCE_FORMAT: &[FormatItem<'static>] =
@@ -219,7 +219,6 @@ impl LogsService {
 
     pub fn set_webserver_log_level(level: &str) {
         *WEBSERVER_LOG_LEVEL.lock() = level.to_string();
-        // Re-initialise tracing filter at runtime
-        // (best-effort; tracing-subscriber doesn't support live reload by default)
+        // Logger reconfiguration is not applied live; callers must restart to pick up changes.
     }
 }

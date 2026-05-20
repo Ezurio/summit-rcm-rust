@@ -4,15 +4,23 @@
 //
 
 use summit_rcm::config;
+use env_logger::Builder;
 use futures_util::future::try_join_all;
 #[cfg(feature = "at-interface")]
 use summit_rcm::at_interface;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use summit_rcm::web;
+use log::info;
+use std::io::Write;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::task::JoinHandle;
-use tracing::info;
+use tokio::task::{JoinHandle, LocalSet};
+
+fn init_logger() {
+    let mut builder = Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    builder.format(|buffer, record| writeln!(buffer, "{} {}", record.level(), record.args()));
+    builder.init();
+}
 
 async fn wait_for_task(
     name: &'static str,
@@ -46,52 +54,54 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "summit_rcm=info,tower_http=info".into()),
-        )
-        .init();
+    init_logger();
 
     info!(
         "Summit RCM starting (version {})",
-        env!("CARGO_PKG_VERSION")
+        env!("SUMMIT_RCM_BUILD_VERSION")
     );
 
     config::SystemSettingsManage::ensure_section();
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let mut tasks: Vec<(&'static str, JoinHandle<anyhow::Result<()>>)> = Vec::new();
+    let local = LocalSet::new();
+    local
+        .run_until(async move {
+            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let mut tasks: Vec<(&'static str, JoinHandle<anyhow::Result<()>>)> = Vec::new();
 
-    #[cfg(feature = "at-interface")]
-    tasks.push(("AT interface", at_interface::spawn_task(shutdown_rx.clone())));
+            #[cfg(feature = "at-interface")]
+            tasks.push(("AT interface", at_interface::spawn_task(shutdown_rx.clone())));
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    tasks.push(("web", web::spawn_task(shutdown_rx)));
+            #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+            tasks.push(("web", web::spawn_task(shutdown_rx)));
 
-    if tasks.is_empty() {
-        tracing::warn!(
-            "No features enabled — nothing to do. Enable 'api-v2', 'api-legacy', and/or 'at-interface'."
-        );
-    } else {
-        let tasks_future = try_join_all(
-            tasks
-                .into_iter()
-                .map(|(name, handle)| wait_for_task(name, handle)),
-        );
-        tokio::pin!(tasks_future);
+            if tasks.is_empty() {
+                log::warn!(
+                    "No features enabled — nothing to do. Enable 'api-v2', 'api-legacy', and/or 'at-interface'."
+                );
+            } else {
+                let tasks_future = try_join_all(
+                    tasks
+                        .into_iter()
+                        .map(|(name, handle)| wait_for_task(name, handle)),
+                );
+                tokio::pin!(tasks_future);
 
-        tokio::select! {
-            result = &mut tasks_future => {
-                result?;
+                tokio::select! {
+                    result = &mut tasks_future => {
+                        result?;
+                    }
+                    _ = shutdown_signal() => {
+                        info!("Shutdown signal received");
+                        let _ = shutdown_tx.send(true);
+                        tasks_future.await?;
+                    }
+                }
             }
-            _ = shutdown_signal() => {
-                info!("Shutdown signal received");
-                let _ = shutdown_tx.send(true);
-                tasks_future.await?;
-            }
-        }
-    }
+
+            Ok::<(), anyhow::Error>(())
+        })
+        .await?;
 
     info!("Summit RCM stopped");
     Ok(())

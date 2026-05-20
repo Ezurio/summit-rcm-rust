@@ -90,7 +90,7 @@ pub async fn list_access_points() -> ListAccessPointsResponses {
     {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("list_access_points: {}", error);
+            log::error!("list_access_points: {}", error);
             ListAccessPointsResponses::InternalError
         }
     }

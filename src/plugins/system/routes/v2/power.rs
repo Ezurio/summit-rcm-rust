@@ -10,7 +10,7 @@
 use crate::plugins::system::{PowerState, SystemService};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]

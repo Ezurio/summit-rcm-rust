@@ -151,7 +151,7 @@ pub async fn upload_update_file(req: Request<Body>) -> UploadUpdateResponses {
         Ok(_) => UploadUpdateResponses::Ok,
         Err(error) if error.to_string().contains("no update in progress") => UploadUpdateResponses::BadRequest,
         Err(error) => {
-            tracing::error!("upload_update_file: {}", error);
+            log::error!("upload_update_file: {}", error);
             UploadUpdateResponses::InternalError
         }
     }

@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.115"
+version = "0.9.116"
 dependencies = [
  "aws-lc-fips-sys",
  "aws-lc-sys",

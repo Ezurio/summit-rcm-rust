@@ -20,7 +20,7 @@ use rustix::io::Errno;
 use rustix::time::Timespec;
 use std::path::Path;
 use time::{Duration, UtcDateTime};
-use tracing::error;
+use log::error;
 
 fn server_ssl_certificate_chain() -> String {
     ServerConfig::get_string("global", "server.ssl_certificate_chain", "/etc/summit-rcm/ssl/ca.crt")
@@ -101,6 +101,10 @@ pub struct ClientTlsInfo {
 }
 
 impl CertificateProvisioningService {
+    fn provisioning_tls_assets_available(cert_path: &str, key_path: &str) -> bool {
+        Path::new(cert_path).exists() && Path::new(key_path).exists()
+    }
+
     fn web_tls_overrides(
         provisioning_state: ProvisioningState,
         cert_path: String,
@@ -141,7 +145,7 @@ impl CertificateProvisioningService {
 
         let rodata_ca_path = Path::new(&rodata_ca);
         if !rodata_ca_path.exists() {
-            tracing::warn!("rodata CA cert not found: {}", rodata_ca);
+            log::warn!("rodata CA cert not found: {}", rodata_ca);
             return Ok(());
         }
 
@@ -314,18 +318,28 @@ impl CertificateProvisioningService {
                 let (cert_path, key_path, require_client_auth, rebuild_trust_store) =
                     Self::web_tls_overrides(
                         provisioning_state,
-                        config.cert_path,
-                        config.key_path,
+                        config.cert_path.clone(),
+                        config.key_path.clone(),
                         config.require_client_auth,
                         enable_client_pairing,
                     );
-                config.cert_path = cert_path;
-                config.key_path = key_path;
-                config.require_client_auth = require_client_auth;
-                if rebuild_trust_store {
-                    Self::rebuild_web_tls_trust_store(&config.ca_path)?;
+
+                if !Self::provisioning_tls_assets_available(&cert_path, &key_path) {
+                    error!(
+                        "Restricted provisioning mode requested but provisioning TLS assets are unavailable (cert: {}, key: {}); continuing with primary TLS config",
+                        cert_path,
+                        key_path,
+                    );
+                    None
+                } else {
+                    config.cert_path = cert_path;
+                    config.key_path = key_path;
+                    config.require_client_auth = require_client_auth;
+                    if rebuild_trust_store {
+                        Self::rebuild_web_tls_trust_store(&config.ca_path)?;
+                    }
+                    Some("*** RESTRICTED PROVISIONING MODE ***")
                 }
-                Some("*** RESTRICTED PROVISIONING MODE ***")
             }
             ProvisioningState::PartiallyProvisioned => {
                 let (cert_path, key_path, require_client_auth, rebuild_trust_store) =

@@ -6,7 +6,7 @@
 
 use crate::plugins::system::SystemService;
 use serde::Serialize;
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum FactoryResetResponses {

@@ -12,7 +12,7 @@ use crate::plugins::update::FirmwareUpdateService;
 use crate::publication::PublishedAtCommand;
 use crate::services::at_files_service::AtFilesService;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
 
 pub struct FWUpdateRun;
 

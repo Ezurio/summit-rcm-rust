@@ -8,7 +8,7 @@
 use anyhow::Result;
 use crate::utils::command_output;
 use std::process::Output;
-use tracing::error;
+use log::error;
 
 const FIPS_SCRIPT: &str = "/usr/bin/fips-set";
 const VALID_STATES: &[&str] = &["fips", "fips_wifi", "unset"];

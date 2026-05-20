@@ -5,7 +5,7 @@
 //! GET /api/v2/system/version – retrieve version info
 
 use crate::plugins::system::{version_service::VersionInfo, VersionService};
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum GetVersionResponses {

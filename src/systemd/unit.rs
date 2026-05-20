@@ -8,7 +8,7 @@ use crate::dbus;
 use anyhow::Result;
 #[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
 use anyhow::{bail, Context};
-use tracing::error;
+use log::error;
 use zbus::zvariant::OwnedObjectPath;
 
 pub const SYSTEMD_BUS_NAME: &str = "org.freedesktop.systemd1";

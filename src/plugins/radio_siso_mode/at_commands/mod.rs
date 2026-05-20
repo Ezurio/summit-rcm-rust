@@ -9,7 +9,7 @@ use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::radio_siso_mode::service::{RadioSISOMode, RadioSISOModeService};
 use crate::publication::PublishedAtCommand;
 use async_trait::async_trait;
-use tracing::error;
+use log::error;
 
 pub struct SisoMode;
 

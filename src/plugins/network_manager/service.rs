@@ -10,6 +10,7 @@ use crate::dbus;
 use crate::plugins::network_manager::FILEDIR_CERT;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{boottime, timespec_duration};
+use crate::plugins::system::version_service::get_network_manager_version;
 use serde_json::{json, Value};
 use std::net::Ipv6Addr;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
@@ -25,7 +26,62 @@ fn unmanaged_hardware_devices() -> Vec<String> {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NetworkManagerVersionInfo {
+    pub nm_version: String,
+    pub driver: String,
+    pub driver_version: String,
+}
+
 impl NetworkService {
+    fn device_state_value(device: &Value) -> Option<i64> {
+        device
+            .get("status")
+            .and_then(Value::as_object)
+            .and_then(|status| {
+                status
+                    .get("state")
+                    .or_else(|| status.get("State"))
+                    .and_then(Value::as_i64)
+            })
+    }
+
+    pub async fn get_version_info() -> Result<NetworkManagerVersionInfo> {
+        let manager_properties = NetworkManagerService::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
+        let nm_version = get_network_manager_version().await?;
+        let device_paths_value = manager_properties
+            .get("Devices")
+            .ok_or_else(|| anyhow::anyhow!("Devices property missing"))?;
+        let device_paths: Vec<OwnedObjectPath> = dbus::clone_owned_value(device_paths_value)?.try_into()?;
+        let unmanaged_devices = unmanaged_hardware_devices();
+
+        for device_path in device_paths {
+            let device_properties = NetworkManagerService::get_properties(device_path.as_str(), NM_DEVICE_IFACE).await?;
+            let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface") else {
+                continue;
+            };
+            if unmanaged_devices.contains(&interface_name) {
+                continue;
+            }
+            if dbus::property::<u32>(&device_properties, "DeviceType").unwrap_or_default() != 2 {
+                continue;
+            }
+
+            return Ok(NetworkManagerVersionInfo {
+                nm_version,
+                driver: dbus::property::<String>(&device_properties, "Driver").unwrap_or_default(),
+                driver_version: dbus::property::<String>(&device_properties, "DriverVersion")
+                    .unwrap_or_default(),
+            });
+        }
+
+        Ok(NetworkManagerVersionInfo {
+            nm_version,
+            driver: String::new(),
+            driver_version: String::new(),
+        })
+    }
+
     pub async fn get_all_interfaces() -> Result<Value> {
         let manager_properties = NetworkManagerService::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
         let device_paths_value = manager_properties
@@ -48,6 +104,16 @@ impl NetworkService {
             if unmanaged_devices.contains(&interface_name) {
                 continue;
             }
+
+            let filtered_state = NetworkManagerService::get_interface_status(&interface_name, false)
+                .await
+                .ok()
+                .and_then(|value| Self::device_state_value(&value))
+                .unwrap_or(i64::from(state));
+            if filtered_state == 10 {
+                continue;
+            }
+
             interfaces.push(interface_name);
         }
 
@@ -366,9 +432,13 @@ impl NetworkService {
         let unmanaged_devices = unmanaged_hardware_devices();
 
         if let Some(devices) = status.as_object_mut() {
-            for device in unmanaged_devices {
-                devices.remove(&device);
-            }
+            devices.retain(|name, device| {
+                if unmanaged_devices.contains(name) {
+                    return false;
+                }
+
+                Self::device_state_value(device) != Some(10)
+            });
 
             if !is_legacy {
                 for device in devices.values_mut() {

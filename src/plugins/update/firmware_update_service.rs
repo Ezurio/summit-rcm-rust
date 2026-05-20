@@ -18,7 +18,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::{error, warn};
+use log::{error, warn};
 
 const FW_UPDATE_SCRIPT: &str = "fw_update";
 const FW_UPDATE_PIPE_SOURCE: &str = "-";
@@ -204,11 +204,10 @@ impl FirmwareUpdateService {
     }
 
     pub async fn start_update(url: &str, image: &str) -> Result<()> {
-        let running_on_sd = crate::utils::get_running_on_sd().await;
-        let current_side = if running_on_sd {
-            None
-        } else {
-            Some(crate::utils::get_current_side().await?)
+        let (running_on_sd, current_side) = match crate::plugins::system::version_service::get_boot_rootfs_info().await {
+            Ok(info) if info.is_running_on_sd() => (true, None),
+            Ok(info) => (false, info.current_side_option().map(str::to_string)),
+            Err(_) => (false, None),
         };
 
         let (prepared_url, prepared_image, running_mode) = {

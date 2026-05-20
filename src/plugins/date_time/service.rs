@@ -6,7 +6,6 @@
 
 use crate::dbus;
 use crate::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
-use crate::utils::command_stdout;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -100,10 +99,15 @@ impl DateTimeService {
     }
 
     pub async fn list_timezones() -> Result<Vec<String>> {
-        Ok(command_stdout("timedatectl", &["list-timezones", "--no-pager"])
-            .await?
-            .lines()
-            .map(str::to_string)
-            .collect())
+        let conn = dbus::system_bus().await?;
+        dbus::call_method_deserialize(
+            conn,
+            Some(TIMEDATE1_BUS_NAME),
+            TIMEDATE1_MAIN_OBJ,
+            Some("org.freedesktop.timedate1"),
+            "ListTimezones",
+            &(),
+        )
+        .await
     }
 }

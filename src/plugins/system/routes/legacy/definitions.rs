@@ -11,6 +11,28 @@ use crate::web::legacy_response::SdcerrCode;
 use crate::definition::USER_PERMISSION_TYPES;
 use serde::Serialize;
 use std::collections::BTreeMap;
+#[cfg(not(test))]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(test))]
+static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn initialize_sessions_enabled() {
+    #[cfg(not(test))]
+    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
+}
+
+fn sessions_enabled() -> bool {
+    #[cfg(test)]
+    {
+        return ServerConfig::get_bool("/", "tools.sessions.on", true);
+    }
+
+    #[cfg(not(test))]
+    {
+        SESSIONS_ENABLED.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -150,7 +172,7 @@ fn permissions() -> LegacyPermissionDefinitions {
     responses(GetDefinitionsLegacyResponses)
 ))]
 pub async fn get_definitions() -> GetDefinitionsLegacyResponses {
-    let session_timeout = if ServerConfig::get_bool("/", "tools.sessions.on", true) {
+    let session_timeout = if sessions_enabled() {
         SystemSettingsManage::get_int("session_timeout", 10)
     } else {
         -1

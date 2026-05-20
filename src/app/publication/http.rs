@@ -33,6 +33,9 @@ impl PublishedRoute {
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub type RouteInstaller = fn(Router) -> Router;
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+pub type RouteMetadata = &'static [PublishedRoute];
+
 #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "api-docs"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteAuthPolicy {
@@ -57,12 +60,19 @@ impl RouteDocPolicy {
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[derive(Clone, Copy, Debug)]
 pub struct RoutePublication {
-    pub common: CapabilityPublication<(), RouteInstaller>,
+    pub common: CapabilityPublication<RouteMetadata, RouteInstaller>,
     pub auth: RouteAuthPolicy,
 }
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 impl RoutePublication {
+    pub const fn new(routes: RouteMetadata, install: RouteInstaller, auth: RouteAuthPolicy) -> Self {
+        Self {
+            common: CapabilityPublication::new(routes, install),
+            auth,
+        }
+    }
+
     pub const fn install_only(install: RouteInstaller, auth: RouteAuthPolicy) -> Self {
         Self {
             common: CapabilityPublication::install_only(install),
@@ -123,6 +133,8 @@ impl PluginPublication {
 
 const _: fn(&'static str, &'static str) -> PublishedRoute = PublishedRoute::new;
 const _: fn(String, String) -> PublishedRoute = PublishedRoute::leak;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+const _: fn(RouteMetadata, RouteInstaller, RouteAuthPolicy) -> RoutePublication = RoutePublication::new;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 const _: fn(RouteInstaller, RouteAuthPolicy) -> RoutePublication = RoutePublication::install_only;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]

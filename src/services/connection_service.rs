@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
-use tracing::error;
+use log::error;
 
 const MAX_CONNECTIONS: usize = 6;
 

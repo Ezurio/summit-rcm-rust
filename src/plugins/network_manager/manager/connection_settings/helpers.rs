@@ -51,6 +51,9 @@ impl NetworkManagerService {
         if let Some(setting) = connection.get(setting_name).and_then(|value| value.as_object()) {
             let target = new_connection.entry(setting_name.to_string()).or_default();
             for (key, value) in setting {
+                if value.is_null() {
+                    continue;
+                }
                 target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
             }
         }

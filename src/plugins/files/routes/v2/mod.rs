@@ -6,7 +6,7 @@
 
 use axum::{extract::{Multipart, multipart::MultipartRejection}, http::StatusCode};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 #[cfg(feature = "api-docs")]
 
 #[cfg(feature = "api-docs")]

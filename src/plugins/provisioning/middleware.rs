@@ -22,9 +22,21 @@ use axum::{
 use parking_lot::Mutex;
 use serde::Deserialize;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use time::{OffsetDateTime, UtcDateTime};
-use tracing::warn;
+use log::warn;
+
+#[cfg(not(test))]
+static DISABLE_CERTIFICATE_EXPIRY_VERIFICATION: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn initialize_disable_certificate_expiry_verification() {
+    #[cfg(not(test))]
+    DISABLE_CERTIFICATE_EXPIRY_VERIFICATION.store(
+        ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true),
+        Ordering::Relaxed,
+    );
+}
 
 fn rest_api_docs_enabled() -> bool {
     std::env::var("DOCS_GENERATION")
@@ -33,7 +45,15 @@ fn rest_api_docs_enabled() -> bool {
 }
 
 fn disable_certificate_expiry_verification() -> bool {
-    ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
+    #[cfg(test)]
+    {
+        return ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true);
+    }
+
+    #[cfg(not(test))]
+    {
+        DISABLE_CERTIFICATE_EXPIRY_VERIFICATION.load(Ordering::Relaxed)
+    }
 }
 
 static LAST_CLIENT_CERT_HASH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));

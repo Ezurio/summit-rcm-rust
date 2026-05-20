@@ -7,7 +7,7 @@
 use anyhow::{bail, Result};
 use crate::utils::command_output;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 pub const ADD_SOURCE: &str = "addSource";
 pub const REMOVE_SOURCE: &str = "removeSource";

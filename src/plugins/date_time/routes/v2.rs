@@ -6,7 +6,7 @@
 use crate::plugins::date_time::service::DateTimeService;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;

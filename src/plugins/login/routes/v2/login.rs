@@ -13,8 +13,30 @@ use crate::plugins::login::LoginService;
 use crate::plugins::login::UserService;
 use axum::Json;
 use serde::Deserialize;
+#[cfg(not(test))]
+use std::sync::atomic::{AtomicBool, Ordering};
 use tower_sessions::Session;
-use tracing::info;
+use log::info;
+
+#[cfg(not(test))]
+static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn initialize_sessions_enabled() {
+    #[cfg(not(test))]
+    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
+}
+
+fn sessions_enabled() -> bool {
+    #[cfg(test)]
+    {
+        return ServerConfig::get_bool("/", "tools.sessions.on", true);
+    }
+
+    #[cfg(not(test))]
+    {
+        SESSIONS_ENABLED.load(Ordering::Relaxed)
+    }
+}
 
 crate::define_status_response_family! {
     pub enum LoginResponses {
@@ -47,7 +69,7 @@ pub struct LoginRequest {
     responses(LoginResponses)
 ))]
 pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginResponses {
-    if !ServerConfig::get_bool("/", "tools.sessions.on", true) {
+    if !sessions_enabled() {
         return LoginResponses::Ok;
     }
 
@@ -64,18 +86,18 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
                     LoginService::remove_session(existing_id);
                 }
                 if let Err(error) = session.flush().await {
-                    tracing::error!("failed to flush session during rejected refresh for {}: {}", username, error);
+                    log::error!("failed to flush session during rejected refresh for {}: {}", username, error);
                     return LoginResponses::InternalError;
                 }
                 return LoginResponses::Forbidden;
             }
 
             if let Err(error) = session.insert("username", username).await {
-                tracing::error!("failed to update session data for {}: {}", username, error);
+                log::error!("failed to update session data for {}: {}", username, error);
                 return LoginResponses::InternalError;
             }
             if let Err(error) = session.save().await {
-                tracing::error!("failed to save refreshed session for {}: {}", username, error);
+                log::error!("failed to save refreshed session for {}: {}", username, error);
                 return LoginResponses::InternalError;
             }
 
@@ -92,7 +114,7 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
         }
         Ok(None) => {}
         Err(error) => {
-            tracing::error!("failed to load session during login for {}: {}", username, error);
+            log::error!("failed to load session during login for {}: {}", username, error);
             return LoginResponses::InternalError;
         }
     }
@@ -127,21 +149,21 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
     LoginService::login_reset(username);
 
     if let Err(error) = session.flush().await {
-        tracing::error!("failed to reset session before login for {}: {}", username, error);
+        log::error!("failed to reset session before login for {}: {}", username, error);
         return LoginResponses::InternalError;
     }
 
     if let Err(error) = session.insert("username", username).await {
-        tracing::error!("failed to create session data for {}: {}", username, error);
+        log::error!("failed to create session data for {}: {}", username, error);
         return LoginResponses::InternalError;
     }
     if let Err(error) = session.save().await {
-        tracing::error!("failed to save session for {}: {}", username, error);
+        log::error!("failed to save session for {}: {}", username, error);
         return LoginResponses::InternalError;
     }
 
     let Some(session_id) = session.id() else {
-        tracing::error!("session id missing after save for {}", username);
+        log::error!("session id missing after save for {}", username);
         return LoginResponses::InternalError;
     };
 
@@ -166,7 +188,7 @@ pub async fn logout(session: Session) -> LogoutResponses {
     let username = match session.get::<String>("username").await {
         Ok(value) => value,
         Err(error) => {
-            tracing::error!("failed to load session during logout: {}", error);
+            log::error!("failed to load session during logout: {}", error);
             return LogoutResponses::InternalError;
         }
     };
@@ -182,7 +204,7 @@ pub async fn logout(session: Session) -> LogoutResponses {
 
     LoginService::remove_session(&session_id);
     if let Err(error) = session.flush().await {
-        tracing::error!("failed to flush session {} during logout: {}", session_id, error);
+        log::error!("failed to flush session {} during logout: {}", session_id, error);
         return LogoutResponses::InternalError;
     }
     info!("Session {} logged out", session_id);

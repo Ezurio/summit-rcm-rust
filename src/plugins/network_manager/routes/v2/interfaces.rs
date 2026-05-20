@@ -9,7 +9,7 @@ use crate::plugins::network_manager::routes::shared::NetworkInterfaceResponse;
 use crate::plugins::network_manager::service::NetworkService;
 use axum::extract::Path;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use log::error;
 
 crate::define_json_response_family! {
     pub enum ListInterfacesResponses {
@@ -79,7 +79,7 @@ pub async fn list_interfaces() -> ListInterfacesResponses {
     {
         Ok(value) => value.into(),
         Err(error) => {
-            tracing::error!("list_interfaces: {}", error);
+            log::error!("list_interfaces: {}", error);
             ListInterfacesResponses::InternalError
         }
     }

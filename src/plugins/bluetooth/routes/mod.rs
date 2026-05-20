@@ -4,6 +4,15 @@
 //
 pub mod common;
 
+#[cfg(feature = "bluetooth-hid")]
+pub mod hid;
+
+#[cfg(feature = "bluetooth-vsp")]
+pub mod vsp;
+
+#[cfg(feature = "bluetooth-websocket")]
+pub mod websocket;
+
 #[cfg(feature = "api-v2")]
 pub mod v2;
 

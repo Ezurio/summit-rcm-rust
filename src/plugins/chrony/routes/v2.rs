@@ -5,7 +5,7 @@
 
 use crate::plugins::chrony::service::{ChronyNTPService, ChronySource, OVERRIDE_SOURCES, REMOVE_SOURCE};
 use axum::{extract::Path, Json};
-use tracing::error;
+use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
