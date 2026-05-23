@@ -91,7 +91,7 @@ fn is_whitelisted(path: &str) -> bool {
     }
 
     if rest_api_docs_enabled() {
-        return path == "/" || path.starts_with("/swagger-ui") || path == "/api-docs/openapi.json";
+        return path == "/" || path == "/api/docs" || path == "/api/openapi.json";
     }
 
     false

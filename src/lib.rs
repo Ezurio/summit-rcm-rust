@@ -36,5 +36,9 @@ pub mod plugins;
 #[path = "app/publication.rs"]
 pub mod publication;
 
+#[cfg(feature = "api-docs")]
+#[path = "openapi/mod.rs"]
+pub mod openapi;
+
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod web;

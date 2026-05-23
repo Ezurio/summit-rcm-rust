@@ -32,6 +32,8 @@ PYTHON_RUNTIME_CHOICES = ("auto", "summit-rcm", "weblcm")
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 3.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
 CORE_RUST_PARITY_FEATURES = ("api-v2", "api-legacy")
+RUNTIME_DOCS_RUST_FEATURES = ("runtime-docs", "swagger-ui")
+OPENAPI_GENERATOR_RUST_FEATURES = ("api-docs",)
 FRAMEWORK_VALIDATION_STATUSES = frozenset({400, 415, 422})
 WIRELESS_INTERFACE_PLACEHOLDER = "wlo1"
 
@@ -190,8 +192,16 @@ def selected_plugins(cases: list[dict[str, Any]], requested_plugins: list[str]) 
     return sorted(plugins)
 
 
-def rust_parity_features(plugins: list[str]) -> str:
-    return ",".join([*CORE_RUST_PARITY_FEATURES, *[plugin_spec(plugin).rust_feature for plugin in plugins]])
+def rust_parity_features(
+    plugins: list[str], *, extra_features: tuple[str, ...] = ()
+) -> str:
+    return ",".join(
+        [
+            *CORE_RUST_PARITY_FEATURES,
+            *extra_features,
+            *[plugin_spec(plugin).rust_feature for plugin in plugins],
+        ]
+    )
 
 
 def detect_python_runtime(python_repo: Path) -> str:
@@ -1081,6 +1091,8 @@ def write_test_config(
     sessions_on: bool,
     enabled_plugins: list[str],
     python_runtime: str,
+    rest_api_docs: bool = False,
+    rest_api_docs_root_redirect: bool = False,
 ) -> tuple[Path, Path, Path, Path, Path]:
     cert_path = temp_dir / "server.crt"
     key_path = temp_dir / "server.key"
@@ -1151,8 +1163,8 @@ def write_test_config(
                     "default_username = root",
                     "default_password = summit",
                     "allow_multiple_user_sessions = true",
-                    "rest_api_docs = false",
-                    "rest_api_docs_root_redirect = false",
+                    f"rest_api_docs = {'true' if rest_api_docs else 'false'}",
+                    f"rest_api_docs_root_redirect = {'true' if rest_api_docs_root_redirect else 'false'}",
                     "network_status_restricted = false",
                     "log_routes_loaded = false",
                     "enable_client_auth = false",
@@ -1324,6 +1336,163 @@ def python_wrapper_command(python_runtime: str) -> str:
         "ServerConfig()._rest_api_docs_enabled = False; "
         "raise SystemExit(summit_rcm.main())"
     )
+
+
+def python_docs_wrapper_command() -> str:
+    return (
+        "import os; "
+        "import importlib.util; "
+        "os.environ['DOCS_GENERATION'] = 'True'; "
+        "state_path = os.environ.get('SUMMIT_RCM_PROVISIONING_STATE_FILE'); "
+        "import summit_rcm; "
+        "(state_path and importlib.util.find_spec('summit_rcm_provisioning') and setattr(__import__('summit_rcm_provisioning.services.provisioning_service', fromlist=['PROVISIONING_STATE_FILE_PATH']), 'PROVISIONING_STATE_FILE_PATH', state_path)); "
+        "raise SystemExit(summit_rcm.main())"
+    )
+
+
+def assert_docs_ui_response(label: str, path: str, response: HttpResponse) -> None:
+    if response.status != 200:
+        raise ParityError(f"{label} {path}: expected status 200, got {response.status}")
+    body = response.body.decode("utf-8", errors="replace")
+    for marker in ("/api/openapi.json", "@scalar/api-reference", "Summit RCM API Reference"):
+        if marker not in body:
+            raise ParityError(f"{label} {path}: expected body to contain {marker!r}")
+
+
+def assert_openapi_json_response(label: str, response: HttpResponse) -> None:
+    if response.status != 200:
+        raise ParityError(f"{label} /api/openapi.json: expected status 200, got {response.status}")
+    try:
+        payload = json.loads(response.body)
+    except json.JSONDecodeError as error:
+        raise ParityError(f"{label} /api/openapi.json: invalid JSON ({error})") from error
+    if not isinstance(payload, dict) or "paths" not in payload:
+        raise ParityError(f"{label} /api/openapi.json: expected OpenAPI object with paths")
+
+
+def compare_runtime_docs_ui(
+    python_repo: Path,
+    *,
+    python_runtime: str,
+    startup_timeout_seconds: float,
+    request_timeout_seconds: float,
+    sessions_on: bool,
+    enabled_plugins: list[str],
+) -> None:
+    if python_runtime != "summit-rcm":
+        return
+
+    rust_binary = ensure_rust_binary(
+        bin_name="summit-rcm",
+        features=rust_parity_features(enabled_plugins, extra_features=RUNTIME_DOCS_RUST_FEATURES),
+    )
+    generate_openapi_binary = ensure_rust_binary(
+        bin_name="generate_openapi",
+        features=rust_parity_features(enabled_plugins, extra_features=OPENAPI_GENERATOR_RUST_FEATURES),
+    )
+
+    with tempfile.TemporaryDirectory(prefix="api-parity-docs-") as temp_dir_raw:
+        temp_dir = Path(temp_dir_raw)
+        rust_port = reserve_local_port()
+        python_port = reserve_local_port()
+        rust_config_path, python_config_path, settings_path, provisioning_state_path, cert_path = write_test_config(
+            temp_dir,
+            rust_port,
+            python_port,
+            sessions_on=sessions_on,
+            enabled_plugins=enabled_plugins,
+            python_runtime=python_runtime,
+            rest_api_docs=True,
+            rest_api_docs_root_redirect=True,
+        )
+        rust_openapi_path = temp_dir / "rust-openapi.json"
+        run_checked(
+            [str(generate_openapi_binary)],
+            cwd=ROOT,
+            env=rust_env(extra_env={"SUMMIT_RCM_OPENAPI_OUTPUT": str(rust_openapi_path)}),
+        )
+
+        rust_runtime_env = rust_env(
+            extra_env={
+                "SUMMIT_RCM_BIND": f"127.0.0.1:{rust_port}",
+                "SUMMIT_RCM_SERVER_CONF_FILE": str(rust_config_path),
+                "SUMMIT_RCM_SETTINGS_FILE": str(settings_path),
+                "SUMMIT_RCM_PROVISIONING_STATE_FILE": str(provisioning_state_path),
+                "SUMMIT_RCM_OPENAPI_PATH": str(rust_openapi_path),
+            },
+        )
+        python_env = {
+            **os.environ,
+            "PYTHONPATH": python_parity_path(python_repo, enabled_plugins, python_runtime),
+            "DOCS_GENERATION": "True",
+            "SUMMIT_RCM_SERVER_CONF_FILE": str(python_config_path),
+            "SUMMIT_RCM_SETTINGS_FILE": str(settings_path),
+            "SUMMIT_RCM_PROVISIONING_STATE_FILE": str(provisioning_state_path),
+        }
+
+        rust: ManagedProcess | None = None
+        python: ManagedProcess | None = None
+
+        try:
+            rust = start_process("rust", [str(rust_binary)], cwd=ROOT, env=rust_runtime_env)
+            python = start_process(
+                "python",
+                [python_runtime_executable(python_repo), "-c", python_docs_wrapper_command()],
+                cwd=python_repo,
+                env=python_env,
+            )
+            rust_base_url = wait_for_server(
+                "rust",
+                f"https://127.0.0.1:{rust_port}",
+                rust,
+                ca_cert_path=cert_path,
+                request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+            python_base_url = wait_for_server(
+                "python",
+                f"https://127.0.0.1:{python_port}",
+                python,
+                ca_cert_path=cert_path,
+                request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+
+            rust_openapi = request(
+                f"{rust_base_url}/api/openapi.json",
+                "GET",
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
+            python_openapi = request(
+                f"{python_base_url}/api/openapi.json",
+                "GET",
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
+            assert_openapi_json_response("rust", rust_openapi)
+            assert_openapi_json_response("python", python_openapi)
+
+            for path in ("/api/docs", "/"):
+                rust_response = request(
+                    f"{rust_base_url}{path}",
+                    "GET",
+                    ca_cert_path=cert_path,
+                    timeout_seconds=request_timeout_seconds,
+                )
+                python_response = request(
+                    f"{python_base_url}{path}",
+                    "GET",
+                    ca_cert_path=cert_path,
+                    timeout_seconds=request_timeout_seconds,
+                )
+                assert_docs_ui_response("rust", path, rust_response)
+                assert_docs_ui_response("python", path, python_response)
+        finally:
+            if rust is not None:
+                rust.stop()
+            if python is not None:
+                python.stop()
 
 
 def write_python_stub_modules(temp_dir: Path, python_runtime: str) -> Path | None:
@@ -1893,6 +2062,14 @@ def compare_responses(
             python_runtime=run_runtime,
             request_timeout_seconds=request_timeout_seconds,
             startup_timeout_seconds=startup_timeout_seconds,
+            sessions_on=sessions_on,
+            enabled_plugins=enabled_plugins,
+        )
+        compare_runtime_docs_ui(
+            run_repo,
+            python_runtime=run_runtime,
+            startup_timeout_seconds=startup_timeout_seconds,
+            request_timeout_seconds=request_timeout_seconds,
             sessions_on=sessions_on,
             enabled_plugins=enabled_plugins,
         )

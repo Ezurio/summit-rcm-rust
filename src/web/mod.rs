@@ -7,9 +7,6 @@ pub mod auth;
 pub mod pkcs11;
 pub mod security_headers;
 pub mod response;
-#[cfg(feature = "api-docs")]
-#[path = "../openapi/mod.rs"]
-pub mod openapi;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod legacy_response;
 
@@ -36,9 +33,9 @@ use log::{info, warn};
 
 #[cfg(feature = "provisioning")]
 use axum::Extension;
-
 #[cfg(feature = "api-docs")]
-use self::openapi::OPENAPI_DOC;
+use crate::openapi::OPENAPI_DOC;
+
 use crate::config::ServerConfig;
 use crate::plugin_loader;
 #[cfg(feature = "provisioning")]
@@ -48,6 +45,14 @@ use crate::plugins::provisioning::service::{
 use self::pkcs11::convert_pkcs11_uri_to_pem;
 use crate::utils::random_token_hex;
 
+#[cfg(feature = "runtime-docs")]
+const OPENAPI_DOC_PATH: &str = "/etc/summit-rcm-openapi.json";
+
+#[cfg(feature = "runtime-docs")]
+fn runtime_openapi_doc_path() -> String {
+    std::env::var("SUMMIT_RCM_OPENAPI_PATH").unwrap_or_else(|_| OPENAPI_DOC_PATH.to_string())
+}
+
 fn default_bind_addr() -> String {
     let port = ServerConfig::get_string("summit-rcm", "socket_port", "8080");
     let port = port.trim().trim_matches('"');
@@ -56,49 +61,111 @@ fn default_bind_addr() -> String {
 }
 
 #[cfg(feature = "swagger-ui")]
-const SWAGGER_UI_HTML: &str = r#"<!doctype html>
+const API_DOCS_UI_HTML: &str = r#"<!doctype html>
 <html>
     <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Summit RCM API Reference</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.3/swagger-ui.css" />
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>
-            body { margin: 0; background: #fafafa; }
+            body { margin: 0; }
         </style>
     </head>
     <body>
-        <div id="swagger-ui"></div>
-        <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.3/swagger-ui-bundle.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.3/swagger-ui-standalone-preset.js"></script>
+        <script id="api-reference" data-url="/api/openapi.json"></script>
         <script>
-            window.onload = function () {
-                window.ui = SwaggerUIBundle({
-                    url: '/api-docs/openapi.json',
-                    dom_id: '#swagger-ui',
-                    deepLinking: true,
-                    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-                    layout: 'BaseLayout',
-                    withCredentials: true,
-                    persistAuthorization: true,
-                    requestSnippetsEnabled: true,
-                    validatorUrl: 'none',
-                    tagsSorter: 'alpha',
-                    tryItOutEnabled: true
-                });
+            var configuration = {
+                theme: 'default',
+                isEditable: false,
+                metaData: {
+                    title: 'Summit RCM API Reference',
+                    description: 'Summit RCM API Reference'
+                }
             };
+
+            var apiReference = document.getElementById('api-reference');
+            apiReference.dataset.configuration = JSON.stringify(configuration);
         </script>
+        <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
     </body>
 </html>
 "#;
 
 #[cfg(feature = "swagger-ui")]
-async fn swagger_ui() -> impl IntoResponse {
-    axum::response::Html(SWAGGER_UI_HTML)
+async fn api_docs_ui() -> impl IntoResponse {
+        axum::response::Html(API_DOCS_UI_HTML)
 }
 
 async fn index() -> impl IntoResponse {
     "Summit RCM"
+}
+
+#[cfg(feature = "runtime-docs")]
+fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
+    let openapi_doc = std::fs::read_to_string(runtime_openapi_doc_path())?;
+    Ok(serde_json::from_str(&openapi_doc)?)
+}
+
+#[cfg(feature = "api-docs")]
+fn load_compiled_openapi_doc() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(OPENAPI_DOC.clone())?)
+}
+
+#[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
+fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
+    #[cfg(feature = "runtime-docs")]
+    match load_runtime_openapi_doc() {
+        Ok(openapi_doc) => return Some(openapi_doc),
+        Err(error) => {
+            let openapi_doc_path = runtime_openapi_doc_path();
+            warn!(
+                "OpenAPI spec file unavailable ({}): {}",
+                openapi_doc_path,
+                error
+            );
+        }
+    }
+
+    #[cfg(feature = "api-docs")]
+    match load_compiled_openapi_doc() {
+        Ok(openapi_doc) => return Some(openapi_doc),
+        Err(error) => {
+            warn!("Compiled OpenAPI spec unavailable: {}", error);
+        }
+    }
+
+    None
+}
+
+#[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
+fn add_runtime_docs_routes(base_router: Router) -> Router {
+    let openapi_doc = match load_openapi_doc_for_runtime() {
+        Some(openapi_doc) => openapi_doc,
+        None => {
+            return base_router.route("/", get(index));
+        }
+    };
+
+    let base_router = base_router.route("/api/openapi.json", get(move || {
+        let openapi_doc = openapi_doc.clone();
+        async move { axum::Json(openapi_doc) }
+    }));
+
+    #[cfg(feature = "swagger-ui")]
+    let base_router = {
+        let base_router = base_router.route("/api/docs", get(api_docs_ui));
+
+        if ServerConfig::get_bool("summit-rcm", "rest_api_docs_root_redirect", true) {
+            base_router.route("/", get(api_docs_ui))
+        } else {
+            base_router.route("/", get(index))
+        }
+    };
+
+    #[cfg(not(feature = "swagger-ui"))]
+    let base_router = base_router.route("/", get(index));
+
+    base_router
 }
 
 struct WebTlsConfig {
@@ -475,38 +542,10 @@ pub fn build_router() -> Router {
         .with_secure(true)
         .with_path("/");
 
-    #[cfg(feature = "api-docs")]
-    let app_router = {
-        let base_router =
-            base_router.route("/api-docs/openapi.json", get(|| async { axum::Json(OPENAPI_DOC.clone()) }));
+    #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
+    let app_router = add_runtime_docs_routes(base_router);
 
-        #[cfg(feature = "swagger-ui")]
-        let base_router = base_router.route("/swagger-ui/", get(swagger_ui)).route(
-            "/swagger-ui",
-            get(|| async { axum::response::Redirect::permanent("/swagger-ui/") }),
-        );
-
-        #[cfg(feature = "swagger-ui")]
-        let base_router = if ServerConfig::get_bool(
-            "summit-rcm",
-            "rest_api_docs_root_redirect",
-            true,
-        ) {
-            base_router.route(
-                "/",
-                get(|| async { axum::response::Redirect::permanent("/swagger-ui/") }),
-            )
-        } else {
-            base_router.route("/", get(index))
-        };
-
-        #[cfg(not(feature = "swagger-ui"))]
-        let base_router = base_router.route("/", get(index));
-
-        base_router
-    };
-
-    #[cfg(not(feature = "api-docs"))]
+    #[cfg(not(any(feature = "runtime-docs", feature = "api-docs")))]
     let app_router = base_router.route("/", get(index));
 
     let app_router = apply_base_api_publications(app_router);

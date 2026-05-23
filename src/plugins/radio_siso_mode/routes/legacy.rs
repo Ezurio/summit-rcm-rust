@@ -52,6 +52,11 @@ fn legacy_siso_mode_response(
     }
 }
 
+fn parse_legacy_siso_mode(raw: &str) -> Option<RadioSISOMode> {
+    let value = raw.parse::<i32>().ok()?;
+    RadioSISOMode::try_from(value).ok()
+}
+
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
     path = "/radioSISOMode",
@@ -89,25 +94,9 @@ pub async fn put_radio_siso_mode_legacy(
     let current = RadioSISOModeService::get_current_siso_mode().map(|m| m as i32).unwrap_or(-1);
 
     let raw = q.siso_mode.as_deref().unwrap_or_default();
-    let val = match raw.parse::<i32>() {
-        Ok(v) => v,
-        Err(error) => {
-            let error_text = if raw.is_empty() {
-                error.to_string()
-            } else {
-                format!("invalid literal for int() with base 10: '{}'", raw)
-            };
-            return legacy_siso_mode_response(
-                fail_response(format!("Unable to set SISO_mode parameter - {}", error_text)),
-                current,
-            )
-            .into();
-        }
-    };
-
-    let mode = match RadioSISOMode::try_from(val) {
-        Ok(m) => m,
-        Err(_) => {
+    let mode = match parse_legacy_siso_mode(raw) {
+        Some(mode) => mode,
+        None => {
             return legacy_siso_mode_response(
                 fail_response("Unable to set SISO_mode parameter - invalid parameter value"),
                 current,

@@ -103,7 +103,8 @@ all-plugins = [
     "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
 ]
 api-docs = ["dep:utoipa"]
-swagger-ui = ["api-docs"]
+runtime-docs = []
+swagger-ui = ["runtime-docs"]
 
 [dependencies]
 # Always required
