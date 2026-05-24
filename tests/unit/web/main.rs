@@ -88,6 +88,16 @@ fn session_cookie(response: &axum::response::Response) -> Option<String> {
         .map(|value| value.split(';').next().unwrap_or_default().to_string())
 }
 
+fn session_cookie_set_cookie_header(response: &axum::response::Response) -> Option<String> {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.starts_with("session_id="))
+        .map(|value| value.to_string())
+}
+
 #[test]
 fn default_bind_addr_uses_configured_socket_port() {
     let _guard = tests::SERVER_LOCK.lock();
@@ -174,6 +184,54 @@ async fn sessions_disabled_allows_protected_v2_route_without_login() {
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn session_cookie_uses_configured_secure_and_httponly_flags() {
+    let _guard = tests::SERVER_LOCK.lock();
+    let _cleanup = ServerConfigTestCleanup;
+    tests::clear_server_overrides();
+    tests::set_server_override("/", "tools.sessions.secure", "false");
+    tests::set_server_override("/", "tools.sessions.httponly", "false");
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"username":"root","password":"summit"}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let cookie = session_cookie_set_cookie_header(&response)
+        .expect("session cookie should be set");
+    assert!(!cookie.contains("Secure"));
+    assert!(!cookie.contains("HttpOnly"));
+}
+
+#[tokio::test]
+async fn session_cookie_defaults_to_secure_and_httponly() {
+    let _guard = tests::SERVER_LOCK.lock();
+    let _cleanup = ServerConfigTestCleanup;
+    tests::clear_server_overrides();
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"username":"root","password":"summit"}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let cookie = session_cookie_set_cookie_header(&response)
+        .expect("session cookie should be set");
+    assert!(cookie.contains("Secure"));
+    assert!(cookie.contains("HttpOnly"));
 }
 
 #[cfg(feature = "api-legacy")]

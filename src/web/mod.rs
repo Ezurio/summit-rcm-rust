@@ -537,9 +537,9 @@ pub fn build_router() -> Router {
 
     let session_layer = SessionManagerLayer::new(MemoryStore::default())
         .with_name("session_id")
-        .with_http_only(true)
+        .with_http_only(ServerConfig::get_bool("/", "tools.sessions.httponly", true))
         .with_same_site(SameSite::Strict)
-        .with_secure(true)
+        .with_secure(ServerConfig::get_bool("/", "tools.sessions.secure", true))
         .with_path("/");
 
     #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]

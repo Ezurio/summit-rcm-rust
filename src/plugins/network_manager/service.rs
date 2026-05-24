@@ -26,6 +26,25 @@ fn unmanaged_hardware_devices() -> Vec<String> {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")
 }
 
+fn managed_software_devices() -> Vec<String> {
+    ServerConfig::get_words("summit-rcm", "managed_software_devices")
+}
+
+fn append_missing_interfaces<I>(interfaces: &mut Vec<String>, extra_interfaces: I)
+where
+    I: IntoIterator<Item = String>,
+{
+    for device in extra_interfaces {
+        if !interfaces.contains(&device) {
+            interfaces.push(device);
+        }
+    }
+}
+
+fn append_managed_software_devices(interfaces: &mut Vec<String>) {
+    append_missing_interfaces(interfaces, managed_software_devices());
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NetworkManagerVersionInfo {
     pub nm_version: String,
@@ -116,6 +135,8 @@ impl NetworkService {
 
             interfaces.push(interface_name);
         }
+
+        append_managed_software_devices(&mut interfaces);
 
         Ok(json!(interfaces))
     }
@@ -841,3 +862,7 @@ impl NetworkService {
     }
 
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/services/network_manager_service.rs"]
+mod tests;
