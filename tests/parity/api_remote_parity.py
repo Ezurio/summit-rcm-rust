@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import shlex
 import signal
+import socket
+import ssl
 import subprocess
 import time
 from dataclasses import dataclass
@@ -18,10 +21,13 @@ from api_parity import (
     DEFAULT_CASES,
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_STARTUP_TIMEOUT_SECONDS,
+    PYTHON_RUNTIME_CHOICES,
     USER_PERMISSIONS,
     ParityError,
+    create_parity_ssl_context,
      detect_wireless_interface,
     find_readback_case,
+    filter_cases_for_python_runtime,
     path_uses_wireless_interface_placeholder,
     parse_plugin_names,
     python_wrapper_command,
@@ -39,6 +45,7 @@ from api_parity import (
 
 DEFAULT_REMOTE_RUST_PORT = 18443
 DEFAULT_REMOTE_PYTHON_PORT = 28443
+DEFAULT_POWER_LOSS_OFFLINE_TIMEOUT_SECONDS = 10.0
 DIRECT_HTTPS_HOST = os.environ.get("SUMMIT_API_HOST", "test.summit.com")
 DIRECT_HTTPS_CA = Path(
     os.environ.get(
@@ -50,6 +57,7 @@ TARGET_SERVER_CERT_PATH = "/etc/summit-rcm/ssl/server.crt"
 TARGET_SERVER_KEY_PATH = "/etc/summit-rcm/ssl/server.key"
 TARGET_SERVER_CA_PATH = "/etc/summit-rcm/ssl/ca.crt"
 DEFAULT_LOGIN_BODY = {"username": "root", "password": "summit"}
+WEBSOCKET_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 @dataclass
@@ -101,6 +109,12 @@ class TerminalCaseOutcome:
     detail: str
 
 
+@dataclass(frozen=True)
+class WebSocketProbeResult:
+    status: int | None
+    detail: str
+
+
 def shell_quote(value: str) -> str:
     return shlex.quote(value)
 
@@ -111,6 +125,49 @@ def ssh_target_host(target: str) -> str:
 
 def https_base_url(port: int) -> str:
     return f"https://{DIRECT_HTTPS_HOST}:{port}"
+
+
+def websocket_paths_for_python_runtime(python_runtime: str) -> list[str]:
+    if python_runtime == "weblcm":
+        return ["/bluetoothWebsocket/ws"]
+    return ["/api/v2/bluetooth/ws", "/bluetoothWebsocket/ws"]
+
+
+def websocket_enable_path(path: str) -> str | None:
+    if path == "/api/v2/bluetooth/ws":
+        return "/api/v2/bluetooth/controller0"
+    if path == "/bluetoothWebsocket/ws":
+        return "/bluetooth/controller0"
+    return None
+
+
+def enable_direct_websocket_notifications(
+    *,
+    base_url: str,
+    connect_host: str,
+    cookie: str | None,
+    timeout_seconds: float,
+    path: str,
+) -> str | None:
+    enable_path = websocket_enable_path(path)
+    if enable_path is None:
+        return None
+    response, error = request_or_error(
+        f"{base_url}{enable_path}",
+        "PUT",
+        body={"command": "bleEnableWebsockets"},
+        cookie=cookie,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+    )
+    if error is not None:
+        return error
+    if response is None:
+        return "no response"
+    if response.status >= 400:
+        return f"status {response.status}"
+    return None
 
 
 def ssh_base_command(target: str, ssh_options: list[str]) -> list[str]:
@@ -366,6 +423,42 @@ def clear_all_cookie_values(cookies: dict[str, str]) -> None:
     cookies.clear()
 
 
+def logout_direct_sessions_best_effort(
+    *,
+    base_url: str,
+    connect_host: str,
+    cookies: dict[str, str],
+    timeout_seconds: float,
+) -> None:
+    def logout_path_for_cookie_key(cookie_key: str) -> str:
+        lowered = cookie_key.lower()
+        if lowered in {"/api/v2/login", "__v2__"} or "v2" in lowered:
+            return "/api/v2/login"
+        return "/login"
+
+    if not cookies:
+        return
+
+    attempted: set[tuple[str, str]] = set()
+    for cookie_key, cookie in cookies.items():
+        if not cookie:
+            continue
+        logout_path = logout_path_for_cookie_key(cookie_key)
+        signature = (logout_path, cookie)
+        if signature in attempted:
+            continue
+        attempted.add(signature)
+        request_or_error(
+            f"{base_url}{logout_path}",
+            "DELETE",
+            cookie=cookie,
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=connect_host,
+            timeout_seconds=timeout_seconds,
+            read_body=False,
+        )
+
+
 def attempt_fresh_direct_login(
     *,
     rust_base_url: str,
@@ -393,8 +486,90 @@ def attempt_fresh_direct_login(
     )
 
 
-def direct_login_path_for_case(case: dict[str, Any]) -> str:
+def direct_login_path_for_case(case: dict[str, Any], python_runtime: str) -> str:
+    if python_runtime == "weblcm":
+        return "/login"
     return "/api/v2/login" if cookie_scope_for_path(case.get("path", "")) == "v2" else "/login"
+
+
+def login_response_indicates_already_logged(response: Any) -> bool:
+    try:
+        payload = json.loads((response.body or b"").decode("utf-8", errors="replace"))
+    except Exception:
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    if payload.get("SDCERR") == 2:
+        return True
+
+    info_msg = str(payload.get("InfoMsg", "")).lower()
+    return "already logged" in info_msg
+
+
+def login_cookie_with_recovery(
+    *,
+    base_url: str,
+    connect_host: str,
+    timeout_seconds: float,
+    login_path: str,
+    existing_cookie: str | None,
+) -> tuple[str | None, str | None]:
+    login_response, login_error = request_or_error(
+        f"{base_url}{login_path}",
+        "POST",
+        body=DEFAULT_LOGIN_BODY,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if login_error is not None:
+        return None, login_error
+
+    cookie = response_cookie(login_response)
+    if cookie:
+        return cookie, None
+
+    if existing_cookie and login_response_indicates_already_logged(login_response):
+        return existing_cookie, None
+
+    if not login_response_indicates_already_logged(login_response):
+        return None, "login response missing session cookie"
+
+    # Some targets can return "already logged in" without Set-Cookie.
+    # Force a logout+login cycle to mint a fresh cookie.
+    request_or_error(
+        f"{base_url}{login_path}",
+        "DELETE",
+        cookie=existing_cookie,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=False,
+    )
+
+    fresh_login_response, fresh_login_error = request_or_error(
+        f"{base_url}{login_path}",
+        "POST",
+        body=DEFAULT_LOGIN_BODY,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if fresh_login_error is not None:
+        return None, fresh_login_error
+
+    fresh_cookie = response_cookie(fresh_login_response)
+    if fresh_cookie:
+        return fresh_cookie, None
+
+    if existing_cookie and login_response_indicates_already_logged(fresh_login_response):
+        return existing_cookie, None
+
+    return None, "login response missing session cookie after recovery"
 
 
 def attempt_direct_login(
@@ -409,35 +584,201 @@ def attempt_direct_login(
     python_cookies: dict[str, str],
     login_path: str,
 ) -> str | None:
-    rust_login, rust_error = request_or_error(
-        f"{rust_base_url}{login_path}",
-        "POST",
-        body=DEFAULT_LOGIN_BODY,
-        ca_cert_path=DIRECT_HTTPS_CA,
+    rust_cookie, rust_error = login_cookie_with_recovery(
+        base_url=rust_base_url,
         connect_host=rust_ip,
         timeout_seconds=timeout_seconds,
-        read_body=True,
+        login_path=login_path,
+        existing_cookie=rust_cookies.get(cookie_key),
     )
-    python_login, python_error = request_or_error(
-        f"{python_base_url}{login_path}",
-        "POST",
-        body=DEFAULT_LOGIN_BODY,
-        ca_cert_path=DIRECT_HTTPS_CA,
+    python_cookie, python_error = login_cookie_with_recovery(
+        base_url=python_base_url,
         connect_host=python_ip,
         timeout_seconds=timeout_seconds,
-        read_body=True,
+        login_path=login_path,
+        existing_cookie=python_cookies.get(cookie_key),
     )
-    if rust_error or python_error:
+
+    if rust_error is not None or python_error is not None:
         return f"auto-login failed, rust={rust_error or 'ok'}, python={python_error or 'ok'}"
 
-    rust_cookie = response_cookie(rust_login)
-    python_cookie = response_cookie(python_login)
     if not rust_cookie or not python_cookie:
         return f"auto-login missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
 
     rust_cookies[cookie_key] = rust_cookie
     python_cookies[cookie_key] = python_cookie
     return None
+
+
+def login_cookie_for_websocket(
+    *,
+    base_url: str,
+    connect_host: str,
+    timeout_seconds: float,
+    login_path: str,
+) -> str | None:
+    response, error = request_or_error(
+        f"{base_url}{login_path}",
+        "POST",
+        body=DEFAULT_LOGIN_BODY,
+        ca_cert_path=DIRECT_HTTPS_CA,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if error is not None:
+        raise ParityError(f"websocket login failed for {login_path}: {error}")
+    return response_cookie(response)
+
+
+def restart_direct_services(*, rust_ip: str, python_ip: str, python_runtime: str) -> None:
+    python_service = "weblcm-python.service" if python_runtime == "weblcm" else "summit-rcm.service"
+    for ip, service in ((rust_ip, "summit-rcm.service"), (python_ip, python_service)):
+        completed = subprocess.run(
+            ["ssh", f"root@{ip}", f"systemctl restart {service} && systemctl is-active {service}"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise ParityError(
+                f"failed to restart {service} on {ip}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+
+
+def attempt_direct_login_with_recovery(
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_ip: str,
+    python_ip: str,
+    timeout_seconds: float,
+    startup_timeout_seconds: float,
+    cookie_key: str,
+    rust_cookies: dict[str, str],
+    python_cookies: dict[str, str],
+    login_path: str,
+    python_runtime: str,
+    restarted_for_clean_session: bool,
+    clear_cookies_first: bool = False,
+) -> tuple[str | None, bool]:
+    if clear_cookies_first:
+        clear_all_cookie_values(rust_cookies)
+        clear_all_cookie_values(python_cookies)
+
+    login_error = attempt_direct_login(
+        rust_base_url=rust_base_url,
+        python_base_url=python_base_url,
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        timeout_seconds=timeout_seconds,
+        cookie_key=cookie_key,
+        rust_cookies=rust_cookies,
+        python_cookies=python_cookies,
+        login_path=login_path,
+    )
+    if login_error is None:
+        return None, restarted_for_clean_session
+
+    if "missing session cookie" not in login_error or restarted_for_clean_session:
+        return login_error, restarted_for_clean_session
+
+    print("INFO response parity: restarting services to recover from stale login state")
+    restart_direct_services(
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        python_runtime=python_runtime,
+    )
+    wait_for_direct_recovery(
+        rust_base_url=rust_base_url,
+        python_base_url=python_base_url,
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        request_timeout_seconds=timeout_seconds,
+        startup_timeout_seconds=startup_timeout_seconds,
+    )
+    clear_all_cookie_values(rust_cookies)
+    clear_all_cookie_values(python_cookies)
+    login_error = attempt_direct_login(
+        rust_base_url=rust_base_url,
+        python_base_url=python_base_url,
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        timeout_seconds=timeout_seconds,
+        cookie_key=cookie_key,
+        rust_cookies=rust_cookies,
+        python_cookies=python_cookies,
+        login_path=login_path,
+    )
+    return login_error, True
+
+
+def websocket_probe(
+    *,
+    connect_host: str,
+    port: int,
+    path: str,
+    cookie: str | None,
+    timeout_seconds: float,
+) -> WebSocketProbeResult:
+    websocket_key = base64.b64encode(os.urandom(16)).decode("ascii")
+    expected_accept = base64.b64encode(
+        hashlib.sha1(f"{websocket_key}{WEBSOCKET_ACCEPT_GUID}".encode("ascii")).digest()
+    ).decode("ascii")
+    request_lines = [
+        f"GET {path} HTTP/1.1",
+        f"Host: {DIRECT_HTTPS_HOST}" if port == 443 else f"Host: {DIRECT_HTTPS_HOST}:{port}",
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        f"Origin: https://{DIRECT_HTTPS_HOST}{path}",
+        f"Sec-WebSocket-Key: {websocket_key}",
+        "Sec-WebSocket-Version: 13",
+        "",
+        "",
+    ]
+    if cookie:
+        request_lines.insert(7, f"Cookie: {cookie}")
+    ssl_context = create_parity_ssl_context(DIRECT_HTTPS_CA)
+    try:
+        with socket.create_connection((connect_host, port), timeout=timeout_seconds) as tcp_socket:
+            with ssl_context.wrap_socket(tcp_socket, server_hostname=DIRECT_HTTPS_HOST) as tls_socket:
+                tls_socket.settimeout(timeout_seconds)
+                tls_socket.sendall("\r\n".join(request_lines).encode("ascii"))
+                response = bytearray()
+                while b"\r\n\r\n" not in response:
+                    chunk = tls_socket.recv(4096)
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+                    if len(response) > 16384:
+                        break
+    except (OSError, ssl.SSLError) as error:
+        return WebSocketProbeResult(None, str(error))
+
+    if not response:
+        return WebSocketProbeResult(None, "empty response")
+
+    header_block = response.split(b"\r\n\r\n", 1)[0].decode("iso-8859-1", errors="replace")
+    header_lines = header_block.split("\r\n")
+    status_line = header_lines[0] if header_lines else ""
+    status_parts = status_line.split(" ", 2)
+    if len(status_parts) < 2 or not status_parts[1].isdigit():
+        return WebSocketProbeResult(None, f"invalid response: {status_line or '<empty>'}")
+
+    headers: dict[str, str] = {}
+    for line in header_lines[1:]:
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+    status = int(status_parts[1])
+    if status == 101 and headers.get("sec-websocket-accept") != expected_accept:
+        return WebSocketProbeResult(status, "invalid Sec-WebSocket-Accept header")
+
+    return WebSocketProbeResult(status, status_line)
 
 
 def wait_for_direct_service(
@@ -491,6 +832,180 @@ def wait_for_direct_recovery(
     )
 
 
+def wait_for_direct_offline(
+    name: str,
+    base_url: str,
+    *,
+    connect_host: str,
+    request_timeout_seconds: float,
+    startup_timeout_seconds: float,
+) -> None:
+    deadline = time.time() + startup_timeout_seconds
+    last_state = "still online"
+    while time.time() < deadline:
+        response, error = request_or_error(
+            f"{base_url}/version",
+            "GET",
+            ca_cert_path=DIRECT_HTTPS_CA,
+            connect_host=connect_host,
+            timeout_seconds=request_timeout_seconds,
+            read_body=False,
+        )
+        if error is not None and is_expected_disconnect_error(error):
+            return
+        if error is not None:
+            last_state = error
+        elif response is not None:
+            last_state = f"status {response.status}"
+        time.sleep(0.25)
+    raise ParityError(f"timed out waiting for {name} to go offline at {base_url}: {last_state}")
+
+
+def run_direct_websocket_cases(
+    *,
+    rust_ip: str,
+    python_ip: str,
+    port: int,
+    request_timeout_seconds: float,
+    startup_timeout_seconds: float,
+    python_runtime: str,
+) -> None:
+    rust_base_url = https_base_url(port)
+    python_base_url = https_base_url(port)
+    wait_for_direct_recovery(
+        rust_base_url=rust_base_url,
+        python_base_url=python_base_url,
+        rust_ip=rust_ip,
+        python_ip=python_ip,
+        request_timeout_seconds=request_timeout_seconds,
+        startup_timeout_seconds=startup_timeout_seconds,
+    )
+
+    restarted_for_clean_session = False
+    failures: list[str] = []
+    rust_logout_cookies: dict[str, str] = {}
+    python_logout_cookies: dict[str, str] = {}
+    while True:
+        failures = []
+        retry_after_restart = False
+        rust_cookies_by_login_path: dict[str, str | None] = {}
+        python_cookies_by_login_path: dict[str, str | None] = {}
+        for path in websocket_paths_for_python_runtime(python_runtime):
+            login_path = "/api/v2/login" if path.startswith("/api/v2/") else "/login"
+            if login_path not in rust_cookies_by_login_path:
+                rust_cookies_by_login_path[login_path] = login_cookie_for_websocket(
+                    base_url=rust_base_url,
+                    connect_host=rust_ip,
+                    timeout_seconds=request_timeout_seconds,
+                    login_path=login_path,
+                )
+            if login_path not in python_cookies_by_login_path:
+                python_cookies_by_login_path[login_path] = login_cookie_for_websocket(
+                    base_url=python_base_url,
+                    connect_host=python_ip,
+                    timeout_seconds=request_timeout_seconds,
+                    login_path=login_path,
+                )
+
+            rust_cookie_value = rust_cookies_by_login_path[login_path]
+            python_cookie_value = python_cookies_by_login_path[login_path]
+            if rust_cookie_value:
+                rust_logout_cookies[login_path] = rust_cookie_value
+            if python_cookie_value:
+                python_logout_cookies[login_path] = python_cookie_value
+
+            rust_cookie = rust_cookies_by_login_path[login_path]
+            python_cookie = python_cookies_by_login_path[login_path]
+            if (rust_cookie is None or python_cookie is None) and not restarted_for_clean_session:
+                retry_after_restart = True
+                break
+
+            rust_enable_error = enable_direct_websocket_notifications(
+                base_url=rust_base_url,
+                connect_host=rust_ip,
+                cookie=rust_cookie,
+                timeout_seconds=request_timeout_seconds,
+                path=path,
+            )
+            python_enable_error = enable_direct_websocket_notifications(
+                base_url=python_base_url,
+                connect_host=python_ip,
+                cookie=python_cookie,
+                timeout_seconds=request_timeout_seconds,
+                path=path,
+            )
+            if (
+                rust_enable_error == "status 401"
+                and python_enable_error == "status 401"
+                and not restarted_for_clean_session
+            ):
+                retry_after_restart = True
+                break
+            if rust_enable_error or python_enable_error:
+                failures.append(
+                    f"{path}: websocket enable failed, rust={rust_enable_error or 'ok'}, python={python_enable_error or 'ok'}"
+                )
+                continue
+            rust_result = websocket_probe(
+                connect_host=rust_ip,
+                port=port,
+                path=path,
+                cookie=rust_cookie,
+                timeout_seconds=request_timeout_seconds,
+            )
+            python_result = websocket_probe(
+                connect_host=python_ip,
+                port=port,
+                path=path,
+                cookie=python_cookie,
+                timeout_seconds=request_timeout_seconds,
+            )
+            if rust_result.status != 101 or python_result.status != 101:
+                failures.append(
+                    f"{path}: websocket upgrade failed, rust={rust_result.status or 'error'} ({rust_result.detail}), "
+                    f"python={python_result.status or 'error'} ({python_result.detail})"
+                )
+                continue
+            print(f"PASS websocket: {path}")
+
+        if retry_after_restart and not restarted_for_clean_session:
+            print("INFO websocket parity: restarting services to recover from stale login state")
+            restart_direct_services(
+                rust_ip=rust_ip,
+                python_ip=python_ip,
+                python_runtime=python_runtime,
+            )
+            wait_for_direct_recovery(
+                rust_base_url=rust_base_url,
+                python_base_url=python_base_url,
+                rust_ip=rust_ip,
+                python_ip=python_ip,
+                request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+            restarted_for_clean_session = True
+            continue
+        break
+
+    logout_direct_sessions_best_effort(
+        base_url=rust_base_url,
+        connect_host=rust_ip,
+        cookies=rust_logout_cookies,
+        timeout_seconds=request_timeout_seconds,
+    )
+    logout_direct_sessions_best_effort(
+        base_url=python_base_url,
+        connect_host=python_ip,
+        cookies=python_logout_cookies,
+        timeout_seconds=request_timeout_seconds,
+    )
+
+    if failures:
+        raise ParityError("Direct websocket parity failed:\n" + "\n".join(failures))
+
+    print("Direct websocket parity passed.")
+
+
 def filter_cases(cases: list[dict[str, Any]], requested_case_ids: list[str]) -> list[dict[str, Any]]:
     if not requested_case_ids:
         return cases
@@ -505,14 +1020,18 @@ def filter_cases(cases: list[dict[str, Any]], requested_case_ids: list[str]) -> 
 
 
 def order_cases_for_remote_run(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        cases,
-        key=lambda case: (
-            is_terminal_destructive_case(case),
-            is_reboot_like_case(case),
-            str(case.get("id", "")),
+    indexed_cases = list(enumerate(cases))
+    ordered = sorted(
+        indexed_cases,
+        key=lambda item: (
+            is_terminal_destructive_case(item[1]),
+            is_reboot_like_case(item[1]),
+            not is_login_request(item[1]),
+            is_logout_request(item[1]),
+            item[0],
         ),
     )
+    return [case for _, case in ordered]
 
 
 def skip_reason_for_remote_case(
@@ -1050,6 +1569,7 @@ def run_remote_response_cases(
                         allow_framework_validation_mismatch=bool(
                             case.get("allow_framework_validation_mismatch")
                         ),
+                        ignore_json_keys=case.get("ignore_json_keys"),
                     )
                     if mismatch is not None:
                         failures.append(mismatch)
@@ -1107,6 +1627,7 @@ def run_remote_response_cases(
                             python_readback_after,
                             readback_case["compare"],
                             expected_status=readback_case.get("expected_status"),
+                            ignore_json_keys=readback_case.get("ignore_json_keys"),
                         )
                         if mismatch is not None:
                             failures.append(mismatch)
@@ -1124,6 +1645,7 @@ def run_remote_response_cases(
                                 "after",
                                 rust_readback_after,
                                 readback_case["compare"],
+                                ignore_json_keys=readback_case.get("ignore_json_keys"),
                             )
                             if mismatch is not None:
                                 failures.append(mismatch)
@@ -1136,6 +1658,7 @@ def run_remote_response_cases(
                                 "after",
                                 python_readback_after,
                                 readback_case["compare"],
+                                ignore_json_keys=readback_case.get("ignore_json_keys"),
                             )
                             if mismatch is not None:
                                 failures.append(mismatch)
@@ -1183,6 +1706,7 @@ def run_direct_response_cases(
     *,
     rust_ip: str,
     python_ip: str,
+    python_runtime: str,
     port: int,
     request_timeout_seconds: float,
     startup_timeout_seconds: float,
@@ -1197,6 +1721,7 @@ def run_direct_response_cases(
     python_base_url = https_base_url(port)
     rust_wireless_interface: str | None = None
     python_wireless_interface: str | None = None
+    restarted_for_clean_session = False
 
     for case in cases:
         cookie_key = case.get("use_cookie_from") or default_cookie_key_for_case(case)
@@ -1204,16 +1729,19 @@ def run_direct_response_cases(
             rust_wireless_interface is None or python_wireless_interface is None
         ):
             if request_cookie_value(rust_cookies, case) is None or request_cookie_value(python_cookies, case) is None:
-                login_error = attempt_direct_login(
+                login_error, restarted_for_clean_session = attempt_direct_login_with_recovery(
                     rust_base_url=rust_base_url,
                     python_base_url=python_base_url,
                     rust_ip=rust_ip,
                     python_ip=python_ip,
                     timeout_seconds=request_timeout_seconds,
+                    startup_timeout_seconds=startup_timeout_seconds,
                     cookie_key=cookie_key,
                     rust_cookies=rust_cookies,
                     python_cookies=python_cookies,
-                    login_path=direct_login_path_for_case(case),
+                    login_path=direct_login_path_for_case(case, python_runtime),
+                    python_runtime=python_runtime,
+                    restarted_for_clean_session=restarted_for_clean_session,
                 )
                 if login_error is not None:
                     failures.append(f"{case['id']}: {login_error}")
@@ -1245,10 +1773,6 @@ def run_direct_response_cases(
         if skip_reason is not None:
             print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({skip_reason})")
             continue
-        if is_power_loss_case(case):
-            raise ParityError(
-                f"{case['id']}: direct response parity does not support poweroff/suspend cases"
-            )
 
         read_body = should_read_body(case)
         case_timeout_seconds = float(case.get("timeout_seconds", request_timeout_seconds))
@@ -1276,6 +1800,7 @@ def run_direct_response_cases(
                     f"{rust_base_url}{rust_readback_path}",
                     readback_case["method"],
                     body=readback_case.get("body"),
+                    multipart=readback_case.get("multipart"),
                     cookie=rust_cookies.get(readback_cookie_key) if readback_cookie_key else None,
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=rust_ip,
@@ -1286,6 +1811,7 @@ def run_direct_response_cases(
                     f"{python_base_url}{python_readback_path}",
                     readback_case["method"],
                     body=readback_case.get("body"),
+                    multipart=readback_case.get("multipart"),
                     cookie=python_cookies.get(readback_cookie_key) if readback_cookie_key else None,
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=python_ip,
@@ -1302,6 +1828,7 @@ def run_direct_response_cases(
             f"{rust_base_url}{rust_case_path}",
             case["method"],
             body=case.get("body"),
+            multipart=case.get("multipart"),
             cookie=request_cookie_value(rust_cookies, case),
             ca_cert_path=DIRECT_HTTPS_CA,
             connect_host=rust_ip,
@@ -1312,6 +1839,7 @@ def run_direct_response_cases(
             f"{python_base_url}{python_case_path}",
             case["method"],
             body=case.get("body"),
+            multipart=case.get("multipart"),
             cookie=request_cookie_value(python_cookies, case),
             ca_cert_path=DIRECT_HTTPS_CA,
             connect_host=python_ip,
@@ -1320,22 +1848,27 @@ def run_direct_response_cases(
         )
 
         if (rust_error or python_error) and is_destructive_skip(case):
-            login_error = attempt_fresh_direct_login(
+            login_error, restarted_for_clean_session = attempt_direct_login_with_recovery(
                 rust_base_url=rust_base_url,
                 python_base_url=python_base_url,
                 rust_ip=rust_ip,
                 python_ip=python_ip,
                 timeout_seconds=case_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
                 cookie_key=cookie_key,
                 rust_cookies=rust_cookies,
                 python_cookies=python_cookies,
-                login_path=direct_login_path_for_case(case),
+                login_path=direct_login_path_for_case(case, python_runtime),
+                python_runtime=python_runtime,
+                restarted_for_clean_session=restarted_for_clean_session,
+                clear_cookies_first=True,
             )
             if login_error is None:
                 rust_response, rust_error = request_or_error(
                     f"{rust_base_url}{rust_case_path}",
                     case["method"],
                     body=case.get("body"),
+                    multipart=case.get("multipart"),
                     cookie=request_cookie_value(rust_cookies, case),
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=rust_ip,
@@ -1346,6 +1879,7 @@ def run_direct_response_cases(
                     f"{python_base_url}{python_case_path}",
                     case["method"],
                     body=case.get("body"),
+                    multipart=case.get("multipart"),
                     cookie=request_cookie_value(python_cookies, case),
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=python_ip,
@@ -1357,30 +1891,33 @@ def run_direct_response_cases(
             rust_response.status if rust_response else None,
             python_response.status if python_response else None,
         }
+        saw_unauthorized_status = any(status in {401, 403} for status in unauthorized_pair)
         if (
             not rust_error
             and not python_error
             and not is_login_request(case)
-            and request_cookie_value(rust_cookies, case) is None
-            and request_cookie_value(python_cookies, case) is None
-            and unauthorized_pair <= {401, 403}
+            and saw_unauthorized_status
         ):
-            login_error = attempt_direct_login(
+            login_error, restarted_for_clean_session = attempt_direct_login_with_recovery(
                 rust_base_url=rust_base_url,
                 python_base_url=python_base_url,
                 rust_ip=rust_ip,
                 python_ip=python_ip,
                 timeout_seconds=case_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
                 cookie_key=cookie_key,
                 rust_cookies=rust_cookies,
                 python_cookies=python_cookies,
-                login_path=direct_login_path_for_case(case),
+                login_path=direct_login_path_for_case(case, python_runtime),
+                python_runtime=python_runtime,
+                restarted_for_clean_session=restarted_for_clean_session,
             )
             if login_error is None:
                 rust_response, rust_error = request_or_error(
                     f"{rust_base_url}{rust_case_path}",
                     case["method"],
                     body=case.get("body"),
+                    multipart=case.get("multipart"),
                     cookie=request_cookie_value(rust_cookies, case),
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=rust_ip,
@@ -1391,6 +1928,7 @@ def run_direct_response_cases(
                     f"{python_base_url}{python_case_path}",
                     case["method"],
                     body=case.get("body"),
+                    multipart=case.get("multipart"),
                     cookie=request_cookie_value(python_cookies, case),
                     ca_cert_path=DIRECT_HTTPS_CA,
                     connect_host=python_ip,
@@ -1428,6 +1966,59 @@ def run_direct_response_cases(
             )
             continue
 
+        if is_power_loss_case(case):
+            rust_outcome = evaluate_terminal_case_outcome(case, rust_response, rust_error)
+            python_outcome = evaluate_terminal_case_outcome(case, python_response, python_error)
+            if not rust_outcome.accepted or not python_outcome.accepted:
+                failures.append(
+                    f"{case['id']}: destructive parity failed, rust={rust_outcome.detail}, python={python_outcome.detail}"
+                )
+                continue
+
+            try:
+                offline_timeout_seconds = max(
+                    startup_timeout_seconds,
+                    DEFAULT_POWER_LOSS_OFFLINE_TIMEOUT_SECONDS,
+                )
+                wait_for_direct_offline(
+                    "rust",
+                    rust_base_url,
+                    connect_host=rust_ip,
+                    request_timeout_seconds=request_timeout_seconds,
+                    startup_timeout_seconds=offline_timeout_seconds,
+                )
+                wait_for_direct_offline(
+                    "python",
+                    python_base_url,
+                    connect_host=python_ip,
+                    request_timeout_seconds=request_timeout_seconds,
+                    startup_timeout_seconds=offline_timeout_seconds,
+                )
+            except ParityError as error:
+                failures.append(f"{case['id']}: {error}")
+                continue
+
+            print(
+                f"PASS {case['id']}: {case['method']} {rust_case_path} "
+                f"(rust={rust_outcome.detail}; python={python_outcome.detail}; offline=verified)"
+            )
+            logout_direct_sessions_best_effort(
+                base_url=rust_base_url,
+                connect_host=rust_ip,
+                cookies=rust_cookies,
+                timeout_seconds=request_timeout_seconds,
+            )
+            logout_direct_sessions_best_effort(
+                base_url=python_base_url,
+                connect_host=python_ip,
+                cookies=python_cookies,
+                timeout_seconds=request_timeout_seconds,
+            )
+            raise ParityError(
+                f"{case['id']}: poweroff/suspend targets are offline as expected; "
+                "perform manual recovery before continuing parity"
+            )
+
         if rust_error or python_error:
             failures.append(
                 f"{case['id']}: request failed, rust={rust_error or 'ok'}, python={python_error or 'ok'}"
@@ -1441,10 +2032,69 @@ def run_direct_response_cases(
             ):
                 rust_cookie = response_cookie(rust_response)
                 python_cookie = response_cookie(python_response)
-                failures.append(
-                    f"{case['id']}: missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
-                )
-                continue
+                if is_login_request(case):
+                    login_error, restarted_for_clean_session = attempt_direct_login_with_recovery(
+                        rust_base_url=rust_base_url,
+                        python_base_url=python_base_url,
+                        rust_ip=rust_ip,
+                        python_ip=python_ip,
+                        timeout_seconds=case_timeout_seconds,
+                        startup_timeout_seconds=startup_timeout_seconds,
+                        cookie_key=cookie_key,
+                        rust_cookies=rust_cookies,
+                        python_cookies=python_cookies,
+                        login_path=direct_login_path_for_case(case, python_runtime),
+                        python_runtime=python_runtime,
+                        restarted_for_clean_session=restarted_for_clean_session,
+                        clear_cookies_first=True,
+                    )
+                    if login_error is None:
+                        rust_response, rust_error = request_or_error(
+                            f"{rust_base_url}{rust_case_path}",
+                            case["method"],
+                            body=case.get("body"),
+                            multipart=case.get("multipart"),
+                            cookie=None,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=rust_ip,
+                            timeout_seconds=case_timeout_seconds,
+                            read_body=read_body,
+                        )
+                        python_response, python_error = request_or_error(
+                            f"{python_base_url}{python_case_path}",
+                            case["method"],
+                            body=case.get("body"),
+                            multipart=case.get("multipart"),
+                            cookie=None,
+                            ca_cert_path=DIRECT_HTTPS_CA,
+                            connect_host=python_ip,
+                            timeout_seconds=case_timeout_seconds,
+                            read_body=read_body,
+                        )
+                        if rust_error or python_error:
+                            failures.append(
+                                f"{case['id']}: request failed, rust={rust_error or 'ok'}, python={python_error or 'ok'}"
+                            )
+                            continue
+                        if store_cookie_value(rust_cookies, case, rust_response) and store_cookie_value(
+                            python_cookies, case, python_response
+                        ):
+                            pass
+                        else:
+                            rust_cookie = response_cookie(rust_response)
+                            python_cookie = response_cookie(python_response)
+                            failures.append(
+                                f"{case['id']}: missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
+                            )
+                            continue
+                    else:
+                        failures.append(f"{case['id']}: {login_error}")
+                        continue
+                else:
+                    failures.append(
+                        f"{case['id']}: missing session cookie, rust={bool(rust_cookie)}, python={bool(python_cookie)}"
+                    )
+                    continue
 
         mismatch = response_pair_mismatch(
             case["id"],
@@ -1454,7 +2104,11 @@ def run_direct_response_cases(
             python_response,
             case["compare"],
             expected_status=case.get("expected_status"),
+            ignore_status=bool(case.get("ignore_status")),
+            ignore_content_type=bool(case.get("ignore_content_type")),
+            ignore_body=bool(case.get("ignore_body")),
             allow_framework_validation_mismatch=bool(case.get("allow_framework_validation_mismatch")),
+            ignore_json_keys=case.get("ignore_json_keys"),
         )
         if mismatch is not None:
             failures.append(mismatch)
@@ -1480,6 +2134,7 @@ def run_direct_response_cases(
                 f"{rust_base_url}{rust_readback_path}",
                 readback_case["method"],
                 body=readback_case.get("body"),
+                multipart=readback_case.get("multipart"),
                 cookie=rust_cookies.get(readback_cookie_key) if readback_cookie_key else None,
                 ca_cert_path=DIRECT_HTTPS_CA,
                 connect_host=rust_ip,
@@ -1490,6 +2145,7 @@ def run_direct_response_cases(
                 f"{python_base_url}{python_readback_path}",
                 readback_case["method"],
                 body=readback_case.get("body"),
+                multipart=readback_case.get("multipart"),
                 cookie=python_cookies.get(readback_cookie_key) if readback_cookie_key else None,
                 ca_cert_path=DIRECT_HTTPS_CA,
                 connect_host=python_ip,
@@ -1510,6 +2166,12 @@ def run_direct_response_cases(
                 python_readback_after,
                 readback_case["compare"],
                 expected_status=readback_case.get("expected_status"),
+                ignore_status=bool(readback_case.get("ignore_status") or case.get("ignore_status")),
+                ignore_content_type=bool(
+                    readback_case.get("ignore_content_type") or case.get("ignore_content_type")
+                ),
+                ignore_body=bool(readback_case.get("ignore_body") or case.get("ignore_body")),
+                ignore_json_keys=readback_case.get("ignore_json_keys"),
             )
             if mismatch is not None:
                 failures.append(mismatch)
@@ -1527,6 +2189,7 @@ def run_direct_response_cases(
                     "after",
                     rust_readback_after,
                     readback_case["compare"],
+                    ignore_json_keys=readback_case.get("ignore_json_keys"),
                 )
                 if mismatch is not None:
                     failures.append(mismatch)
@@ -1539,12 +2202,26 @@ def run_direct_response_cases(
                     "after",
                     python_readback_after,
                     readback_case["compare"],
+                    ignore_json_keys=readback_case.get("ignore_json_keys"),
                 )
                 if mismatch is not None:
                     failures.append(mismatch)
                     continue
 
         print(f"PASS {case['id']}: {case['method']} {rust_case_path}")
+
+    logout_direct_sessions_best_effort(
+        base_url=rust_base_url,
+        connect_host=rust_ip,
+        cookies=rust_cookies,
+        timeout_seconds=request_timeout_seconds,
+    )
+    logout_direct_sessions_best_effort(
+        base_url=python_base_url,
+        connect_host=python_ip,
+        cookies=python_cookies,
+        timeout_seconds=request_timeout_seconds,
+    )
 
     if failures:
         raise ParityError("Direct response parity failed:\n" + "\n".join(failures))
@@ -1561,20 +2238,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "mode",
-        choices=["responses"],
-        help="Parity mode to run. 'responses' supports both direct deployed-service and managed-runtime transports.",
+        choices=["responses", "websockets"],
+        help=(
+            "Parity mode to run. 'responses' supports both direct deployed-service and managed-runtime transports. "
+            "'websockets' performs direct deployed-service websocket smoke parity."
+        ),
     )
     parser.add_argument(
         "--cases",
         type=Path,
         default=DEFAULT_CASES,
-        help="Path to the representative response case manifest.",
+        help="Path to the representative response case manifest. With --python-runtime weblcm, /api/v2 cases are filtered out.",
     )
     parser.add_argument(
         "--case-id",
         action="append",
         default=[],
         help="Run only the named case id. Repeat to select multiple cases.",
+    )
+    parser.add_argument(
+        "--python-runtime",
+        choices=[runtime for runtime in PYTHON_RUNTIME_CHOICES if runtime != "auto"],
+        default="summit-rcm",
+        help="Python runtime under test. Use weblcm for legacy-only target parity; it skips /api/v2 response cases and probes only the legacy websocket route.",
     )
     parser.add_argument(
         "--rust-ssh",
@@ -1677,24 +2363,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--allow-destructive",
         action="store_true",
-        help="Run skip_live cases whose reason marks them unsafe or destructive.",
+        help=(
+            "Run skip_live cases whose reason marks them unsafe or destructive. "
+            "For direct deployed-service parity, poweroff/suspend execution stops the run and requires manual target recovery before continuing."
+        ),
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    cases = filter_cases(json.loads(args.cases.read_text()), args.case_id)
     requested_plugins = parse_plugin_names(args.plugins)
-    enabled_plugins = selected_plugins(cases, requested_plugins)
+    cases: list[dict[str, Any]] = []
+    enabled_plugins = requested_plugins
+    if args.mode == "responses":
+        cases = filter_cases(json.loads(args.cases.read_text()), args.case_id)
+        cases = filter_cases_for_python_runtime(cases, args.python_runtime)
+        enabled_plugins = selected_plugins(cases, requested_plugins)
 
     if bool(args.rust_ip) == bool(args.rust_ssh):
         raise SystemExit("choose exactly one transport: direct (--rust-ip) or managed remote (--rust-ssh)")
 
+    if args.mode == "websockets" and not args.rust_ip:
+        raise SystemExit("websocket parity currently supports direct deployed-service transport only; use --rust-ip/--python-ip")
+
     python_target = args.python_ssh or args.rust_ssh
 
     selected_destructive = [case["id"] for case in cases if is_terminal_destructive_case(case)]
-    if selected_destructive and not args.allow_destructive:
+    if (
+        args.mode == "responses"
+        and not args.rust_ip
+        and selected_destructive
+        and not args.allow_destructive
+    ):
         raise SystemExit(
             "selected destructive case(s) require --allow-destructive: "
             + ", ".join(selected_destructive)
@@ -1707,6 +2408,7 @@ def main() -> int:
                     cases,
                     rust_ip=args.rust_ip,
                     python_ip=args.python_ip or args.rust_ip,
+                    python_runtime=args.python_runtime,
                     port=args.direct_port,
                     request_timeout_seconds=args.request_timeout_seconds,
                     startup_timeout_seconds=args.startup_timeout_seconds,
@@ -1734,6 +2436,15 @@ def main() -> int:
                     respect_skip_live=args.respect_skip_live,
                     allow_destructive=args.allow_destructive,
                 )
+        elif args.mode == "websockets":
+            run_direct_websocket_cases(
+                rust_ip=args.rust_ip,
+                python_ip=args.python_ip or args.rust_ip,
+                port=args.direct_port,
+                request_timeout_seconds=args.request_timeout_seconds,
+                startup_timeout_seconds=args.startup_timeout_seconds,
+                python_runtime=args.python_runtime,
+            )
     except ParityError as error:
         print(str(error), file=os.sys.stderr)
         return 1

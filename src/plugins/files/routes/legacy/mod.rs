@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::web::legacy_response::SdcerrCode;
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::files::FilesService;
 use crate::plugins::network_manager::service::NetworkService;
@@ -13,6 +12,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 #[cfg(feature = "api-docs")]
 
 #[cfg(feature = "api-docs")]
@@ -46,10 +46,8 @@ pub struct FileDeleteBody {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyFilesListResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub count: usize,
     pub files: Vec<String>,
 }
@@ -117,33 +115,10 @@ impl IntoResponse for GetFilesLegacyResponses {
     }
 }
 
-crate::define_json_response_family! {
-    pub enum DeleteFileLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum PutFilesLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum UploadFileLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum DeleteSingleFileLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
+pub type DeleteFileLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type PutFilesLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type UploadFileLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type DeleteSingleFileLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
 crate::define_text_response_family! {
     pub enum GetSingleFileLegacyResponses {
@@ -154,12 +129,14 @@ crate::define_text_response_family! {
     from Vec<u8> => Ok;
 }
 
-fn success_code() -> i32 {
-    SdcerrCode::Success.as_i32()
-}
-
-fn fail_code() -> i32 {
-    SdcerrCode::Fail.as_i32()
+fn legacy_operation_result<E>(result: Result<(), E>) -> crate::web::legacy_response::LegacyOperationOkResponse
+where
+    E: Display,
+{
+    match result {
+        Ok(()) => ok_response("").into(),
+        Err(error) => fail_response(error.to_string()).into(),
+    }
 }
 
 async fn parse_import_connections_request(
@@ -246,7 +223,7 @@ fn validate_legacy_upload_request(
     if !["cert", "pac", "config", "timezone"].contains(&file_type) {
         return Some(fail_response(format!("file POST type {} unknown", file_type)));
     }
-    if ["config", "timezone"].contains(&file_type) && !file_name.ends_with(".zip") {
+    if file_type == "config" && !file_name.ends_with(".zip") {
         return Some(fail_response("file POST type not .zip file"));
     }
     None
@@ -264,8 +241,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
     let valid = ["cert", "pac", "network"];
     let Some(file_type) = q.file_type.as_deref() else {
         return GetFilesLegacyResponses::from(LegacyFilesListResponse {
-            sdcerr: fail_code(),
-            info_msg: "no filename provided".to_string(),
+            operation: fail_response("no filename provided"),
             count: 0,
             files: vec![],
         });
@@ -273,8 +249,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
 
     if !valid.contains(&file_type) {
         return GetFilesLegacyResponses::from(LegacyFilesListResponse {
-            sdcerr: fail_code(),
-            info_msg: "type not one of ['cert', 'pac', 'network']".to_string(),
+            operation: fail_response("type not one of ['cert', 'pac', 'network']"),
             count: 0,
             files: vec![],
         });
@@ -284,8 +259,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
         let password = q.password.as_deref().unwrap_or("");
         if password.is_empty() {
             return GetFilesLegacyResponses::from(LegacyFilesListResponse {
-                sdcerr: success_code(),
-                info_msg: "Invalid password".to_string(),
+                operation: ok_response("Invalid password"),
                 count: 0,
                 files: vec![],
             });
@@ -301,8 +275,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
 
     match FilesService::try_list_files(file_type) {
         Ok(files) => GetFilesLegacyResponses::from(LegacyFilesListResponse {
-            sdcerr: success_code(),
-            info_msg: format!("{} files", file_type),
+            operation: ok_response(format!("{} files", file_type)),
             count: files.len(),
             files,
         }),
@@ -319,10 +292,7 @@ pub async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileL
         Some(value) => value,
         None => return DeleteFileLegacyResponses::Ok(fail_response("file required")),
     };
-    match FilesService::delete_file(file_type, name) {
-        Ok(()) => DeleteFileLegacyResponses::Ok(ok_response("")),
-        Err(error) => DeleteFileLegacyResponses::Ok(fail_response(error.to_string())),
-    }
+    legacy_operation_result(FilesService::delete_file(file_type, name))
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -341,10 +311,7 @@ pub async fn put_files_legacy(
         Err(response) => return PutFilesLegacyResponses::Ok(response),
     };
 
-    match NetworkService::import_connections(&request.archive, &request.password).await {
-        Ok(()) => PutFilesLegacyResponses::Ok(ok_response("")),
-        Err(error) => PutFilesLegacyResponses::Ok(fail_response(error.to_string())),
-    }
+    legacy_operation_result(NetworkService::import_connections(&request.archive, &request.password).await)
 }
 
 // ── /file (singular) — upload / download / delete a single named file ────────
@@ -425,19 +392,12 @@ pub async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacyRespons
     }
 
     if request.file_type == "timezone" {
-        return match crate::archive::zip_extract(&request.file_data, "", "/").await {
-            Ok(()) => UploadFileLegacyResponses::Ok(ok_response("")),
-            Err(error) => UploadFileLegacyResponses::Ok(fail_response(format!(
-                "Failed to unzip files to /: {}",
-                error
-            ))),
-        };
+        return UploadFileLegacyResponses::Ok(fail_response(
+            "file POST - timezone data upload not supported",
+        ));
     }
 
-    match FilesService::upload_file(&request.file_type, &request.file_name, &request.file_data).await {
-        Ok(()) => UploadFileLegacyResponses::Ok(ok_response("")),
-        Err(error) => UploadFileLegacyResponses::Ok(fail_response(error.to_string())),
-    }
+    legacy_operation_result(FilesService::upload_file(&request.file_type, &request.file_name, &request.file_data).await)
 }
 
 #[cfg(test)]

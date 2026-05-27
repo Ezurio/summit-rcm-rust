@@ -7,7 +7,7 @@
 
 use crate::config::{ServerConfig, SystemSettingsManage};
 use crate::web::legacy_response as legacy;
-use crate::web::legacy_response::SdcerrCode;
+use crate::web::legacy_response::{ok_response, LegacyOperationResponse};
 use crate::definition::USER_PERMISSION_TYPES;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -69,19 +69,14 @@ pub struct LegacyDefinitionsPayload {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyDefinitionsResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "Definitions")]
     pub definitions: LegacyDefinitionsPayload,
 }
 
-crate::define_json_response_family! {
-    pub enum GetDefinitionsLegacyResponses {
-        Ok(LegacyDefinitionsResponse) => 200;
-    }
-    from LegacyDefinitionsResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetDefinitionsLegacyResponses(LegacyDefinitionsResponse);
 }
 
 fn device_types() -> BTreeMap<String, String> {
@@ -182,8 +177,7 @@ pub async fn get_definitions() -> GetDefinitionsLegacyResponses {
     let plugins = ServerConfig::section_keys("plugins");
 
     LegacyDefinitionsResponse {
-        sdcerr: SdcerrCode::Success.as_i32(),
-        info_msg: "".to_string(),
+        operation: ok_response(""),
         definitions: LegacyDefinitionsPayload {
             sdcerr: legacy::summit_rcm_errors(),
             permissions: permissions(),

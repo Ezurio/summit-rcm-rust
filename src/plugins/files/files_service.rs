@@ -10,13 +10,17 @@ use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
     utils::command_output_checked,
 };
+#[cfg(feature = "at-interface")]
+use crate::definition::{
+    relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
+};
 use std::path::Path;
 
-pub const CERT_DIR: &str = "/etc/NetworkManager/certs/";
+pub const CERT_DIR: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
 #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub const SYSTEM_CONF_DIR: &str = "/etc/";
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-pub const NETWORKMANAGER_DIR_FULL: &str = "/etc/NetworkManager/";
+pub const NETWORKMANAGER_DIR_FULL: &str = crate::definition::NETWORKMANAGER_DIR;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const SUMMIT_RCM_DIR: &str = "/etc/summit-rcm/";
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -186,8 +190,11 @@ impl FilesService {
     /// Export system config and certificates as a gzipped tar archive.
     #[cfg(feature = "at-interface")]
     pub async fn export_config() -> Result<Vec<u8>> {
+        let cert_dir = relative_system_path(NETWORKMANAGER_CERT_DIR);
+        let system_connections_dir =
+            relative_system_path(NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR);
         crate::archive::tar_create(
-            &["etc/NetworkManager/certs", "etc/NetworkManager/system-connections"],
+            &[cert_dir, system_connections_dir],
             "/",
         ).await
     }

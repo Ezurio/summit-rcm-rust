@@ -5,6 +5,11 @@
 //! Bluetooth service – uses BlueZ via zbus D-Bus calls.
 
 use crate::dbus;
+use crate::plugins::bluetooth::routes::common::{
+    parse_bluetooth_control_response, parse_bluetooth_device_response,
+    parse_bluetooth_state_response, BluetoothCommandRequest, BluetoothControlResponse,
+    BluetoothDeviceModel, BluetoothStateResponse,
+};
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -37,6 +42,7 @@ const ADAPTER_FILTER_NAMES: &[&str] = &[
     "RSSI",
     "Transport",
     "Pattern",
+    "transportFilter",
     "discovering",
     "powered",
     "discoverable",
@@ -110,6 +116,14 @@ struct DeviceSnapshot {
     characteristics: BTreeMap<String, CharacteristicSnapshot>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ControllerStateData {
+    controller_name: String,
+    snapshot: BluetoothSnapshot,
+    powered: bool,
+    discoverable: bool,
+}
+
 impl DeviceSnapshot {
     #[cfg(feature = "bluetooth-websocket")]
     fn same_discovery_fields(&self, other: &Self) -> bool {
@@ -166,6 +180,10 @@ pub use websocket::BLE_NOTIFICATION_POLL_INTERVAL;
 pub struct BluetoothService;
 
 impl BluetoothService {
+    fn encode_command_request(body: BluetoothCommandRequest) -> anyhow::Result<serde_json::Value> {
+        serde_json::to_value(body).map_err(Into::into)
+    }
+
     fn matched_filters(filters: &[String]) -> Vec<String> {
         ADAPTER_FILTER_NAMES
             .iter()
@@ -260,6 +278,119 @@ impl BluetoothService {
         })
     }
 
+    fn legacy_controller_payload(
+        controller_name: &str,
+        snapshot: &BluetoothSnapshot,
+        powered: bool,
+        discoverable: bool,
+        filters: Option<&[String]>,
+    ) -> serde_json::Value {
+        let include = |name: &str| filters.is_none_or(|filters| filters.iter().any(|filter| filter == name));
+
+        let mut controller = serde_json::Map::new();
+        if include("powered") {
+            controller.insert("powered".to_string(), serde_json::json!(if powered { 1 } else { 0 }));
+        }
+        if include("discovering") {
+            controller.insert(
+                "discovering".to_string(),
+                serde_json::json!(if snapshot.discovering { 1 } else { 0 }),
+            );
+        }
+        if include("discoverable") {
+            controller.insert(
+                "discoverable".to_string(),
+                serde_json::json!(if discoverable { 1 } else { 0 }),
+            );
+        }
+        if include("bluetoothDevices") {
+            controller.insert(
+                "bluetoothDevices".to_string(),
+                serde_json::json!(Self::bluetooth_devices_json(snapshot)),
+            );
+        }
+        if include("transportFilter") {
+            controller.insert("transportFilter".to_string(), serde_json::Value::Null);
+        }
+
+        serde_json::json!({
+            controller_name: controller,
+        })
+    }
+
+    fn validate_and_match_filters(
+        filters: Option<Vec<String>>,
+    ) -> anyhow::Result<Option<Vec<String>>> {
+        let matched_filters = filters
+            .as_ref()
+            .map(|filters| Self::matched_filters(filters));
+        if filters.is_some() && matched_filters.as_ref().is_some_and(Vec::is_empty) {
+            let filters = filters.unwrap_or_default();
+            anyhow::bail!("filters {:?} not matched", filters);
+        }
+        Ok(matched_filters)
+    }
+
+    async fn get_controller_state_data_with_conn(
+        conn: &Connection,
+        controller: Option<&str>,
+    ) -> anyhow::Result<ControllerStateData> {
+        let objects = Self::get_managed_objects(conn).await?;
+        let snapshot = Self::snapshot_from_objects(&objects, controller, false)?;
+
+        let adapter_path = Self::get_adapter_path(&objects, controller)
+            .ok_or_else(|| anyhow::anyhow!("No Bluetooth adapter found"))?;
+
+        let adapter_props = objects
+            .iter()
+            .find(|(path, _)| path.as_str() == adapter_path)
+            .and_then(|(_, ifaces)| ifaces.get(ADAPTER_IFACE))
+            .ok_or_else(|| anyhow::anyhow!("Adapter interface not found"))?;
+
+        Ok(ControllerStateData {
+            controller_name: Self::controller_name_for_path(&objects, &adapter_path),
+            snapshot,
+            powered: dbus::property_or_default(adapter_props, "Powered"),
+            discoverable: dbus::property_or_default(adapter_props, "Discoverable"),
+        })
+    }
+
+    fn serialize_state_response(
+        state: &ControllerStateData,
+        filters: Option<&[String]>,
+    ) -> serde_json::Value {
+        let mut response = match Self::controller_payload(
+            &state.controller_name,
+            &state.snapshot,
+            state.powered,
+            state.discoverable,
+            filters,
+        ) {
+            serde_json::Value::Object(object) => object,
+            _ => serde_json::Map::new(),
+        };
+        response.extend(legacy_operation_fields(ok_response("")));
+        serde_json::Value::Object(response)
+    }
+
+    fn serialize_legacy_state_response(
+        state: &ControllerStateData,
+        filters: Option<&[String]>,
+    ) -> serde_json::Value {
+        let mut response = match Self::legacy_controller_payload(
+            &state.controller_name,
+            &state.snapshot,
+            state.powered,
+            state.discoverable,
+            filters,
+        ) {
+            serde_json::Value::Object(object) => object,
+            _ => serde_json::Map::new(),
+        };
+        response.extend(legacy_operation_fields(ok_response("")));
+        serde_json::Value::Object(response)
+    }
+
     fn adapter_short_name(adapter_path: &str) -> String {
         adapter_path
             .rsplit('/')
@@ -292,10 +423,10 @@ impl BluetoothService {
         })
     }
 
-    async fn enable_websocket_notifications() -> anyhow::Result<()> {
+    pub async fn enable_websocket_notifications() -> anyhow::Result<()> {
         #[cfg(feature = "bluetooth-websocket")]
         {
-            websocket::ensure_notification_task().await;
+            websocket::enable_notifications().await;
             Ok(())
         }
 
@@ -311,7 +442,15 @@ impl BluetoothService {
         interface: &str,
         method: &str,
     ) -> anyhow::Result<()> {
-        conn.call_method(Some(BLUEZ_SERVICE), path, Some(interface), method, &())
+        dbus::call_method(
+            conn,
+            Some(BLUEZ_SERVICE),
+            path,
+            Some(interface),
+            method,
+            &(),
+            None,
+        )
             .await?;
         Ok(())
     }
@@ -323,7 +462,16 @@ impl BluetoothService {
         property: &str,
         value: bool,
     ) -> anyhow::Result<()> {
-        crate::dbus::set_property(conn, BLUEZ_SERVICE, path, interface, property, Value::from(value)).await
+        crate::dbus::set_property_with_timeout(
+            conn,
+            BLUEZ_SERVICE,
+            path,
+            interface,
+            property,
+            Value::from(value),
+            None,
+        )
+        .await
     }
 
     fn device_path(adapter_path: &str, device_address: &str) -> String {
@@ -344,7 +492,7 @@ impl BluetoothService {
     }
 
     async fn get_conn() -> anyhow::Result<Connection> {
-        Ok(dbus::system_bus().await?.clone())
+        Ok(dbus::system_bus().await?.as_ref().clone())
     }
 
     fn snapshot_from_objects(
@@ -394,15 +542,16 @@ impl BluetoothService {
     }
 
     async fn get_managed_objects(conn: &Connection) -> anyhow::Result<ManagedObjects> {
-        let reply = conn
-            .call_method(
-                Some(BLUEZ_SERVICE),
-                "/",
-                Some(OBJECT_MANAGER_IFACE),
-                "GetManagedObjects",
-                &(),
-            )
-            .await?;
+        let reply = dbus::call_method(
+            conn,
+            Some(BLUEZ_SERVICE),
+            "/",
+            Some(OBJECT_MANAGER_IFACE),
+            "GetManagedObjects",
+            &(),
+            None,
+        )
+        .await?;
         let objects: ManagedObjects = reply.body().deserialize()?;
         Ok(objects)
     }
@@ -566,17 +715,12 @@ impl BluetoothService {
         }));
     }
 
-    #[cfg(all(test, feature = "bluetooth-websocket"))]
-    pub(crate) fn emit_notification_for_test(message: serde_json::Value) {
-        websocket::send_notification(message);
-    }
-
     pub async fn get_state_legacy(
         controller: Option<&str>,
         device: Option<&str>,
         filters: Option<Vec<String>>,
     ) -> serde_json::Value {
-        match Self::get_state_inner(controller, device, filters).await {
+        match Self::get_state_inner_legacy(controller, device, filters).await {
             Ok(v) => v,
             Err(e) => {
                 error!("bluetooth get_state error: {}", e);
@@ -599,6 +743,16 @@ impl BluetoothService {
             Ok(value) => Ok(value),
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn get_state_v2(
+        controller: Option<&str>,
+        device: Option<&str>,
+        filters: Option<Vec<String>>,
+    ) -> anyhow::Result<BluetoothStateResponse> {
+        Self::get_state_v2_result(controller, device, filters)
+            .await
+            .and_then(|value| parse_bluetooth_state_response(value).map_err(Into::into))
     }
 
     pub async fn get_device_state_v2(
@@ -638,6 +792,15 @@ impl BluetoothService {
         Ok(Self::device_payload(device_props, &adapter_path))
     }
 
+    pub async fn get_device_state(
+        controller: &str,
+        device: &str,
+    ) -> anyhow::Result<BluetoothDeviceModel> {
+        Self::get_device_state_v2(controller, device)
+            .await
+            .and_then(|value| parse_bluetooth_device_response(value).map_err(Into::into))
+    }
+
     async fn get_state_inner(
         controller: Option<&str>,
         device: Option<&str>,
@@ -647,48 +810,35 @@ impl BluetoothService {
         Self::get_state_inner_with_conn(&conn, controller, device, filters).await
     }
 
+    async fn get_state_inner_legacy(
+        controller: Option<&str>,
+        device: Option<&str>,
+        filters: Option<Vec<String>>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let conn = Self::get_conn().await?;
+        Self::get_state_inner_legacy_with_conn(&conn, controller, device, filters).await
+    }
+
     async fn get_state_inner_with_conn(
         conn: &Connection,
         controller: Option<&str>,
         _device: Option<&str>,
         filters: Option<Vec<String>>,
     ) -> anyhow::Result<serde_json::Value> {
-        let matched_filters = filters
-            .as_ref()
-            .map(|filters| Self::matched_filters(filters));
-        if filters.is_some() && matched_filters.as_ref().is_some_and(Vec::is_empty) {
-            let filters = filters.unwrap_or_default();
-            anyhow::bail!("filters {:?} not matched", filters);
-        }
+        let matched_filters = Self::validate_and_match_filters(filters)?;
+        let state = Self::get_controller_state_data_with_conn(conn, controller).await?;
+        Ok(Self::serialize_state_response(&state, matched_filters.as_deref()))
+    }
 
-        let objects = Self::get_managed_objects(conn).await?;
-        let snapshot = Self::snapshot_from_objects(&objects, controller, false)?;
-
-        let adapter_path = Self::get_adapter_path(&objects, controller)
-            .ok_or_else(|| anyhow::anyhow!("No Bluetooth adapter found"))?;
-
-        let adapter_props = objects
-            .iter()
-            .find(|(path, _)| path.as_str() == adapter_path)
-            .and_then(|(_, ifaces)| ifaces.get(ADAPTER_IFACE))
-            .ok_or_else(|| anyhow::anyhow!("Adapter interface not found"))?;
-
-        let powered: bool = dbus::property_or_default(adapter_props, "Powered");
-        let discoverable: bool = dbus::property_or_default(adapter_props, "Discoverable");
-
-        let controller_name = Self::controller_name_for_path(&objects, &adapter_path);
-        let mut response = match Self::controller_payload(
-            &controller_name,
-            &snapshot,
-            powered,
-            discoverable,
-            matched_filters.as_deref(),
-        ) {
-            serde_json::Value::Object(object) => object,
-            _ => serde_json::Map::new(),
-        };
-        response.extend(legacy_operation_fields(ok_response("")));
-        Ok(serde_json::Value::Object(response))
+    async fn get_state_inner_legacy_with_conn(
+        conn: &Connection,
+        controller: Option<&str>,
+        _device: Option<&str>,
+        filters: Option<Vec<String>>,
+    ) -> anyhow::Result<serde_json::Value> {
+        let matched_filters = Self::validate_and_match_filters(filters)?;
+        let state = Self::get_controller_state_data_with_conn(conn, controller).await?;
+        Ok(Self::serialize_legacy_state_response(&state, matched_filters.as_deref()))
     }
 
     pub async fn handle_command(
@@ -703,6 +853,31 @@ impl BluetoothService {
                 legacy_fail_value(e.to_string())
             }
         }
+    }
+
+    pub async fn handle_command_json(
+        controller: Option<&str>,
+        device: Option<&str>,
+        body: BluetoothCommandRequest,
+    ) -> anyhow::Result<serde_json::Value> {
+        let body = Self::encode_command_request(body)?;
+        Ok(Self::handle_command(controller, device, &body).await)
+    }
+
+    pub async fn handle_command_v2(
+        controller: Option<&str>,
+        device: Option<&str>,
+        body: BluetoothCommandRequest,
+    ) -> anyhow::Result<(BluetoothControlResponse, String)> {
+        let body = Self::encode_command_request(body)?;
+        let value = Self::handle_command(controller, device, &body).await;
+        let info_msg = value
+            .get("InfoMsg")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let response = parse_bluetooth_control_response(value)?;
+        Ok((response, info_msg))
     }
 
     async fn handle_command_inner(
@@ -818,15 +993,16 @@ impl BluetoothService {
 
                 match operation {
                     "read" => {
-                        let reply = conn
-                            .call_method(
-                                Some(BLUEZ_SERVICE),
-                                char_path.as_str(),
-                                Some(GATT_CHR_IFACE),
-                                "ReadValue",
-                                &HashMap::<String, OwnedValue>::new(),
-                            )
-                            .await?;
+                        let reply = dbus::call_method(
+                            conn,
+                            Some(BLUEZ_SERVICE),
+                            char_path.as_str(),
+                            Some(GATT_CHR_IFACE),
+                            "ReadValue",
+                            &HashMap::<String, OwnedValue>::new(),
+                            None,
+                        )
+                        .await?;
                         let bytes: Vec<u8> = reply.body().deserialize()?;
                         Self::send_char_value_notification(char_uuid, hex::encode(bytes));
                     }
@@ -836,15 +1012,16 @@ impl BluetoothService {
                             .and_then(|v| v.as_str())
                             .ok_or_else(|| anyhow::anyhow!("value param not specified"))?;
                         let value_bytes = hex::decode(value)?;
-                        match conn
-                            .call_method(
-                                Some(BLUEZ_SERVICE),
-                                char_path.as_str(),
-                                Some(GATT_CHR_IFACE),
-                                "WriteValue",
-                                &(value_bytes, HashMap::<String, OwnedValue>::new()),
-                            )
-                            .await
+                        match dbus::call_method(
+                            conn,
+                            Some(BLUEZ_SERVICE),
+                            char_path.as_str(),
+                            Some(GATT_CHR_IFACE),
+                            "WriteValue",
+                            &(value_bytes, HashMap::<String, OwnedValue>::new()),
+                            None,
+                        )
+                        .await
                         {
                             Ok(_) => Self::send_char_result_notification(char_uuid, 0, None),
                             Err(error) => {

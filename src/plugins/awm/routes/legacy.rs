@@ -5,6 +5,7 @@
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::awm::service::AwmConfigService;
+use crate::plugins::awm::routes::shared::{current_scan_attempts, DEFAULT_SCAN_ATTEMPTS};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
@@ -20,34 +21,23 @@ pub struct AwmLegacyPut {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyAwmResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub geolocation_scanning_enable: i32,
 }
 
-crate::define_json_response_family! {
-    pub enum GetAwmLegacyResponses {
-        Ok(LegacyAwmResponse) => 200;
-    }
-    from LegacyAwmResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetAwmLegacyResponses(LegacyAwmResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutAwmLegacyResponses {
-        Ok(LegacyAwmResponse) => 200;
-    }
-    from LegacyAwmResponse => Ok;
-}
+pub type PutAwmLegacyResponses = GetAwmLegacyResponses;
 
 fn legacy_awm_response(
     operation: LegacyOperationResponse,
     geolocation_scanning_enable: i32,
 ) -> LegacyAwmResponse {
     LegacyAwmResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         geolocation_scanning_enable,
     }
 }
@@ -59,10 +49,10 @@ fn legacy_awm_response(
     responses(GetAwmLegacyResponses)
 ))]
 pub async fn get_awm_legacy() -> GetAwmLegacyResponses {
-    if let Ok(value) = AwmConfigService::get_scan_attempts() {
-        legacy_awm_response(ok_response(""), value).into()
+    if AwmConfigService::get_scan_attempts().is_ok() {
+        legacy_awm_response(ok_response(""), current_scan_attempts()).into()
     } else {
-        legacy_awm_response(ok_response("AWM configuration only supported in LITE mode"), 1).into()
+        legacy_awm_response(ok_response("AWM configuration only supported in LITE mode"), DEFAULT_SCAN_ATTEMPTS).into()
     }
 }
 
@@ -77,7 +67,7 @@ pub async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyRespo
     if !AwmConfigService::get_lite_mode_enabled() {
         return legacy_awm_response(
             fail_response("AWM's geolocation scanning configuration only supported in LITE mode"),
-            1,
+            DEFAULT_SCAN_ATTEMPTS,
         )
         .into();
     }
@@ -87,6 +77,6 @@ pub async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyRespo
     if AwmConfigService::set_scan_attempts(enable).is_ok() {
         legacy_awm_response(ok_response(""), enable).into()
     } else {
-        legacy_awm_response(fail_response("No writable configuration file found"), 1).into()
+        legacy_awm_response(fail_response("No writable configuration file found"), DEFAULT_SCAN_ATTEMPTS).into()
     }
 }

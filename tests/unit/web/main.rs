@@ -14,6 +14,18 @@ use axum::{
 };
 use tower::ServiceExt;
 
+macro_rules! test_env {
+    () => {
+        let _guard = tests::SERVER_LOCK.lock();
+        let _cleanup = ServerConfigTestCleanup;
+        tests::clear_server_overrides();
+    };
+    ($(($section:expr, $key:expr, $value:expr)),+ $(,)?) => {
+        test_env!();
+        $(tests::set_server_override($section, $key, $value);)+
+    };
+}
+
 struct ServerConfigTestCleanup;
 
 impl Drop for ServerConfigTestCleanup {
@@ -100,9 +112,7 @@ fn session_cookie_set_cookie_header(response: &axum::response::Response) -> Opti
 
 #[test]
 fn default_bind_addr_uses_configured_socket_port() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
+    test_env!();
 
     assert_eq!(default_bind_addr(), "0.0.0.0:8080");
 
@@ -112,9 +122,7 @@ fn default_bind_addr_uses_configured_socket_port() {
 
 #[tokio::test]
 async fn session_flow_requires_login_and_revokes_on_logout() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
+    test_env!();
 
     let app: Router = build_router();
 
@@ -162,11 +170,29 @@ async fn session_flow_requires_login_and_revokes_on_logout() {
 }
 
 #[tokio::test]
+async fn unauthenticated_reset_reboot_setting_routes_require_login() {
+    test_env!();
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .uri("/api/v2/system/allowUnauthenticatedResetReboot")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let request = Request::builder()
+        .uri("/allowUnauthenticatedResetReboot")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn sessions_disabled_allows_protected_v2_route_without_login() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -187,12 +213,39 @@ async fn sessions_disabled_allows_protected_v2_route_without_login() {
 }
 
 #[tokio::test]
+async fn sessions_disabled_create_duplicate_user_returns_conflict() {
+    test_env!(("/", "tools.sessions.on", "false"));
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/login/users")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"username":"root","password":"ignored","permissions":"system_user"}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[cfg(feature = "bluetooth")]
+#[tokio::test]
+async fn sessions_disabled_missing_bluetooth_device_returns_not_found() {
+    test_env!(("/", "tools.sessions.on", "false"));
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .uri("/api/v2/bluetooth/controller0/00:00:00:00:00:00")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn session_cookie_uses_configured_secure_and_httponly_flags() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.secure", "false");
-    tests::set_server_override("/", "tools.sessions.httponly", "false");
+    test_env!(("/", "tools.sessions.secure", "false"), ("/", "tools.sessions.httponly", "false"));
 
     let app: Router = build_router();
 
@@ -213,9 +266,7 @@ async fn session_cookie_uses_configured_secure_and_httponly_flags() {
 
 #[tokio::test]
 async fn session_cookie_defaults_to_secure_and_httponly() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
+    test_env!();
 
     let app: Router = build_router();
 
@@ -240,9 +291,7 @@ async fn legacy_logout_requires_login_and_returns_ok_after_login() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
+    test_env!();
 
     let app: Router = build_router();
 
@@ -286,9 +335,7 @@ async fn legacy_delete_user_uses_path_param_shape() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
+    test_env!();
 
     let app: Router = build_router();
 
@@ -321,10 +368,7 @@ async fn legacy_delete_connection_uses_path_param_shape() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -348,10 +392,7 @@ async fn legacy_wifi_enable_rejects_invalid_enable_query() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -378,10 +419,7 @@ async fn legacy_activate_connection_rejects_missing_uuid_profile() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -427,10 +465,7 @@ async fn legacy_log_setting_requires_supp_debug_level_with_python_message() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -455,10 +490,7 @@ async fn legacy_log_setting_requires_driver_debug_level_with_python_message() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -483,10 +515,7 @@ async fn legacy_log_data_rejects_out_of_range_priority_with_python_message() {
     use axum::body::to_bytes;
     use serde_json::Value;
 
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("/", "tools.sessions.on", "false");
+    test_env!(("/", "tools.sessions.on", "false"));
 
     let app: Router = build_router();
 
@@ -539,10 +568,7 @@ fn at_lookup_resolves_core_and_plugin_usage_commands() {
 #[cfg(feature = "provisioning")]
 #[test]
 fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("summit-rcm", "enable_client_pairing", "true");
+    test_env!(("summit-rcm", "enable_client_pairing", "true"));
     set_test_provisioning_state(ProvisioningState::Unprovisioned);
     set_test_provisioning_tls_assets();
 
@@ -575,10 +601,7 @@ fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
 #[cfg(feature = "provisioning")]
 #[test]
 fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("summit-rcm", "enable_client_pairing", "true");
+    test_env!(("summit-rcm", "enable_client_pairing", "true"));
     set_test_provisioning_state(ProvisioningState::Unprovisioned);
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
@@ -598,10 +621,7 @@ fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
 #[cfg(feature = "provisioning")]
 #[test]
 fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
-    let _guard = tests::SERVER_LOCK.lock();
-    let _cleanup = ServerConfigTestCleanup;
-    tests::clear_server_overrides();
-    tests::set_server_override("summit-rcm", "enable_client_pairing", "true");
+    test_env!(("summit-rcm", "enable_client_pairing", "true"));
     set_test_provisioning_state(ProvisioningState::PartiallyProvisioned);
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {

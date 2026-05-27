@@ -11,14 +11,13 @@ pub mod http;
 
 use crate::at_interface::fsm::FsmHandle;
 use crate::publication::PublishedAtCommand;
-use async_trait::async_trait;
+use futures_util::future::BoxFuture;
 
-#[async_trait]
 pub trait Command: Send + Sync {
     fn signature(&self) -> &str;
     fn name(&self) -> &str;
     fn usage(&self) -> &str;
-    async fn execute(&self, fsm: &FsmHandle, params: &str) -> (bool, String);
+    fn execute<'a>(&'a self, fsm: &'a FsmHandle, params: &'a str) -> BoxFuture<'a, (bool, String)>;
 }
 
 fn build_core_commands() -> Vec<Box<dyn Command>> {
@@ -64,7 +63,7 @@ fn core_published_commands() -> &'static [PublishedAtCommand] {
 
 pub fn build_commands() -> Vec<Box<dyn Command>> {
     let mut cmds = build_core_commands();
-    for publication in crate::publication::builtin_publications() {
+    for publication in crate::publication::builtin_at_publications() {
         if let Some(at_commands) = publication.at_commands.as_ref() {
             (at_commands.install)(&mut cmds);
         }
@@ -81,7 +80,7 @@ pub fn build_commands() -> Vec<Box<dyn Command>> {
 
 pub fn published_commands() -> Vec<PublishedAtCommand> {
     let mut commands = core_published_commands().to_vec();
-    for publication in crate::publication::builtin_publications() {
+    for publication in crate::publication::builtin_at_publications() {
         if let Some(at_commands) = publication.at_commands.as_ref() {
             if let Some(metadata) = at_commands.metadata {
                 commands.extend_from_slice(metadata);

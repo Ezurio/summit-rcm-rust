@@ -6,10 +6,9 @@
 
 use anyhow::Context;
 use configparser::ini::Ini;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use log::warn;
 
 pub const SUMMIT_RCM_SERVER_CONF_FILE: &str = "/etc/summit-rcm.ini";
@@ -51,11 +50,11 @@ pub struct SummitRcmConfigManage;
 
 impl SummitRcmConfigManage {
     pub fn has_section(section: &str) -> bool {
-        SETTINGS_CONFIG.lock().sections().contains(&section.to_string())
+        SETTINGS_CONFIG.lock().unwrap().sections().contains(&section.to_string())
     }
 
     pub fn add_section(section: &str) -> bool {
-        let mut cfg = SETTINGS_CONFIG.lock();
+        let mut cfg = SETTINGS_CONFIG.lock().unwrap();
         if !cfg.sections().contains(&section.to_string()) {
             cfg.set(section, "__init__", None); // ensure section exists
             true
@@ -65,7 +64,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn remove_section(section: &str) -> bool {
-        let mut cfg = SETTINGS_CONFIG.lock();
+        let mut cfg = SETTINGS_CONFIG.lock().unwrap();
         if cfg.sections().contains(&section.to_string()) {
             cfg.remove_section(section);
             true
@@ -75,7 +74,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn set(section: &str, key: &str, value: &str) -> bool {
-        let mut cfg = SETTINGS_CONFIG.lock();
+        let mut cfg = SETTINGS_CONFIG.lock().unwrap();
         if cfg.sections().contains(&section.to_string()) {
             cfg.set(section, key, Some(value.to_string()));
             true
@@ -85,7 +84,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn get(section: &str, key: &str) -> Option<String> {
-        SETTINGS_CONFIG.lock().get(section, key)
+        SETTINGS_CONFIG.lock().unwrap().get(section, key)
     }
 
     #[cfg(feature = "unauthenticated")]
@@ -103,7 +102,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn sections_with_key(key: &str) -> Vec<String> {
-        let cfg = SETTINGS_CONFIG.lock();
+        let cfg = SETTINGS_CONFIG.lock().unwrap();
         cfg.sections()
             .into_iter()
             .filter(|s| cfg.get(s, key).is_some())
@@ -111,7 +110,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn sections_and_key(key: &str) -> HashMap<String, String> {
-        let cfg = SETTINGS_CONFIG.lock();
+        let cfg = SETTINGS_CONFIG.lock().unwrap();
         cfg.sections()
             .into_iter()
             .filter_map(|s| cfg.get(&s, key).map(|v| (s, v)))
@@ -119,7 +118,7 @@ impl SummitRcmConfigManage {
     }
 
     pub fn save() -> anyhow::Result<()> {
-        let cfg = SETTINGS_CONFIG.lock();
+        let cfg = SETTINGS_CONFIG.lock().unwrap();
         cfg.write(SETTINGS_CONFIG_PATH.as_str())
             .context("Failed to write settings file")?;
         Ok(())

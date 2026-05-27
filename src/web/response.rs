@@ -26,6 +26,7 @@ pub(crate) fn http_status(status: u16) -> StatusCode {
         409 => StatusCode::CONFLICT,
         415 => StatusCode::UNSUPPORTED_MEDIA_TYPE,
         422 => StatusCode::UNPROCESSABLE_ENTITY,
+        504 => StatusCode::GATEWAY_TIMEOUT,
         500 => StatusCode::INTERNAL_SERVER_ERROR,
         _ => panic!("unsupported http status: {}", status),
     }
@@ -44,6 +45,7 @@ macro_rules! response_status_description {
     (@default 409) => { "Conflict" };
     (@default 415) => { "Unsupported media type" };
     (@default 422) => { "Validation error" };
+    (@default 504) => { "Gateway timeout" };
     (@default 500) => { "Internal error" };
 }
 
@@ -93,6 +95,92 @@ macro_rules! define_json_response_family {
         }
     };
 
+}
+
+#[macro_export]
+macro_rules! define_ok_json_response_family {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident($body_ty:ty);
+    ) => {
+        $crate::define_json_response_family! {
+            $(#[$meta])*
+            $vis enum $name {
+                Ok($body_ty) => 200;
+            }
+            from $body_ty => Ok;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! define_ok_internal_json_response_family {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident($body_ty:ty);
+    ) => {
+        $crate::define_json_response_family! {
+            $(#[$meta])*
+            $vis enum $name {
+                Ok($body_ty) => 200;
+                InternalError => 500
+            }
+            from $body_ty => Ok;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! define_ok_bad_request_json_response_family {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident($body_ty:ty);
+    ) => {
+        $crate::define_json_response_family! {
+            $(#[$meta])*
+            $vis enum $name {
+                Ok($body_ty) => 200;
+                BadRequest => 400
+            }
+            from $body_ty => Ok;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! define_ok_bad_request_internal_json_response_family {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident($body_ty:ty);
+    ) => {
+        $crate::define_json_response_family! {
+            $(#[$meta])*
+            $vis enum $name {
+                Ok($body_ty) => 200;
+                BadRequest => 400,
+                InternalError => 500
+            }
+            from $body_ty => Ok;
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! define_ok_not_found_internal_json_response_family {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident($body_ty:ty);
+    ) => {
+        $crate::define_json_response_family! {
+            $(#[$meta])*
+            $vis enum $name {
+                Ok($body_ty) => 200;
+                NotFound => 404,
+                InternalError => 500
+            }
+            from $body_ty => Ok;
+        }
+    };
 }
 
 #[macro_export]

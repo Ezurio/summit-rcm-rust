@@ -17,11 +17,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-crate::define_json_response_family! {
-    pub enum ListUsersResponses {
-        Ok(Vec<UserResponse>) => 200;
-    }
-    from Vec<UserResponse> => Ok;
+crate::define_ok_json_response_family! {
+    pub enum ListUsersResponses(Vec<UserResponse>);
 }
 
 crate::define_json_response_family! {
@@ -118,7 +115,7 @@ pub async fn create_user(Json(body): Json<UserCreateRequest>) -> CreateUserRespo
         return CreateUserResponses::BadRequest;
     }
     if UserService::user_exists(&body.username) {
-        return CreateUserResponses::BadRequest;
+        return CreateUserResponses::Conflict;
     }
     if UserService::max_users_reached() {
         return CreateUserResponses::Conflict;

@@ -8,8 +8,7 @@ use crate::dbus;
 use crate::plugins::system::{FACTORY_RESET_SCRIPT, PowerState};
 use crate::utils::command_output;
 use anyhow::Result;
-use parking_lot::Mutex;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::path::Path;
 use log::{error, info};
 
@@ -24,7 +23,7 @@ pub struct SystemService;
 impl SystemService {
     #[cfg(feature = "api-v2")]
     pub fn power_state() -> PowerState {
-        POWER_STATE.lock().clone()
+        POWER_STATE.lock().unwrap().clone()
     }
 
     pub async fn set_power_state(state: PowerState) -> Result<()> {
@@ -52,7 +51,7 @@ impl SystemService {
                 }
             }
         };
-        *POWER_STATE.lock() = new_state;
+        *POWER_STATE.lock().unwrap() = new_state;
         Ok(())
     }
 
@@ -73,12 +72,14 @@ impl SystemService {
 
     async fn dbus_call(member: &str) -> Result<bool> {
         let conn = dbus::system_bus().await?;
-        conn.call_method(
+        dbus::call_method(
+            conn,
             Some(LOGIND_BUS_NAME),
             LOGIND_MAIN_OBJ,
             Some(LOGIND_MAIN_IFACE),
             member,
             &(false,),
+            None,
         )
         .await?;
         Ok(true)

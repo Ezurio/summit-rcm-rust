@@ -32,7 +32,7 @@ impl SystemdUnit {
         feature = "network",
         feature = "api-v2",
         feature = "api-legacy",
-        feature = "provisioning",
+        all(feature = "provisioning", any(feature = "api-v2", feature = "api-legacy")),
         feature = "log-forwarding",
         feature = "stunnel"
     ))]
@@ -43,13 +43,14 @@ impl SystemdUnit {
     pub async fn unit_path(&self) -> Result<OwnedObjectPath> {
         let conn = dbus::system_bus().await?;
 
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             conn,
             Some(SYSTEMD_BUS_NAME),
             SYSTEMD_MAIN_OBJ,
             Some(SYSTEMD_MANAGER_IFACE),
             "LoadUnit",
             &(&self.unit_file,),
+            None,
         )
         .await
     }
@@ -65,31 +66,60 @@ impl SystemdUnit {
         }
     }
 
+    /// Retrieve the current ActiveState string for the unit.
+    ///
+    /// Unlike `get_active_state`, this does not swallow D-Bus errors.
+    pub async fn try_get_active_state(&self) -> Result<String> {
+        self.query_active_state().await
+    }
+
     async fn query_active_state(&self) -> Result<String> {
         let conn = dbus::system_bus().await?;
         let unit_path = self.unit_path().await?;
 
-        let state = dbus::get_property::<String>(
+        // Match Python baseline behavior: if systemd cannot load the unit,
+        // surface this as an unknown state instead of inactive.
+        let load_state = dbus::get_property_with_timeout::<String>(
+            conn.clone(),
+            SYSTEMD_BUS_NAME,
+            unit_path.as_str(),
+            SYSTEMD_UNIT_IFACE,
+            "LoadState",
+            None,
+        )
+        .await?;
+        if load_state == "not-found" {
+            return Ok("unknown".to_string());
+        }
+
+        let state = dbus::get_property_with_timeout::<String>(
             conn,
             SYSTEMD_BUS_NAME,
             unit_path.as_str(),
             SYSTEMD_UNIT_IFACE,
             "ActiveState",
+            None,
         )
         .await?;
 
         Ok(state)
     }
 
-    #[cfg(any(feature = "stunnel", feature = "log-forwarding", feature = "provisioning"))]
+    #[cfg(any(
+        feature = "stunnel",
+        feature = "log-forwarding",
+        all(feature = "provisioning", any(feature = "api-v2", feature = "api-legacy"))
+    ))]
     async fn unit_action_result(&self, method: &str) -> Result<()> {
         let conn = dbus::system_bus().await?;
-        conn.call_method(
+        dbus::call_method(
+            conn,
             Some(SYSTEMD_BUS_NAME),
             SYSTEMD_MAIN_OBJ,
             Some(SYSTEMD_MANAGER_IFACE),
             method,
             &(&self.unit_file, "replace"),
+            None,
         )
         .await?;
         Ok(())
@@ -105,7 +135,7 @@ impl SystemdUnit {
         self.unit_action_result("StopUnit").await
     }
 
-    #[cfg(feature = "provisioning")]
+    #[cfg(all(feature = "provisioning", any(feature = "api-v2", feature = "api-legacy")))]
     pub async fn restart(&self) -> Result<()> {
         self.unit_action_result("RestartUnit").await
     }

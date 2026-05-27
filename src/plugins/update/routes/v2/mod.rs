@@ -9,13 +9,12 @@
 //! POST /api/v2/system/update/updateFile – upload the update image
 
 use crate::plugins::update::{FirmwareUpdateService, SummitRcmUpdateStatus};
-use anyhow::anyhow;
+use crate::plugins::update::routes::shared::upload_update_stream;
 use axum::{
     body::Body,
     http::Request,
     Json,
 };
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "api-docs")]
 
@@ -47,20 +46,12 @@ pub struct UpdateStatusResponse {
     pub image: String,
 }
 
-crate::define_json_response_family! {
-    pub enum GetUpdateStatusResponses {
-        Ok(UpdateStatusResponse) => 200;
-    }
-    from UpdateStatusResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetUpdateStatusResponses(UpdateStatusResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum SetUpdateStatusResponses {
-        Ok(UpdateStatusResponse) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from UpdateStatusResponse => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum SetUpdateStatusResponses(UpdateStatusResponse);
 }
 
 crate::define_status_response_family! {
@@ -73,7 +64,7 @@ crate::define_status_response_family! {
 }
 
 fn current_update_status() -> UpdateStatusResponse {
-    let service = FirmwareUpdateService::instance().lock();
+    let service = FirmwareUpdateService::instance().lock().unwrap();
     let (status, _) = service.get_update_status();
     UpdateStatusResponse {
         status,
@@ -155,14 +146,4 @@ pub async fn upload_update_file(req: Request<Body>) -> UploadUpdateResponses {
             UploadUpdateResponses::InternalError
         }
     }
-}
-
-async fn upload_update_stream(body: Body) -> anyhow::Result<()> {
-    let mut stream = body.into_data_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| anyhow!(error.to_string()))?;
-        FirmwareUpdateService::handle_update_stream(chunk.as_ref()).await?;
-    }
-    FirmwareUpdateService::finish_update_stream().await?;
-    Ok(())
 }

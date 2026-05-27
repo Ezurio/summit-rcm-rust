@@ -32,21 +32,12 @@ pub struct ExportConnectionsRequest {
     pub password: Option<String>,
 }
 
-crate::define_json_response_family! {
-    pub enum ListConnectionsResponses {
-        Ok(Vec<ConnectionSummary>) => 200;
-        InternalError => 500
-    }
-    from Vec<ConnectionSummary> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum ListConnectionsResponses(Vec<ConnectionSummary>);
 }
 
-crate::define_json_response_family! {
-    pub enum GetConnectionResponses {
-        Ok(ConnectionProfile) => 200;
-        NotFound => 404,
-        InternalError => 500
-    }
-    from ConnectionProfile => Ok;
+crate::define_ok_not_found_internal_json_response_family! {
+    pub enum GetConnectionResponses(ConnectionProfile);
 }
 
 crate::define_status_response_family! {
@@ -113,27 +104,14 @@ pub async fn list_connections() -> ListConnectionsResponses {
     responses(UpsertConnectionResponses)
 ))]
 pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertConnectionResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("create_connection invalid request shape: {}", error);
-            return UpsertConnectionResponses::BadRequest;
+    match NetworkService::create_connection_profile_typed(body).await {
+        Ok((value, created)) => {
+            if created {
+                UpsertConnectionResponses::Created(value)
+            } else {
+                UpsertConnectionResponses::Ok(value)
+            }
         }
-    };
-    match NetworkService::create_connection_profile(body).await {
-        Ok((value, created)) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => {
-                if created {
-                    UpsertConnectionResponses::Created(value)
-                } else {
-                    UpsertConnectionResponses::Ok(value)
-                }
-            }
-            Err(error) => {
-                log::error!("create_connection invalid shape: {}", error);
-                UpsertConnectionResponses::InternalError
-            }
-        },
         Err(error) => {
             let message = error.to_string();
             log::error!("create_connection: {}", message);
@@ -154,14 +132,8 @@ pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertCon
     responses(GetConnectionResponses)
 ))]
 pub async fn get_connection_by_uuid(Path(uuid): Path<String>) -> GetConnectionResponses {
-    match NetworkService::get_connection_by_uuid(&uuid).await {
-        Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_connection_by_uuid {} invalid shape: {}", uuid, error);
-                GetConnectionResponses::InternalError
-            }
-        },
+    match NetworkService::get_connection_profile_by_uuid(&uuid).await {
+        Ok(value) => value.into(),
         Err(error) => {
             log::error!("get_connection_by_uuid {}: {}", uuid, error);
             GetConnectionResponses::NotFound
@@ -181,28 +153,15 @@ pub async fn replace_connection_by_uuid(
     Path(uuid): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let created = NetworkService::get_connection_by_uuid(&uuid).await.is_err();
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("replace_connection_by_uuid {} invalid request shape: {}", uuid, error);
-            return UpsertConnectionResponses::BadRequest;
+    let created = NetworkService::get_connection_profile_by_uuid(&uuid).await.is_err();
+    match NetworkService::update_connection_profile_typed(&uuid, body).await {
+        Ok(value) => {
+            if created {
+                UpsertConnectionResponses::Created(value)
+            } else {
+                UpsertConnectionResponses::Ok(value)
+            }
         }
-    };
-    match NetworkService::update_connection_profile(&uuid, body).await {
-        Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => {
-                if created {
-                    UpsertConnectionResponses::Created(value)
-                } else {
-                    UpsertConnectionResponses::Ok(value)
-                }
-            }
-            Err(error) => {
-                log::error!("replace_connection_by_uuid {} invalid shape: {}", uuid, error);
-                UpsertConnectionResponses::InternalError
-            }
-        },
         Err(error) => {
             let message = error.to_string();
             log::error!("replace_connection_by_uuid {}: {}", uuid, message);
@@ -227,22 +186,9 @@ pub async fn patch_connection_by_uuid(
     Path(uuid): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("patch_connection_by_uuid {} invalid request shape: {}", uuid, error);
-            return UpsertConnectionResponses::BadRequest;
-        }
-    };
-    match NetworkService::get_connection_by_uuid(&uuid).await {
-        Ok(_) => match NetworkService::patch_connection_profile_by_uuid(&uuid, body).await {
-            Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-                Ok(value) => UpsertConnectionResponses::Ok(value),
-                Err(error) => {
-                    log::error!("patch_connection_by_uuid {} invalid shape: {}", uuid, error);
-                    UpsertConnectionResponses::InternalError
-                }
-            },
+    match NetworkService::get_connection_profile_by_uuid(&uuid).await {
+        Ok(_) => match NetworkService::patch_connection_profile_by_uuid_typed(&uuid, body).await {
+            Ok(value) => UpsertConnectionResponses::Ok(value),
             Err(error) => {
                 log::error!("patch_connection_by_uuid {}: {}", uuid, error);
                 UpsertConnectionResponses::InternalError
@@ -263,7 +209,7 @@ pub async fn patch_connection_by_uuid(
     responses(DeleteConnectionResponses)
 ))]
 pub async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnectionResponses {
-    match NetworkService::get_connection_by_uuid(&uuid).await {
+    match NetworkService::get_connection_profile_by_uuid(&uuid).await {
         Ok(_) => match NetworkService::delete_connection_profile(&uuid).await {
             Ok(()) => DeleteConnectionResponses::Ok,
             Err(error) => {
@@ -286,14 +232,8 @@ pub async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnec
     responses(GetConnectionResponses)
 ))]
 pub async fn get_connection_by_id(Path(id): Path<String>) -> GetConnectionResponses {
-    match NetworkService::get_connection_by_id(&id).await {
-        Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_connection_by_id {} invalid shape: {}", id, error);
-                GetConnectionResponses::InternalError
-            }
-        },
+    match NetworkService::get_connection_profile_by_id(&id).await {
+        Ok(value) => value.into(),
         Err(error) => {
             log::error!("get_connection_by_id {}: {}", id, error);
             GetConnectionResponses::NotFound
@@ -313,28 +253,15 @@ pub async fn replace_connection_by_id(
     Path(id): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let created = NetworkService::get_connection_by_id(&id).await.is_err();
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("replace_connection_by_id {} invalid request shape: {}", id, error);
-            return UpsertConnectionResponses::BadRequest;
+    let created = NetworkService::get_connection_profile_by_id(&id).await.is_err();
+    match NetworkService::update_connection_profile_typed(&id, body).await {
+        Ok(value) => {
+            if created {
+                UpsertConnectionResponses::Created(value)
+            } else {
+                UpsertConnectionResponses::Ok(value)
+            }
         }
-    };
-    match NetworkService::update_connection_profile(&id, body).await {
-        Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => {
-                if created {
-                    UpsertConnectionResponses::Created(value)
-                } else {
-                    UpsertConnectionResponses::Ok(value)
-                }
-            }
-            Err(error) => {
-                log::error!("replace_connection_by_id {} invalid shape: {}", id, error);
-                UpsertConnectionResponses::InternalError
-            }
-        },
         Err(error) => {
             let message = error.to_string();
             log::error!("replace_connection_by_id {}: {}", id, message);
@@ -359,21 +286,8 @@ pub async fn patch_connection_by_id(
     Path(id): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("patch_connection_by_id {} invalid request shape: {}", id, error);
-            return UpsertConnectionResponses::BadRequest;
-        }
-    };
-    match NetworkService::patch_connection_profile_by_id(&id, body).await {
-        Ok(value) => match parse_route_model::<ConnectionProfile, _>(value) {
-            Ok(value) => UpsertConnectionResponses::Ok(value),
-            Err(error) => {
-                log::error!("patch_connection_by_id {} invalid shape: {}", id, error);
-                UpsertConnectionResponses::InternalError
-            }
-        },
+    match NetworkService::patch_connection_profile_by_id_typed(&id, body).await {
+        Ok(value) => UpsertConnectionResponses::Ok(value),
         Err(error) => {
             let message = error.to_string();
             log::error!("patch_connection_by_id {}: {}", id, message);
@@ -394,7 +308,7 @@ pub async fn patch_connection_by_id(
     responses(DeleteConnectionResponses)
 ))]
 pub async fn delete_connection_by_id(Path(id): Path<String>) -> DeleteConnectionResponses {
-    match NetworkService::get_connection_by_id(&id).await {
+    match NetworkService::get_connection_profile_by_id(&id).await {
         Ok(_) => match NetworkService::delete_connection_profile(&id).await {
             Ok(()) => DeleteConnectionResponses::Ok,
             Err(error) => {

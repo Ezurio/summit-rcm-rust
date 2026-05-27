@@ -16,37 +16,40 @@ use super::{
 
 impl NetworkManagerService {
     pub async fn get_properties(obj_path: &str, interface: &str) -> Result<NmProperties> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             obj_path,
             Some(DBUS_PROP_IFACE),
             "GetAll",
             &(interface,),
+            None,
         )
         .await
     }
 
     pub async fn get_raw_connection_settings(connection_obj_path: &str) -> Result<NmConnectionSettings> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             connection_obj_path,
             Some(NM_SETTINGS_CONNECTION_IFACE),
             "GetSettings",
             &(),
+            None,
         )
         .await
     }
 
     pub async fn get_connection_path_by_uuid(uuid: &str) -> Result<OwnedObjectPath> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             NM_SETTINGS_OBJ,
             Some(NM_SETTINGS_IFACE),
             "GetConnectionByUuid",
             &(uuid,),
+            None,
         )
         .await
     }
@@ -80,13 +83,14 @@ impl NetworkManagerService {
     }
 
     pub async fn add_connection_dbus(connection: NmConnectionSettings) -> Result<OwnedObjectPath> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             NM_SETTINGS_OBJ,
             Some(NM_SETTINGS_IFACE),
             "AddConnection",
             &(connection,),
+            None,
         )
         .await
     }
@@ -95,54 +99,56 @@ impl NetworkManagerService {
         connection_obj_path: &str,
         connection: NmConnectionSettings,
     ) -> Result<()> {
-        Self::system_bus()
-            .await?
-            .call_method(
-                Some(NM_BUS_NAME),
-                connection_obj_path,
-                Some(NM_SETTINGS_CONNECTION_IFACE),
-                "Update",
-                &(connection,),
-            )
-            .await?;
+        dbus::call_method(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            connection_obj_path,
+            Some(NM_SETTINGS_CONNECTION_IFACE),
+            "Update",
+            &(connection,),
+            None,
+        )
+        .await?;
         Ok(())
     }
 
     pub async fn delete_connection_dbus(connection_obj_path: &str) -> Result<()> {
-        Self::system_bus()
-            .await?
-            .call_method(
-                Some(NM_BUS_NAME),
-                connection_obj_path,
-                Some(NM_SETTINGS_CONNECTION_IFACE),
-                "Delete",
-                &(),
-            )
-            .await?;
+        dbus::call_method(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            connection_obj_path,
+            Some(NM_SETTINGS_CONNECTION_IFACE),
+            "Delete",
+            &(),
+            None,
+        )
+        .await?;
         Ok(())
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn reload_connections_dbus() -> Result<bool> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             NM_SETTINGS_OBJ,
             Some(NM_SETTINGS_IFACE),
             "ReloadConnections",
             &(),
+            None,
         )
         .await
     }
 
     pub async fn get_device_path_by_iface(iface: &str) -> Result<OwnedObjectPath> {
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             NM_MAIN_OBJ,
             Some(NM_IFACE),
             "GetDeviceByIpIface",
             &(iface,),
+            None,
         )
         .await
     }
@@ -153,28 +159,29 @@ impl NetworkManagerService {
     ) -> Result<OwnedObjectPath> {
         let specific_object = "/";
         let device_object = device_obj_path.unwrap_or("/");
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
             NM_MAIN_OBJ,
             Some(NM_IFACE),
             "ActivateConnection",
             &(connection_obj_path, device_object, specific_object),
+            None,
         )
         .await
     }
 
     pub async fn deactivate_connection_dbus(active_connection_obj_path: &str) -> Result<()> {
-        Self::system_bus()
-            .await?
-            .call_method(
-                Some(NM_BUS_NAME),
-                NM_MAIN_OBJ,
-                Some(NM_IFACE),
-                "DeactivateConnection",
-                &(active_connection_obj_path,),
-            )
-            .await?;
+        dbus::call_method(
+            Self::system_bus().await?,
+            Some(NM_BUS_NAME),
+            NM_MAIN_OBJ,
+            Some(NM_IFACE),
+            "DeactivateConnection",
+            &(active_connection_obj_path,),
+            None,
+        )
+        .await?;
         Ok(())
     }
 

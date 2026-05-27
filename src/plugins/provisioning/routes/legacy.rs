@@ -11,27 +11,17 @@ use axum::extract::Multipart;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetProvisioningLegacyResponses {
-        Ok(LegacyProvisioningStateResponse) => 200;
-    }
-    from LegacyProvisioningStateResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetProvisioningLegacyResponses(LegacyProvisioningStateResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutProvisioningLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
+pub type PutProvisioningLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyProvisioningStateResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub state: i32,
 }
 
@@ -44,8 +34,7 @@ pub struct LegacyProvisioningStateResponse {
 pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
     let state = CertificateProvisioningService::get_provisioning_state();
     LegacyProvisioningStateResponse {
-        sdcerr: 0,
-        info_msg: "".to_string(),
+        operation: ok_response(""),
         state: state as i32,
     }
     .into()
@@ -69,11 +58,7 @@ pub async fn post_provisioning_legacy(
         return super::v2::ProvisioningTextResponses::BadRequest;
     };
 
-    match super::v2::post_provisioning(Ok(multipart)).await {
-        super::v2::ProvisioningTextResponses::Ok(body) => super::v2::ProvisioningTextResponses::Ok(body),
-        super::v2::ProvisioningTextResponses::BadRequest => super::v2::ProvisioningTextResponses::BadRequest,
-        super::v2::ProvisioningTextResponses::InternalError => super::v2::ProvisioningTextResponses::InternalError,
-    }
+    super::v2::post_provisioning(Ok(multipart)).await
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(

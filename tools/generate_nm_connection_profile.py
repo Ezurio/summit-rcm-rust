@@ -308,7 +308,8 @@ def emit_property_docs(setting_name: str, property_info: PropertyInfo, descripti
 def emit_struct(setting_name: str, properties: list[PropertyInfo], descriptions: dict[tuple[str, str], str]) -> str:
     struct_name = STRUCT_NAMES[setting_name]
     lines = [
-        "#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]",
+        "#[derive(Clone, Deserialize, Serialize)]",
+        "#[cfg_attr(test, derive(Debug, PartialEq))]",
         "#[cfg_attr(feature = \"api-docs\", derive(utoipa::ToSchema))]",
         f"pub struct {struct_name} {{",
     ]
@@ -329,7 +330,8 @@ def emit_struct(setting_name: str, properties: list[PropertyInfo], descriptions:
 
 def emit_top_level() -> str:
     lines = [
-        "#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]",
+        "#[derive(Clone, Deserialize, Serialize)]",
+        "#[cfg_attr(test, derive(Debug, PartialEq))]",
         "#[cfg_attr(feature = \"api-docs\", derive(utoipa::ToSchema))]",
         "pub struct ConnectionProfile {",
     ]
@@ -347,7 +349,6 @@ def emit_top_level() -> str:
 
 
 def render_module(settings: dict[str, list[PropertyInfo]], descriptions: dict[tuple[str, str], str], nm_source: Path) -> str:
-    schema_types = [STRUCT_NAMES[setting_name] for setting_name in TARGET_SETTINGS]
     parts = [
         "//",
         "// SPDX-License-Identifier: LicenseRef-Ezurio-Clause",
@@ -388,7 +389,8 @@ def render_module(settings: dict[str, list[PropertyInfo]], descriptions: dict[tu
         [
             emit_top_level(),
             "",
-            "#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]",
+            "#[derive(Clone, Deserialize, Serialize)]",
+            "#[cfg_attr(test, derive(Debug, PartialEq))]",
             "#[cfg_attr(feature = \"api-docs\", derive(utoipa::ToSchema))]",
             "pub struct LegacyConnectionProfileResponse {",
             "    #[serde(rename = \"SDCERR\")]",
@@ -399,19 +401,13 @@ def render_module(settings: dict[str, list[PropertyInfo]], descriptions: dict[tu
             "    pub connection: Option<ConnectionProfile>,",
             "}",
             "",
-            "#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]",
+            "#[derive(Clone, Deserialize, Serialize)]",
+            "#[cfg_attr(test, derive(Debug, PartialEq))]",
             "#[cfg_attr(feature = \"api-docs\", derive(utoipa::ToSchema))]",
             "pub struct ActivateConnectionLegacyRequest {",
             "    pub uuid: String,",
             "    pub activate: i32,",
             "}",
-            "",
-            "crate::impl_api_schema!(",
-            *[f"    {schema_type}," for schema_type in schema_types],
-            "    ConnectionProfile,",
-            "    LegacyConnectionProfileResponse,",
-            "    ActivateConnectionLegacyRequest,",
-            ");",
             "",
             "#[cfg(test)]",
             "mod tests {",

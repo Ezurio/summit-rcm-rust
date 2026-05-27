@@ -27,7 +27,8 @@ where
     })
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsConnection {
     #[serde(rename = "auth-retries")]
@@ -163,7 +164,8 @@ pub struct ConnectionSettingsConnection {
     pub zone: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettings8021x {
     #[serde(rename = "altsubject-matches")]
@@ -301,7 +303,8 @@ pub struct ConnectionSettings8021x {
     pub system_ca_certs: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsGsm {
     /// Deprecated on D-Bus.
@@ -380,7 +383,8 @@ pub struct ConnectionSettingsGsm {
     pub username: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsIp4Config {
     #[serde(rename = "address-data")]
@@ -469,7 +473,8 @@ pub struct ConnectionSettingsIp4Config {
     pub shared_dhcp_range: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsIp6Config {
     #[serde(rename = "addr-gen-mode")]
@@ -562,7 +567,8 @@ pub struct ConnectionSettingsIp6Config {
     pub token: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWired {
     #[serde(rename = "accept-all-mac-addresses")]
@@ -602,7 +608,8 @@ pub struct ConnectionSettingsWired {
     pub wake_on_lan_password: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWireless {
     pub acs: Option<i64>,
@@ -678,7 +685,8 @@ pub struct ConnectionSettingsWireless {
     pub wake_on_wlan: Option<i64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWirelessSecurity {
     #[serde(rename = "auth-alg")]
@@ -734,7 +742,8 @@ pub struct ConnectionSettingsWirelessSecurity {
     pub wps_method: Option<i64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWifiP2p {
     #[serde(rename = "device-name")]
@@ -752,7 +761,8 @@ pub struct ConnectionSettingsWifiP2p {
     pub wps_method: Option<i64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionProfile {
     #[serde(rename = "802-1x")]
@@ -772,18 +782,18 @@ pub struct ConnectionProfile {
     pub activated: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyConnectionProfileResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: crate::web::legacy_response::LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection: Option<ConnectionProfile>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ActivateConnectionLegacyRequest {
     pub uuid: String,

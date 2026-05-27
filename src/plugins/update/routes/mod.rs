@@ -7,3 +7,5 @@
 pub mod v2;
 #[cfg(feature = "api-legacy")]
 pub mod legacy;
+
+pub(crate) mod shared;

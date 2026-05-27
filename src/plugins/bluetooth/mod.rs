@@ -42,6 +42,14 @@ crate::declare_plugin_api! {
 				PUT => routes::legacy::put_bluetooth_device_legacy
 			},
 			#[cfg(feature = "bluetooth-websocket")]
+			protected "/bluetoothWebsocket" => {
+				GET => routes::legacy::get_bluetooth_websocket_index_legacy
+			},
+			#[cfg(feature = "bluetooth-websocket")]
+			protected "/bluetoothWebsocket/" => {
+				GET => routes::legacy::get_bluetooth_websocket_index_legacy
+			},
+			#[cfg(feature = "bluetooth-websocket")]
 			protected "/bluetoothWebsocket/ws" => {
 				GET => routes::legacy::get_bluetooth_websocket_legacy
 			},

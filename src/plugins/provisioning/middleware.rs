@@ -19,9 +19,9 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use parking_lot::Mutex;
 use serde::Deserialize;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use time::{OffsetDateTime, UtcDateTime};
@@ -167,7 +167,7 @@ fn check_for_new_fallback_timestamp(provisioning_state: ProvisioningState, tls_i
     };
 
     {
-        let mut last_hash = LAST_CLIENT_CERT_HASH.lock();
+        let mut last_hash = LAST_CLIENT_CERT_HASH.lock().unwrap();
         if last_hash.as_ref() == Some(&cert_hash) {
             return;
         }

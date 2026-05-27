@@ -3,29 +3,19 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::web::legacy_response::{legacy_state_model, LegacyStateResponse};
 use crate::plugins::log_forwarding::service::LogForwardingService;
 use crate::systemd_state::{
-    validate_requested_state, StatePut,
+    legacy_state_error_response, legacy_state_model, legacy_state_with_message,
+    validate_requested_state, LegacyStateResponses, StatePut,
 };
 use axum::Json;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetLogForwardingLegacyResponses {
-        Ok(LegacyStateResponse) => 200;
-    }
-    from LegacyStateResponse => Ok;
-}
+pub type GetLogForwardingLegacyResponses = LegacyStateResponses;
 
-crate::define_json_response_family! {
-    pub enum PutLogForwardingLegacyResponses {
-        Ok(LegacyStateResponse) => 200;
-    }
-    from LegacyStateResponse => Ok;
-}
+pub type PutLogForwardingLegacyResponses = GetLogForwardingLegacyResponses;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -35,11 +25,10 @@ crate::define_json_response_family! {
 ))]
 pub async fn get_log_forwarding_legacy() -> GetLogForwardingLegacyResponses {
     let svc = LogForwardingService::new();
-    legacy_state_model(
-        svc.get_active_state().await,
-        "Could not retrieve log forwarding state",
-    )
-    .into()
+    match svc.try_get_active_state().await {
+        Ok(state) => legacy_state_model(state, "Could not retrieve log forwarding state").into(),
+        Err(error) => legacy_state_error_response(&error).into(),
+    }
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -53,31 +42,27 @@ pub async fn put_log_forwarding_legacy(Json(body): Json<StatePut>) -> PutLogForw
     let requested = match validate_requested_state(body) {
         Ok(requested) => requested,
         Err(_) => {
-            return LegacyStateResponse {
-                sdcerr: crate::web::legacy_response::fail_response("").sdcerr,
-                info_msg: "Invalid state: invalid; valid states: ['active', 'inactive']".to_string(),
-                state: None,
-            }
+            return legacy_state_with_message(
+                None,
+                "Invalid state: invalid; valid states: ['active', 'inactive']".to_string(),
+            )
             .into();
         }
     };
 
     let svc = LogForwardingService::new();
-    let active_state = svc.get_active_state().await;
+    let active_state = svc.try_get_active_state().await.unwrap_or_else(|_| "unknown".to_string());
     let result = svc.set_state(&requested).await;
 
     if let Err(error) = result {
         let message = error.to_string();
         if !message.contains("already active") && !message.contains("already inactive") {
-            return LegacyStateResponse {
-                sdcerr: crate::web::legacy_response::fail_response("").sdcerr,
-                info_msg: message,
-                state: Some(active_state),
-            }
-            .into();
+            return legacy_state_with_message(Some(active_state), message).into();
         }
     }
 
-    legacy_state_model(svc.get_active_state().await, "Could not update log forwarding state")
-        .into()
+    match svc.try_get_active_state().await {
+        Ok(state) => legacy_state_model(state, "Could not update log forwarding state").into(),
+        Err(error) => legacy_state_error_response(&error).into(),
+    }
 }

@@ -20,6 +20,10 @@ impl StunnelService {
         self.unit.get_active_state().await
     }
 
+    pub async fn try_get_active_state(&self) -> Result<String> {
+        self.unit.try_get_active_state().await
+    }
+
     pub async fn set_state(&self, requested_state: &str) -> Result<()> {
         self.unit.set_state(requested_state).await
     }

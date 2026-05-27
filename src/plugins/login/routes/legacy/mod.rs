@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::web::legacy_response::SdcerrCode;
-use crate::web::legacy_response::LegacyOperationResponse;
+use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse, SdcerrCode};
 use crate::plugins::login::{LoginService, UserService};
 use axum::{
     extract::Path,
@@ -45,10 +44,8 @@ pub struct UserBody {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyRedirectResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "REDIRECT")]
     pub redirect: i32,
 }
@@ -56,10 +53,8 @@ pub struct LegacyRedirectResponse {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyLoginResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "REDIRECT")]
     pub redirect: i32,
     #[serde(rename = "PERMISSION")]
@@ -69,10 +64,8 @@ pub struct LegacyLoginResponse {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyUserListResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "Default_user")]
     pub default_user: String,
     #[serde(rename = "Users")]
@@ -81,55 +74,23 @@ pub struct LegacyUserListResponse {
     pub count: usize,
 }
 
-crate::define_json_response_family! {
-    pub enum GetUsersLegacyResponses {
-        Ok(LegacyUserListResponse) => 200;
-    }
-    from LegacyUserListResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetUsersLegacyResponses(LegacyUserListResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PostUserLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
+pub type PostUserLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type DeleteUserLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+
+crate::define_ok_json_response_family! {
+    pub enum PutUserLegacyResponses(LegacyRedirectResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum DeleteUserLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum PostLoginLegacyResponses(LegacyLoginResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutUserLegacyResponses {
-        Ok(LegacyRedirectResponse) => 200;
-    }
-    from LegacyRedirectResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum PostLoginLegacyResponses {
-        Ok(LegacyLoginResponse) => 200;
-    }
-    from LegacyLoginResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum DeleteLoginLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-        InternalError => 500
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-fn legacy_success() -> i32 {
-    SdcerrCode::Success.as_i32()
-}
-
-fn legacy_fail() -> i32 {
-    SdcerrCode::Fail.as_i32()
+crate::define_ok_internal_json_response_family! {
+    pub enum DeleteLoginLegacyResponses(LegacyOperationResponse);
 }
 
 fn operation_response(sdcerr: i32, info_msg: impl Into<String>) -> LegacyOperationResponse {
@@ -139,23 +100,20 @@ fn operation_response(sdcerr: i32, info_msg: impl Into<String>) -> LegacyOperati
     }
 }
 
-fn redirect_response(sdcerr: i32, info_msg: impl Into<String>, redirect: i32) -> LegacyRedirectResponse {
+fn redirect_response(operation: LegacyOperationResponse, redirect: i32) -> LegacyRedirectResponse {
     LegacyRedirectResponse {
-        sdcerr,
-        info_msg: info_msg.into(),
+        operation,
         redirect,
     }
 }
 
 fn login_response(
-    sdcerr: i32,
-    info_msg: impl Into<String>,
+    operation: LegacyOperationResponse,
     redirect: i32,
     permission: Value,
 ) -> LegacyLoginResponse {
     LegacyLoginResponse {
-        sdcerr,
-        info_msg: info_msg.into(),
+        operation,
         redirect,
         permission,
     }
@@ -254,8 +212,7 @@ fn legacy_users_response(
     (
         StatusCode::OK,
         axum::Json(LegacyUserListResponse {
-            sdcerr: legacy_success(),
-            info_msg: "only non-default users listed under 'Users'".to_string(),
+            operation: ok_response("only non-default users listed under 'Users'"),
             default_user,
             users,
             count,
@@ -276,21 +233,21 @@ pub async fn post_user_legacy(Json(body): Json<UserBody>) -> PostUserLegacyRespo
     let permission = body.permission.as_deref().unwrap_or("");
 
     if UserService::user_exists(username) {
-        return PostUserLegacyResponses::Ok(operation_response(legacy_fail(), format!("user {} already exists", username)));
+        return PostUserLegacyResponses::Ok(fail_response(format!("user {} already exists", username)));
     }
 
     if username.is_empty() || password.is_empty() || permission.is_empty() {
-        return PostUserLegacyResponses::Ok(operation_response(legacy_fail(), "Missing user name, password, or permission"));
+        return PostUserLegacyResponses::Ok(fail_response("Missing user name, password, or permission"));
     }
 
     if UserService::get_number_of_users() >= max_web_clients() {
-        return PostUserLegacyResponses::Ok(operation_response(legacy_fail(), "Max number of users reached"));
+        return PostUserLegacyResponses::Ok(fail_response("Max number of users reached"));
     }
 
     if UserService::add_user(username, password, Some(permission)) {
-        PostUserLegacyResponses::Ok(operation_response(legacy_success(), "User added"))
+        PostUserLegacyResponses::Ok(ok_response("User added"))
     } else {
-        PostUserLegacyResponses::Ok(operation_response(legacy_fail(), "failed to add user"))
+        PostUserLegacyResponses::Ok(fail_response("failed to add user"))
     }
 }
 
@@ -306,13 +263,13 @@ pub async fn delete_user_legacy(Path(username): Path<String>) -> DeleteUserLegac
     let default_username = default_username();
 
     if username == default_username {
-        DeleteUserLegacyResponses::Ok(operation_response(legacy_fail(), format!("unable to remove {} user", default_username)))
+        DeleteUserLegacyResponses::Ok(fail_response(format!("unable to remove {} user", default_username)))
     } else if !UserService::user_exists(username) {
-        DeleteUserLegacyResponses::Ok(operation_response(legacy_fail(), format!("user {} not found", username)))
+        DeleteUserLegacyResponses::Ok(fail_response(format!("user {} not found", username)))
     } else if UserService::delete_user(username) {
-        DeleteUserLegacyResponses::Ok(operation_response(legacy_success(), "User deleted"))
+        DeleteUserLegacyResponses::Ok(ok_response("User deleted"))
     } else {
-        DeleteUserLegacyResponses::Ok(operation_response(legacy_fail(), "unable to delete user"))
+        DeleteUserLegacyResponses::Ok(fail_response("unable to delete user"))
     }
 }
 
@@ -328,30 +285,30 @@ pub async fn put_user_legacy(Json(body): Json<UserBody>) -> PutUserLegacyRespons
     let username_display = username.unwrap_or("None");
 
     if !UserService::user_exists(username.unwrap_or_default()) {
-        return redirect_response(legacy_fail(), format!("user {} not found", username_display), 0).into();
+        return redirect_response(fail_response(format!("user {} not found", username_display)), 0).into();
     }
 
     if let Some(new_password) = body.new_password.as_deref().filter(|value| !value.is_empty()) {
         let current_password = body.current_password.as_deref();
         if UserService::verify(username.unwrap_or_default(), current_password.unwrap_or_default()) {
             if UserService::update_password(username.unwrap_or_default(), new_password) {
-                return redirect_response(legacy_success(), "password changed", 0).into();
+                return redirect_response(ok_response("password changed"), 0).into();
             } else {
-                return redirect_response(legacy_fail(), "unable to update password", 0).into();
+                return redirect_response(fail_response("unable to update password"), 0).into();
             }
         } else {
-            return redirect_response(legacy_fail(), "incorrect current password", 0).into();
+            return redirect_response(fail_response("incorrect current password"), 0).into();
         }
     }
 
     if let Some(permission) = body.permission.as_deref().filter(|value| !value.is_empty()) {
         if UserService::update_permission(username.unwrap_or_default(), permission) {
-            redirect_response(legacy_success(), "User logged in", 0).into()
+            redirect_response(ok_response("User logged in"), 0).into()
         } else {
-            redirect_response(legacy_fail(), "could not update session", 0).into()
+            redirect_response(fail_response("could not update session"), 0).into()
         }
     } else {
-        redirect_response(legacy_fail(), "invalid session", 0).into()
+        redirect_response(fail_response("invalid session"), 0).into()
     }
 }
 
@@ -372,8 +329,7 @@ pub async fn post_login_legacy(
 
     if !sessions_enabled() {
         return login_response(
-            legacy_success(),
-            "User logged in",
+            ok_response("User logged in"),
             0,
             permission_list_value(&USER_PERMISSION_TYPES.join(" ")),
         )
@@ -382,14 +338,14 @@ pub async fn post_login_legacy(
 
     let username = match body.username.as_deref() {
         Some(u) if !u.is_empty() => u.to_string(),
-        _ => return login_response(legacy_fail(), "username required", 0, empty_permission_value()).into(),
+        _ => return login_response(fail_response("username required"), 0, empty_permission_value()).into(),
     };
     let password = body.password.as_deref().unwrap_or("");
 
     match session.get::<String>("username").await {
         Ok(Some(_)) => {
             let Some(session_id) = session.id().map(|session_id| session_id.to_string()) else {
-                return login_response(legacy_fail(), "malformed cookie", 0, empty_permission_value()).into();
+                return login_response(fail_response("malformed cookie"), 0, empty_permission_value()).into();
             };
 
             if LoginService::is_session_active(&session_id) {
@@ -397,7 +353,7 @@ pub async fn post_login_legacy(
                     LoginService::login_failed(&username);
                     LoginService::remove_session(&session_id);
                     let _ = session.flush().await;
-                    return login_response(legacy_fail(), "unable to verify user/password", 0, empty_permission_value()).into();
+                    return login_response(fail_response("unable to verify user/password"), 0, empty_permission_value()).into();
                 }
 
                 LoginService::login_reset(&username);
@@ -414,11 +370,10 @@ pub async fn post_login_legacy(
                         &LoginService::default_password(),
                     )
                 {
-                    return login_response(legacy_success(), "Password change required", 1, empty_permission_value()).into();
+                    return login_response(ok_response("Password change required"), 1, empty_permission_value()).into();
                 } else {
                     return login_response(
-                        legacy_success(),
-                        "User logged in",
+                        ok_response("User logged in"),
                         0,
                         permission_string_value(effective_permission_string(&username)),
                     )
@@ -429,19 +384,17 @@ pub async fn post_login_legacy(
         Ok(None) => {}
         Err(error) => {
             return login_response(
-                legacy_fail(),
-                format!("Error while processing login request: {}", error),
+                fail_response(format!("Error while processing login request: {}", error)),
                 0,
                 empty_permission_value(),
             )
-            .into()
+            .into();
         }
     }
 
     if LoginService::is_user_blocked(&username) {
         return login_response(
-            SdcerrCode::UserBlocked.as_i32(),
-            "User is blocked",
+            operation_response(SdcerrCode::UserBlocked.as_i32(), "User is blocked"),
             0,
             empty_permission_value(),
         )
@@ -462,8 +415,7 @@ pub async fn post_login_legacy(
     if !LoginService::allow_multiple_user_sessions() && LoginService::is_user_logged_in(&username)
     {
         return login_response(
-            SdcerrCode::UserLogged.as_i32(),
-            "User already logged in",
+            operation_response(SdcerrCode::UserLogged.as_i32(), "User already logged in"),
             0,
             empty_permission_value(),
         )
@@ -473,8 +425,7 @@ pub async fn post_login_legacy(
     if !default_login && !UserService::verify(&username, password) {
         LoginService::login_failed(&username);
         return login_response(
-            legacy_fail(),
-            "unable to verify user/password",
+            fail_response("unable to verify user/password"),
             0,
             empty_permission_value(),
         )
@@ -485,8 +436,7 @@ pub async fn post_login_legacy(
 
     if let Err(error) = session.flush().await {
         return login_response(
-            legacy_fail(),
-            format!("failed to reset session before login - {}", error),
+            fail_response(format!("failed to reset session before login - {}", error)),
             0,
             empty_permission_value(),
         )
@@ -495,8 +445,7 @@ pub async fn post_login_legacy(
 
     if let Err(error) = session.insert("username", &username).await {
         return login_response(
-            legacy_fail(),
-            format!("failed to create session data - {}", error),
+            fail_response(format!("failed to create session data - {}", error)),
             0,
             empty_permission_value(),
         )
@@ -505,8 +454,7 @@ pub async fn post_login_legacy(
 
     if let Err(error) = session.save().await {
         return login_response(
-            legacy_fail(),
-            format!("failed to save session - {}", error),
+            fail_response(format!("failed to save session - {}", error)),
             0,
             empty_permission_value(),
         )
@@ -514,7 +462,7 @@ pub async fn post_login_legacy(
     }
 
     let Some(session_id) = session.id() else {
-        return login_response(legacy_fail(), "session id missing after save", 0, empty_permission_value()).into();
+        return login_response(fail_response("session id missing after save"), 0, empty_permission_value()).into();
     };
 
     LoginService::track_session(
@@ -532,9 +480,9 @@ pub async fn post_login_legacy(
             &LoginService::default_password(),
         )
     {
-        login_response(legacy_success(), "Password change required", 1, empty_permission_value()).into()
+        login_response(ok_response("Password change required"), 1, empty_permission_value()).into()
     } else {
-        login_response(legacy_success(), "User logged in", 0, permission_string_value(perm)).into()
+        login_response(ok_response("User logged in"), 0, permission_string_value(perm)).into()
     }
 }
 
@@ -551,10 +499,7 @@ pub async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses
     };
 
     let Some(username) = username else {
-        return DeleteLoginLegacyResponses::Ok(operation_response(
-            legacy_fail(),
-            "user not found",
-        ));
+        return DeleteLoginLegacyResponses::Ok(fail_response("user not found"));
     };
 
     let Some(session_id) = session.id() else {
@@ -568,10 +513,7 @@ pub async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses
         return DeleteLoginLegacyResponses::InternalError;
     }
 
-    DeleteLoginLegacyResponses::Ok(operation_response(
-        legacy_success(),
-        format!("user {} logged out", username),
-    ))
+    DeleteLoginLegacyResponses::Ok(ok_response(format!("user {} logged out", username)))
 }
 
 #[cfg(test)]

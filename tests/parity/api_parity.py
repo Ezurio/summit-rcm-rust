@@ -236,11 +236,14 @@ def python_runtime_executable(python_repo: Path) -> str:
 def ensure_mode_supported(mode: str, python_runtime: str) -> None:
     if python_runtime != "weblcm":
         return
+    # WebLCM is a legacy-only baseline. It does not provide OpenAPI or
+    # /api/v2 support, so parity against it must stay scoped to live legacy
+    # HTTP response checks.
     unsupported_modes = {"openapi", "coverage", "scaffold", "schema", "all", "auto"}
     if mode in unsupported_modes:
         raise ParityError(
             "The weblcm Python baseline does not support OpenAPI-driven parity modes "
-            f"({mode}). Use 'responses' or 'auto' instead."
+            f"({mode}). Use 'responses' or 'weblcm' instead."
         )
 
 
@@ -253,12 +256,16 @@ def filter_cases_for_python_runtime(
     ignored_case_ids = {
         "legacy_accesspoints",
         "legacy_accesspoints_scan_request",
+        "legacy_certificate_provisioning",
+        "legacy_certificate_provisioning_post_invalid_upload",
+        "legacy_certificate_provisioning_put_invalid_upload",
         "legacy_definitions",
         "legacy_firewall_add_forward_port",
         "legacy_network_interface_wlo1_available_ap_channels",
         "legacy_network_interface_wlo1_station_dump",
         "legacy_network_interface_wlo1_summit_status",
         "legacy_ntp_override_sources",
+        "legacy_provisioning_get_state",
     }
 
     return [
@@ -268,6 +275,7 @@ def filter_cases_for_python_runtime(
         }
         for case in cases
         if case.get("id") not in ignored_case_ids
+        # WebLCM parity is legacy-only by design.
         and not normalize_path(case.get("path", "")).startswith("/api/v2/")
     ]
 
@@ -1330,10 +1338,8 @@ def python_wrapper_command(python_runtime: str) -> str:
         "state_path = os.environ.get('SUMMIT_RCM_PROVISIONING_STATE_FILE'); "
         "import summit_rcm; "
         "(state_path and importlib.util.find_spec('summit_rcm_provisioning') and setattr(__import__('summit_rcm_provisioning.services.provisioning_service', fromlist=['PROVISIONING_STATE_FILE_PATH']), 'PROVISIONING_STATE_FILE_PATH', state_path)); "
-        "from summit_rcm.settings import ServerConfig; "
         "from summit_rcm.rest_api.services.spectree_service import SpectreeService; "
         "SpectreeService.validate = lambda self, *args, **kwargs: (lambda func: func); "
-        "ServerConfig()._rest_api_docs_enabled = False; "
         "raise SystemExit(summit_rcm.main())"
     )
 
@@ -1788,6 +1794,7 @@ def response_pair_mismatch(
     ignore_content_type: bool = False,
     ignore_body: bool = False,
     allow_framework_validation_mismatch: bool = False,
+    ignore_json_keys: list[str] | None = None,
 ) -> str | None:
     if ignore_status:
         expected_status = None
@@ -1822,8 +1829,8 @@ def response_pair_mismatch(
     if ignore_body:
         return None
 
-    left_body = comparable_body(compare_mode, left_response)
-    right_body = comparable_body(compare_mode, right_response)
+    left_body = comparable_body(compare_mode, left_response, ignore_json_keys=ignore_json_keys)
+    right_body = comparable_body(compare_mode, right_response, ignore_json_keys=ignore_json_keys)
     if left_body != right_body:
         return "\n".join(
             [
@@ -1857,7 +1864,26 @@ def framework_validation_mismatch_allowed(
     )
 
 
-def comparable_body(compare_mode: str, response: HttpResponse) -> Any:
+def strip_ignored_json_keys(value: Any, ignored_keys: set[str]) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: strip_ignored_json_keys(child, ignored_keys)
+            for key, child in value.items()
+            if key not in ignored_keys
+        }
+    if isinstance(value, list):
+        return [strip_ignored_json_keys(item, ignored_keys) for item in value]
+    return value
+
+
+def comparable_body(
+    compare_mode: str,
+    response: HttpResponse,
+    *,
+    ignore_json_keys: list[str] | None = None,
+) -> Any:
+    ignored_keys = set(ignore_json_keys or [])
+
     if response.status >= 400 and response.body == b"":
         if compare_mode == "json_exact":
             return None
@@ -1869,7 +1895,10 @@ def comparable_body(compare_mode: str, response: HttpResponse) -> Any:
     if compare_mode == "exact":
         if is_json_content_type(content_type_prefix(response)):
             try:
-                return normalize_json(json.loads(response.body))
+                value = normalize_json(json.loads(response.body))
+                if ignored_keys:
+                    value = strip_ignored_json_keys(value, ignored_keys)
+                return value
             except json.JSONDecodeError:
                 return response.body
         return response.body
@@ -1877,17 +1906,26 @@ def comparable_body(compare_mode: str, response: HttpResponse) -> Any:
         return response.body.decode("utf-8", "replace")
     if compare_mode == "json_exact":
         try:
-            return normalize_json(json.loads(response.body))
+            value = normalize_json(json.loads(response.body))
+            if ignored_keys:
+                value = strip_ignored_json_keys(value, ignored_keys)
+            return value
         except json.JSONDecodeError as error:
             raise ParityError(f"expected JSON body, got: {body_preview(response.body)} ({error})")
     if compare_mode == "json_shape":
         try:
-            return json_shape(json.loads(response.body))
+            value = json.loads(response.body)
+            if ignored_keys:
+                value = strip_ignored_json_keys(value, ignored_keys)
+            return json_shape(value)
         except json.JSONDecodeError as error:
             raise ParityError(f"expected JSON body, got: {body_preview(response.body)} ({error})")
     if compare_mode == "json_schema":
         try:
-            return json_schema(json.loads(response.body))
+            value = json.loads(response.body)
+            if ignored_keys:
+                value = strip_ignored_json_keys(value, ignored_keys)
+            return json_schema(value)
         except json.JSONDecodeError as error:
             raise ParityError(f"expected JSON body, got: {body_preview(response.body)} ({error})")
     raise ParityError(f"unsupported compare mode: {compare_mode}")
@@ -2485,20 +2523,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare Rust and Python Summit RCM API parity.")
     parser.add_argument(
         "mode",
-        choices=["openapi", "responses", "coverage", "scaffold", "schema", "auto", "provisioning_tls", "all"],
-        help="Which parity checks to run.",
+        choices=["openapi", "responses", "weblcm", "coverage", "scaffold", "schema", "auto", "provisioning_tls", "all"],
+        help="Which parity checks to run. Use 'weblcm' for legacy-only WebLCM response parity; it skips OpenAPI and /api/v2 coverage by design.",
     )
     parser.add_argument(
         "--python-repo",
         type=Path,
         default=DEFAULT_PYTHON_REPO,
-        help="Path to the Python summit-rcm repo.",
+        help="Path to the Python baseline repo. In weblcm mode, this must point at the weblcm-python repo.",
     )
     parser.add_argument(
         "--python-runtime",
         choices=PYTHON_RUNTIME_CHOICES,
         default="auto",
-        help="Python baseline to use: auto-detect summit-rcm or weblcm. weblcm supports only live HTTP parity modes.",
+        help="Python baseline to use: auto-detect summit-rcm or weblcm. weblcm is legacy-only and does not support OpenAPI or /api/v2 parity.",
     )
     parser.add_argument(
         "--legacy-python-repo",
@@ -2515,7 +2553,7 @@ def parse_args() -> argparse.Namespace:
         "--cases",
         type=Path,
         default=DEFAULT_CASES,
-        help="Path to the representative response case manifest.",
+        help="Path to the representative response case manifest. In weblcm mode, only legacy cases are exercised; /api/v2 cases are ignored.",
     )
     parser.add_argument(
         "--request-timeout-seconds",
@@ -2566,6 +2604,11 @@ def main() -> int:
         if args.mode != "provisioning_tls":
             python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
             ensure_mode_supported(args.mode, python_runtime)
+            if args.mode == "weblcm" and python_runtime != "weblcm":
+                raise ParityError(
+                    "weblcm mode requires --python-repo to point at a weblcm-python baseline "
+                    "and --python-runtime weblcm (or auto-detect to weblcm)."
+                )
             if args.legacy_python_repo is not None:
                 if args.mode not in {"responses", "all"}:
                     raise ParityError("--legacy-python-repo is supported only for responses and all modes")
@@ -2590,6 +2633,18 @@ def main() -> int:
                 python_runtime=python_runtime or "summit-rcm",
                 legacy_python_repo=legacy_python_repo,
                 legacy_python_runtime=legacy_python_runtime,
+                request_timeout_seconds=args.request_timeout_seconds,
+                startup_timeout_seconds=args.startup_timeout_seconds,
+                sessions_on=args.sessions_on,
+                requested_plugins=requested_plugins,
+            )
+        if args.mode == "weblcm":
+            compare_responses(
+                python_repo,
+                cases_path,
+                python_runtime="weblcm",
+                legacy_python_repo=None,
+                legacy_python_runtime=None,
                 request_timeout_seconds=args.request_timeout_seconds,
                 startup_timeout_seconds=args.startup_timeout_seconds,
                 sessions_on=args.sessions_on,

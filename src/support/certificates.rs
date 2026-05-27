@@ -7,10 +7,28 @@
 use anyhow::Result;
 use openssl::pkcs12::Pkcs12;
 use openssl::x509::{X509, X509NameRef};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
-pub const CERT_DIR: &str = "/etc/NetworkManager/certs/";
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
+pub struct CertificateExtension {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
+pub struct CertificateInfo {
+    pub version: i32,
+    pub serial_number: String,
+    pub subject: String,
+    pub issuer: String,
+    pub not_before: String,
+    pub not_after: String,
+    pub extensions: Vec<CertificateExtension>,
+}
 
 pub struct CertificatesService;
 
@@ -119,7 +137,7 @@ impl CertificatesService {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid certificate name: {}", cert_name))?;
-        let cert_path = format!("{}{}", CERT_DIR, safe_name);
+        let cert_path = format!("{}{}", crate::definition::NETWORKMANAGER_CERT_DIR, safe_name);
         if !Path::new(&cert_path).exists() {
             return Err(anyhow::anyhow!(
                 "Cannot find certificate with name {}",
@@ -140,5 +158,10 @@ impl CertificatesService {
             "not_after": cert.not_after().to_string(),
             "extensions": extensions,
         }))
+    }
+
+    pub async fn get_cert_info_model(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
+        let value = Self::get_cert_info(cert_name, password).await?;
+        serde_json::from_value(value).map_err(Into::into)
     }
 }

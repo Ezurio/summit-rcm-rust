@@ -9,20 +9,16 @@ pub mod dbus;
 #[path = "support/definition.rs"]
 pub mod definition;
 #[path = "support/archive.rs"]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub mod archive;
 #[path = "support/certificates.rs"]
 pub mod certificates;
 #[path = "support/utils.rs"]
 pub mod utils;
-#[path = "support/nl80211.rs"]
-pub mod nl80211;
-
+#[path = "support/log_config.rs"]
+pub mod log_config;
 #[path = "app/loader.rs"]
 pub mod plugin_loader;
-#[cfg(feature = "at-interface")]
-pub mod at_interface;
-#[cfg(feature = "at-interface")]
-pub mod services;
 #[path = "systemd/unit.rs"]
 pub mod systemd_unit;
 #[cfg(all(
@@ -31,14 +27,11 @@ pub mod systemd_unit;
 ))]
 #[path = "systemd/state.rs"]
 pub mod systemd_state;
-
 pub mod plugins;
 #[path = "app/publication.rs"]
-pub mod publication;
-
-#[cfg(feature = "api-docs")]
-#[path = "openapi/mod.rs"]
-pub mod openapi;
+mod publication;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod web;
+#[cfg(feature = "at-interface")]
+pub mod at_interface;

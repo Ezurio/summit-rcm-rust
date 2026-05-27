@@ -2,6 +2,40 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+macro_rules! define_bluetooth_v2_response_family {
+	(
+		$(#[$meta:meta])*
+		$vis:vis enum $name:ident($body_ty:ty);
+	) => {
+		crate::define_json_response_family! {
+			$(#[$meta])*
+			$vis enum $name {
+				Ok($body_ty) => 200;
+				BadRequest => 400,
+				NotFound => 404,
+				InternalError => 500
+			}
+			from $body_ty => Ok;
+		}
+	};
+}
+
+macro_rules! define_bluetooth_legacy_response_family {
+	(
+		$(#[$meta:meta])*
+		$vis:vis enum $name:ident($body_ty:ty);
+	) => {
+		crate::define_json_response_family! {
+			$(#[$meta])*
+			$vis enum $name {
+				Ok($body_ty) => 200;
+				BadRequest => 400
+			}
+			from $body_ty => Ok;
+		}
+	};
+}
+
 pub mod common;
 
 #[cfg(feature = "bluetooth-hid")]

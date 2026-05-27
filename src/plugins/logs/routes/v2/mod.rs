@@ -66,45 +66,24 @@ pub struct LogsExportRequest {
     pub password: String,
 }
 
-crate::define_json_response_family! {
-    pub enum GetLogsDataResponses {
-        Ok(Vec<JournalLogEntry>) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from Vec<JournalLogEntry> => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum GetLogsDataResponses(Vec<JournalLogEntry>);
 }
 
-crate::define_json_response_family! {
-    pub enum GetLogsConfigResponses {
-        Ok(LogsConfigResponse) => 200;
-        InternalError => 500
-    }
-    from LogsConfigResponse => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetLogsConfigResponses(LogsConfigResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum SetLogsConfigResponses {
-        Ok(LogsConfigResponse) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from LogsConfigResponse => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum SetLogsConfigResponses(LogsConfigResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum GetLogsWebserverResponses {
-        Ok(WebserverLogLevelResponse) => 200;
-    }
-    from WebserverLogLevelResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetLogsWebserverResponses(WebserverLogLevelResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum SetLogsWebserverResponses {
-        Ok(WebserverLogLevelResponse) => 200;
-        BadRequest => 400
-    }
-    from WebserverLogLevelResponse => Ok;
+crate::define_ok_bad_request_json_response_family! {
+    pub enum SetLogsWebserverResponses(WebserverLogLevelResponse);
 }
 
 crate::define_zip_download_responses!(

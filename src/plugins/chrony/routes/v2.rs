@@ -10,28 +10,13 @@ use log::error;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetNtpResponses {
-        Ok(Vec<ChronySource>) => 200;
-        InternalError => 500
-    }
-    from Vec<ChronySource> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetNtpResponses(Vec<ChronySource>);
 }
 
-crate::define_json_response_family! {
-    pub enum PutNtpResponses {
-        Ok(Vec<ChronySource>) => 200;
-        InternalError => 500
-    }
-    from Vec<ChronySource> => Ok;
-}
-crate::define_json_response_family! {
-    pub enum GetNtpSourceResponses {
-        Ok(ChronySource) => 200;
-        NotFound => 404,
-        InternalError => 500
-    }
-    from ChronySource => Ok;
+pub type PutNtpResponses = GetNtpResponses;
+crate::define_ok_not_found_internal_json_response_family! {
+    pub enum GetNtpSourceResponses(ChronySource);
 }
 
 crate::define_status_response_family! {

@@ -5,28 +5,16 @@
 
 use crate::plugins::log_forwarding::service::LogForwardingService;
 use crate::systemd_state::{
-    state_doc, validate_requested_state, StatePut, StateResponse,
+    get_state_error_response, is_already_requested_state_error, put_state_error_response,
+    state_doc, validate_requested_state, GetStateResponses, PutStateResponses, StatePut,
 };
 use axum::Json;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetLogForwardingResponses {
-        Ok(StateResponse) => 200;
-    }
-    from StateResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum PutLogForwardingResponses {
-        Ok(StateResponse) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from StateResponse => Ok;
-}
+pub type GetLogForwardingResponses = GetStateResponses;
+pub type PutLogForwardingResponses = PutStateResponses;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -36,7 +24,10 @@ crate::define_json_response_family! {
 ))]
 pub async fn get_log_forwarding() -> GetLogForwardingResponses {
     let svc = LogForwardingService::new();
-    state_doc(svc.get_active_state().await).into()
+    match svc.try_get_active_state().await {
+        Ok(state) => state_doc(state).into(),
+        Err(error) => get_state_error_response(&error),
+    }
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -54,10 +45,12 @@ pub async fn put_log_forwarding(Json(body): Json<StatePut>) -> PutLogForwardingR
     let svc = LogForwardingService::new();
     let result = svc.set_state(&requested).await;
     if let Err(error) = result {
-        let message = error.to_string();
-        if !message.contains("already active") && !message.contains("already inactive") {
-            return PutLogForwardingResponses::InternalError;
+        if !is_already_requested_state_error(&error) {
+            return put_state_error_response(&error);
         }
     }
-    state_doc(svc.get_active_state().await).into()
+    match svc.try_get_active_state().await {
+        Ok(state) => state_doc(state).into(),
+        Err(error) => put_state_error_response(&error),
+    }
 }

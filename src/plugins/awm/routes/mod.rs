@@ -8,6 +8,8 @@ pub mod v2;
 #[cfg(feature = "api-legacy")]
 pub mod legacy;
 
+pub(crate) mod shared;
+
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) mod v2_openapi {
 

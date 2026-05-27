@@ -278,16 +278,16 @@ impl NetworkManagerService {
         let options = HashMap::<String, zbus::zvariant::OwnedValue>::new();
 
         for (_, device_path) in Self::get_wireless_device_paths(iface).await? {
-            Self::system_bus()
-                .await?
-                .call_method(
-                    Some(NM_BUS_NAME),
-                    device_path.as_str(),
-                    Some(NM_DEVICE_WIRELESS_IFACE),
-                    "RequestScan",
-                    &(options.clone(),),
-                )
-                .await?;
+            dbus::call_method(
+                Self::system_bus().await?,
+                Some(NM_BUS_NAME),
+                device_path.as_str(),
+                Some(NM_DEVICE_WIRELESS_IFACE),
+                "RequestScan",
+                &(options.clone(),),
+                None,
+            )
+            .await?;
         }
 
         Ok(())
@@ -387,13 +387,14 @@ impl NetworkManagerService {
     }
 
     pub async fn set_wifi_enabled_dbus(enabled: bool) -> Result<()> {
-        dbus::set_property(
+        dbus::set_property_with_timeout(
             Self::system_bus().await?,
             NM_BUS_NAME,
             NM_MAIN_OBJ,
             NM_IFACE,
             "WirelessEnabled",
             zbus::zvariant::Value::from(enabled),
+            None,
         )
         .await
     }

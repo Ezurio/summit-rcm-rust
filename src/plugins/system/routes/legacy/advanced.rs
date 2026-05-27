@@ -2,35 +2,20 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::web::legacy_response::SdcerrCode;
-use crate::web::legacy_response::LegacyOperationResponse;
-use crate::plugins::system::{FACTORY_RESET_SCRIPT, PowerState, SystemService};
+use crate::web::legacy_response::{fail_response, ok_response};
+use crate::plugins::system::routes::shared::{self, FactoryResetResult};
+use crate::plugins::system::PowerState;
 use log::error;
 
-crate::define_json_response_family! {
-    pub enum LegacyPowerActionResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum FactoryResetLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-fn legacy_operation_response(sdcerr: i32, info_msg: impl Into<String>) -> LegacyOperationResponse {
-    LegacyOperationResponse { sdcerr, info_msg: info_msg.into() }
-}
+pub type LegacyPowerActionResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type FactoryResetLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
 async fn power_action(state: PowerState, name: &str) -> LegacyPowerActionResponses {
-    if let Err(e) = SystemService::set_power_state(state).await {
-        error!("{} cannot be initiated: {}", name, e);
-        legacy_operation_response(SdcerrCode::Fail.as_i32(), format!("{} cannot be initiated", name)).into()
+    if let Err(error) = shared::set_power_state(state).await {
+        error!("{} cannot be initiated: {}", name, error);
+        fail_response(format!("{} cannot be initiated", name)).into()
     } else {
-        legacy_operation_response(SdcerrCode::Success.as_i32(), format!("{} initiated", name)).into()
+        ok_response(format!("{} initiated", name)).into()
     }
 }
 
@@ -65,16 +50,15 @@ pub async fn reboot_legacy() -> LegacyPowerActionResponses { power_action(PowerS
     responses(FactoryResetLegacyResponses)
 ))]
 pub async fn factory_reset_legacy() -> FactoryResetLegacyResponses {
-    if !std::path::Path::new(FACTORY_RESET_SCRIPT).exists() {
-        return legacy_operation_response(
-            SdcerrCode::Fail.as_i32(),
+    match shared::run_factory_reset().await {
+        FactoryResetResult::NotAvailable => fail_response(
             "FactoryReset cannot be initiated - not available on non-encrypted file system images",
         )
-        .into();
-    }
-    match SystemService::initiate_factory_reset().await {
-        0 => legacy_operation_response(SdcerrCode::Success.as_i32(), "Reboot required").into(),
-        code => legacy_operation_response(SdcerrCode::Fail.as_i32(), format!("Error running factory reset (code {})", code)).into(),
+        .into(),
+        FactoryResetResult::Initiated => ok_response("Reboot required").into(),
+        FactoryResetResult::Failed(code) => {
+            fail_response(format!("Error running factory reset (code {})", code)).into()
+        }
     }
 }
 

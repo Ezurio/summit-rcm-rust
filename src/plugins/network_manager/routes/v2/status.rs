@@ -7,12 +7,8 @@
 use crate::plugins::network_manager::routes::shared::NetworkStatusResponse;
 use crate::plugins::network_manager::service::NetworkService;
 
-crate::define_json_response_family! {
-    pub enum GetNetworkStatusResponses {
-        Ok(NetworkStatusResponse) => 200;
-        InternalError => 500
-    }
-    from NetworkStatusResponse => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetNetworkStatusResponses(NetworkStatusResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -22,14 +18,8 @@ crate::define_json_response_family! {
     responses(GetNetworkStatusResponses)
 ))]
 pub async fn get_network_status() -> GetNetworkStatusResponses {
-    match NetworkService::get_status(false).await {
-        Ok(value) => match serde_json::from_value::<NetworkStatusResponse>(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_network_status invalid response shape: {}", error);
-                GetNetworkStatusResponses::InternalError
-            }
-        },
+    match NetworkService::get_status_model(false).await {
+        Ok(value) => value.into(),
         Err(error) => {
             log::error!("get_network_status: {}", error);
             GetNetworkStatusResponses::InternalError

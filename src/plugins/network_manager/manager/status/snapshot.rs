@@ -11,6 +11,7 @@ use crate::systemd_unit::{SYSTEMD_BUS_NAME, SYSTEMD_UNIT_IFACE};
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use log::error;
+use std::sync::atomic::Ordering;
 use zbus::zvariant::OwnedObjectPath;
 
 use super::super::{
@@ -18,7 +19,7 @@ use super::super::{
     NM_CONNECTION_ACTIVE_IFACE, NM_DEVICE_IFACE, NM_DEVICE_WIRED_IFACE,
     NM_DEVICE_WIRELESS_IFACE, NM_DHCP4_CONFIG_IFACE, NM_DHCP6_CONFIG_IFACE, NM_IFACE,
     NM_IP4_CONFIG_IFACE, NM_IP6_CONFIG_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE,
-    NETWORK_STATUS_CACHE, NETWORK_STATUS_SIGNAL_TASK, NETWORK_STATUS_WATCHER,
+    NETWORK_STATUS_CACHE, NETWORK_STATUS_INIT_STARTED, NETWORK_STATUS_SIGNAL_TASK, NETWORK_STATUS_WATCHER,
     NMConnectivityState,
 };
 
@@ -963,13 +964,13 @@ async fn refresh_status_cache() -> Result<()> {
     }
 
     async fn stop_status_watcher() {
-        if let Some(handle) = NETWORK_STATUS_SIGNAL_TASK.lock().await.take() {
+        if let Some(handle) = NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().take() {
             handle.abort();
         }
     }
 
     async fn ensure_nm_status_watcher() -> Result<()> {
-        if NETWORK_STATUS_SIGNAL_TASK.lock().await.is_some() {
+        if NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().is_some() {
             return Ok(());
         }
 
@@ -1014,10 +1015,10 @@ async fn refresh_status_cache() -> Result<()> {
                 }
             }
 
-            NETWORK_STATUS_SIGNAL_TASK.lock().await.take();
+            NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().take();
         });
 
-        let mut watcher = NETWORK_STATUS_SIGNAL_TASK.lock().await;
+        let mut watcher = NETWORK_STATUS_SIGNAL_TASK.lock().unwrap();
         if watcher.is_some() {
             handle.abort();
         } else {
@@ -1109,6 +1110,34 @@ async fn refresh_status_cache() -> Result<()> {
         });
 
         Ok(())
+    }
+
+    pub async fn initialize_status_cache() -> Result<()> {
+        Self::ensure_status_cache().await
+    }
+
+    pub fn initialize_status_cache_in_background() {
+        if NETWORK_STATUS_INIT_STARTED.load(Ordering::Acquire) {
+            return;
+        }
+
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+
+        if NETWORK_STATUS_INIT_STARTED
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+
+        handle.spawn(async {
+            if let Err(error) = Self::initialize_status_cache().await {
+                NETWORK_STATUS_INIT_STARTED.store(false, Ordering::Release);
+                error!("failed to initialize NetworkManager status cache: {}", error);
+            }
+        });
     }
 
 async fn ensure_status_cache() -> Result<()> {

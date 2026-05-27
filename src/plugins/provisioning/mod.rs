@@ -2,19 +2,16 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use axum::Router;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::publication::{RouteAuthPolicy, RoutePublication};
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) const DEVICE_SERVER_KEY_PATH: &str = "/etc/summit-rcm/provisioning/dev.key";
 pub(crate) const DEVICE_SERVER_CSR_PATH: &str = "/etc/summit-rcm/provisioning/dev.csr";
 pub(crate) const DEVICE_SERVER_CERT_PATH: &str = "/etc/summit-rcm/provisioning/dev.crt";
 pub(crate) const DEVICE_CA_CERT_CHAIN_PATH: &str = "/etc/summit-rcm/ssl/ca.crt";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(crate) const PROVISIONING_SERVER_KEY_PATH: &str = "/etc/summit-rcm/ssl/provisioning.key";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(crate) const PROVISIONING_SERVER_CERT_PATH: &str = "/etc/summit-rcm/ssl/provisioning.crt";
 pub(crate) const PROVISIONING_CA_CERT_CHAIN_PATH: &str = "/etc/summit-rcm/ssl/provisioning.ca.crt";
 pub(crate) const PROVISIONING_DIR: &str = "/etc/summit-rcm/provisioning";
@@ -46,12 +43,9 @@ pub(crate) fn enable_client_pairing() -> bool {
 }
 
 pub mod service;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod middleware;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 fn add_base_api_middleware(api: Router) -> Router {
 	initialize_enable_client_pairing();
 	middleware::initialize_disable_certificate_expiry_verification();
@@ -90,7 +84,7 @@ crate::declare_plugin_api! {
 			),
 		],
 		route_doc_policies => [
-			crate::__declare_route_doc_policy!(protected, "/api/v2/system/certificateProvisioning"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/system/certificateProvisioning"),
 		],
 		legacy => [
 			crate::__declare_route_publication!(
@@ -102,7 +96,7 @@ crate::declare_plugin_api! {
 			),
 		],
 		legacy_route_doc_policies => [
-			crate::__declare_route_doc_policy!(protected, "/certificateProvisioning"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/certificateProvisioning"),
 		],
 	},
 	openapi {

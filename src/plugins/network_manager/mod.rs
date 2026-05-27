@@ -6,7 +6,7 @@
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::publication::{RouteAuthPolicy, RoutePublication};
 
-pub(crate) const FILEDIR_CERT: &str = "/etc/NetworkManager/certs/";
+pub(crate) const FILEDIR_CERT: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
 pub(crate) const INVALID_RSSI: f64 = -9999.9999;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -16,6 +16,22 @@ mod at_commands;
 mod extras;
 pub mod manager;
 pub mod service;
+
+fn initialize_network_manager_runtime() {
+	manager::NetworkManagerService::initialize_status_cache_in_background();
+}
+
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+fn install_base_api(api: axum::Router) -> axum::Router {
+	initialize_network_manager_runtime();
+	api
+}
+
+#[cfg(feature = "at-interface")]
+fn install_at_commands(cmds: &mut Vec<Box<dyn crate::at_interface::commands::Command>>) {
+	initialize_network_manager_runtime();
+	at_commands::add_at_commands(cmds);
+}
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 fn network_status_restricted() -> bool {
@@ -131,20 +147,20 @@ crate::declare_plugin_api! {
 			),
 		],
 		route_doc_policies => [
-			crate::__declare_route_doc_policy!(public, "/api/v2/network/status"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/interfaces"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/interfaces/{name}"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/interfaces/{name}/dhcpLeases"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/connections"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/connections/uuid/{uuid}"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/connections/id/{id}"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/connections/export"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/connections/import"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/accessPoints"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/accessPoints/scan"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/certificates"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/certificates/{name}"),
-			crate::__declare_route_doc_policy!(protected, "/api/v2/network/wifi"),
+			summit_rcm_plugin_api::route_doc_policy!(public, "/api/v2/network/status"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/interfaces"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/interfaces/{name}"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/interfaces/{name}/dhcpLeases"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/connections"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/connections/uuid/{uuid}"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/connections/id/{id}"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/connections/export"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/connections/import"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/accessPoints"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/accessPoints/scan"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/certificates"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/certificates/{name}"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/api/v2/network/wifi"),
 		],
 		legacy => [
 			RoutePublication::install_only(
@@ -161,7 +177,8 @@ crate::declare_plugin_api! {
 				protected "/connection" => {
 				GET => routes::legacy::network::get_connection_legacy,
 				POST => routes::legacy::network::post_connection_legacy,
-				PUT => routes::legacy::network::activate_connection_legacy
+				PUT => routes::legacy::network::activate_connection_legacy,
+				DELETE => routes::legacy::network::delete_connection_legacy_query
 				}
 			),
 			crate::__declare_route_publication!(
@@ -192,21 +209,27 @@ crate::declare_plugin_api! {
 				}
 			),
 			crate::__declare_route_publication!(
+				protected "/networkInterfaceDhcpLeases" => {
+				GET => routes::legacy::network::get_interface_dhcp_leases_legacy
+				}
+			),
+			crate::__declare_route_publication!(
 				protected "/certificates" => {
 				GET => routes::legacy::certificates::get_certificates_legacy
 				}
 			),
 		],
 		legacy_route_doc_policies => [
-			crate::__declare_route_doc_policy!(public, "/networkStatus"),
-			crate::__declare_route_doc_policy!(protected, "/connections"),
-			crate::__declare_route_doc_policy!(protected, "/connection"),
-			crate::__declare_route_doc_policy!(protected, "/connection/{uuid}"),
-			crate::__declare_route_doc_policy!(protected, "/accesspoints"),
-			crate::__declare_route_doc_policy!(protected, "/wifiEnable"),
-			crate::__declare_route_doc_policy!(protected, "/networkInterface"),
-			crate::__declare_route_doc_policy!(protected, "/networkInterfaces"),
-			crate::__declare_route_doc_policy!(protected, "/certificates"),
+			summit_rcm_plugin_api::route_doc_policy!(public, "/networkStatus"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/connections"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/connection"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/connection/{uuid}"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/accesspoints"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/wifiEnable"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/networkInterface"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/networkInterfaces"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/networkInterfaceDhcpLeases"),
+			summit_rcm_plugin_api::route_doc_policy!(protected, "/certificates"),
 		],
 	},
 	openapi {
@@ -222,8 +245,9 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "network-manager",
+	base_api: install_base_api,
 	at_commands: (
 		at_commands::PUBLISHED_COMMANDS,
-		at_commands::add_at_commands,
+		install_at_commands,
 	),
 }

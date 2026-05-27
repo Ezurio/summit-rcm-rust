@@ -9,6 +9,9 @@ pub mod security_headers;
 pub mod response;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod legacy_response;
+#[cfg(feature = "api-docs")]
+#[path = "../openapi/mod.rs"]
+pub mod openapi;
 
 use std::{
     path::{Path, PathBuf},
@@ -33,9 +36,6 @@ use log::{info, warn};
 
 #[cfg(feature = "provisioning")]
 use axum::Extension;
-#[cfg(feature = "api-docs")]
-use crate::openapi::OPENAPI_DOC;
-
 use crate::config::ServerConfig;
 use crate::plugin_loader;
 #[cfg(feature = "provisioning")]
@@ -108,7 +108,7 @@ fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
 
 #[cfg(feature = "api-docs")]
 fn load_compiled_openapi_doc() -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(OPENAPI_DOC.clone())?)
+    Ok(serde_json::to_value(self::openapi::build_openapi())?)
 }
 
 #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
@@ -471,7 +471,7 @@ async fn serve_tls_connection(
 
 fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuthPolicy) -> Router {
     let should_log_routes = ServerConfig::get_bool("summit-rcm", "log_routes_loaded", false);
-    for publication in crate::publication::builtin_publications() {
+    for publication in crate::publication::builtin_http_publications() {
         debug_assert!(!publication.name.is_empty());
         if let Some(route_publications) = publication.routes {
             for route_publication in route_publications {
@@ -499,7 +499,7 @@ fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuth
 }
 
 fn apply_base_api_publications(mut api: Router) -> Router {
-    for publication in crate::publication::builtin_publications() {
+    for publication in crate::publication::builtin_http_publications() {
         debug_assert!(!publication.name.is_empty());
         if let Some(install) = publication.base_api {
             api = install(api);
@@ -542,19 +542,19 @@ pub fn build_router() -> Router {
         .with_secure(ServerConfig::get_bool("/", "tools.sessions.secure", true))
         .with_path("/");
 
-    #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-    let app_router = add_runtime_docs_routes(base_router);
-
-    #[cfg(not(any(feature = "runtime-docs", feature = "api-docs")))]
-    let app_router = base_router.route("/", get(index));
-
-    let app_router = apply_base_api_publications(app_router);
+    let app_router = apply_base_api_publications(base_router);
     app_router.layer(session_layer)
 }
 
 pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {
     let app = build_router();
     let app = plugin_loader::load_plugins(app);
+
+    #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
+    let app = add_runtime_docs_routes(app);
+
+    #[cfg(not(any(feature = "runtime-docs", feature = "api-docs")))]
+    let app = app.route("/", get(index));
 
     let bind_addr = std::env::var("SUMMIT_RCM_BIND").unwrap_or_else(|_| default_bind_addr());
     let listener = TcpListener::bind(&bind_addr).await?;

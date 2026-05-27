@@ -21,7 +21,11 @@ These rules are mandatory for all changes in this repository.
   - no dual ownership,
   - no duplicate route registration,
   - no stale modules left behind,
-  - and `cargo check --features "api-v2 api-legacy at-interface" --all-targets` must pass.
+  - and this cargo check matrix must pass:
+    - `cargo check --features "api-v2 api-legacy at-interface" --all-targets`
+    - `cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"`
+    - `cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"`
+    - `cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"`
 
 ## Strict Semantics
 

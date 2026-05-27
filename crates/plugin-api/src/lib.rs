@@ -19,6 +19,56 @@
 
 use libc::{c_char, c_int, c_void, size_t};
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteAuthPolicy {
+    SessionRequired = 0,
+    UnauthenticatedAllowed = 1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PublishedRoute {
+    pub method: &'static str,
+    pub path: &'static str,
+}
+
+impl PublishedRoute {
+    pub const fn new(method: &'static str, path: &'static str) -> Self {
+        Self { method, path }
+    }
+
+    pub fn leak(method: String, path: String) -> Self {
+        Self {
+            method: Box::leak(method.into_boxed_str()),
+            path: Box::leak(path.into_boxed_str()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteDocPolicy {
+    pub path: &'static str,
+    pub auth: RouteAuthPolicy,
+}
+
+impl RouteDocPolicy {
+    pub const fn new(path: &'static str, auth: RouteAuthPolicy) -> Self {
+        Self { path, auth }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PublishedAtCommand {
+    pub signature: &'static str,
+    pub name: &'static str,
+}
+
+impl PublishedAtCommand {
+    pub const fn new(signature: &'static str, name: &'static str) -> Self {
+        Self { signature, name }
+    }
+}
+
 /// HTTP method and path for one registered route.
 #[repr(C)]
 pub struct RouteDescriptor {
@@ -26,6 +76,8 @@ pub struct RouteDescriptor {
     pub method: *const c_char,
     /// Axum-style path, e.g. "/api/v2/network/awm" or "/api/v2/network/interfaces/:name/foo"
     pub path: *const c_char,
+    /// Authentication policy to apply to the route.
+    pub auth_policy: RouteAuthPolicy,
 }
 
 // Safety: RouteDescriptor contains only pointers to static string literals.
@@ -43,6 +95,12 @@ pub struct PluginHandle {
     pub route_count: size_t,
     /// Array of `route_count` RouteDescriptors.
     pub routes: *const RouteDescriptor,
+    /// Optional OpenAPI JSON generator for the plugin API surface.
+    ///
+    /// Returns a null-terminated UTF-8 JSON string allocated by the plugin,
+    /// or null when no document is published. The host frees the returned
+    /// string via `free_response`.
+    pub openapi_json: Option<unsafe extern "C" fn(handle: *mut PluginHandle) -> *mut c_char>,
     /// Called once after load for plugin initialization.
     pub init: unsafe extern "C" fn(handle: *mut PluginHandle),
     /// Handle an HTTP request.
@@ -97,6 +155,32 @@ macro_rules! c_str {
     };
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __route_auth_policy {
+    (protected) => { $crate::RouteAuthPolicy::SessionRequired };
+    (public) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unauthenticated) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+}
+
+/// Build shared published-route metadata from a route path and method list.
+#[macro_export]
+macro_rules! published_routes {
+    ($path:expr; $($method:ident),+ $(,)?) => {
+        &[
+            $($crate::PublishedRoute::new(stringify!($method), $path),)+
+        ]
+    };
+}
+
+/// Build one shared route-doc policy entry from a route auth and path.
+#[macro_export]
+macro_rules! route_doc_policy {
+    ($auth:ident, $path:expr) => {
+        $crate::RouteDocPolicy::new($path, $crate::__route_auth_policy!($auth))
+    };
+}
+
 /// Declare plugin API routes.
 ///
 /// External plugin example:
@@ -112,7 +196,7 @@ macro_rules! c_str {
 macro_rules! declare_plugin_api {
     (
         $routes_ident:ident = [
-            $($route_ident:ident => $method:ident $path:literal),+ $(,)?
+            $($route_ident:ident => $auth:ident $method:ident $path:literal),+ $(,)?
         ];
     ) => {
         $crate::declare_plugin_api!(@indexes 0usize; $($route_ident),+);
@@ -122,9 +206,22 @@ macro_rules! declare_plugin_api {
                 $crate::RouteDescriptor {
                     method: concat!(stringify!($method), "\0").as_ptr() as *const ::libc::c_char,
                     path: concat!($path, "\0").as_ptr() as *const ::libc::c_char,
+                    auth_policy: $crate::declare_plugin_api!(@auth $auth),
                 },
             )+
         ];
+    };
+
+    (
+        $routes_ident:ident = [
+            $($route_ident:ident => $method:ident $path:literal),+ $(,)?
+        ];
+    ) => {
+        $crate::declare_plugin_api! {
+            $routes_ident = [
+                $($route_ident => unauthenticated $method $path),+
+            ];
+        }
     };
 
     (@count $($route_ident:ident),+) => {
@@ -132,6 +229,8 @@ macro_rules! declare_plugin_api {
     };
 
     (@replace $_route_ident:ident $value:expr) => { $value };
+
+    (@auth $auth:ident) => { $crate::__route_auth_policy!($auth) };
 
     (@indexes $index:expr; $route_ident:ident $(, $rest:ident)*) => {
         const $route_ident: usize = $index;
@@ -141,10 +240,19 @@ macro_rules! declare_plugin_api {
     (@indexes $index:expr; ) => {};
 }
 
+const _: fn(&'static str, &'static str) -> PublishedRoute = PublishedRoute::new;
+const _: fn(String, String) -> PublishedRoute = PublishedRoute::leak;
+const _: fn(&'static str, RouteAuthPolicy) -> RouteDocPolicy = RouteDocPolicy::new;
+const _: fn(&'static str, &'static str) -> PublishedAtCommand = PublishedAtCommand::new;
+
 /// Declare a plugin.
 ///
 /// External plugin example:
 /// ```
+/// summit_rcm_plugin_api::declare_openapi_json_callbacks! {
+///     example_openapi_json => [<routes::v2::ApiDoc as utoipa::OpenApi>::openapi],
+/// }
+///
 /// summit_rcm_plugin_api::declare_plugin! {
 ///     name: "example",
 ///     version: env!("CARGO_PKG_VERSION"),
@@ -154,6 +262,7 @@ macro_rules! declare_plugin_api {
 ///     free_response: plugin_free_response,
 ///     free_response_bytes: plugin_free_response_bytes,
 ///     destroy: plugin_destroy,
+///     openapi: example_openapi_json,
 /// }
 /// ```
 #[macro_export]
@@ -166,7 +275,9 @@ macro_rules! declare_plugin {
         dispatch: $dispatch:expr,
         free_response: $free_response:expr,
         free_response_bytes: $free_response_bytes:expr,
-        destroy: $destroy:expr $(,)?
+        destroy: $destroy:expr
+        $(, openapi: $openapi:expr)?
+        $(,)?
     ) => {
         unsafe extern "C" fn summit_rcm_plugin_destroy_wrapper(handle: *mut $crate::PluginHandle) {
             if !handle.is_null() && !unsafe { (*handle).version }.is_null() {
@@ -175,13 +286,14 @@ macro_rules! declare_plugin {
             unsafe { ($destroy)(handle) };
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe extern "C" fn summit_rcm_plugin_create() -> *mut $crate::PluginHandle {
             ::std::boxed::Box::into_raw(::std::boxed::Box::new($crate::PluginHandle {
                 name: $crate::c_str!($name),
                 version: $crate::alloc_cstring($version) as *const ::libc::c_char,
                 route_count: $routes.len(),
                 routes: $routes.as_ptr(),
+                openapi_json: $crate::declare_plugin!(@optional_callback $($openapi)?),
                 init: $init,
                 dispatch: $dispatch,
                 free_response: $free_response,
@@ -189,6 +301,60 @@ macro_rules! declare_plugin {
                 destroy: summit_rcm_plugin_destroy_wrapper,
                 private_data: ::std::ptr::null_mut(),
             }))
+        }
+    };
+
+    (@optional_callback $callback:expr) => {
+        Some($callback)
+    };
+
+    (@optional_callback) => {
+        None
+    };
+}
+
+/// Declare FFI-safe OpenAPI JSON callbacks for dynamic plugins.
+///
+/// Each callback expression should evaluate to a function or closure returning
+/// a serializable OpenAPI document, typically a `utoipa::openapi::OpenApi`.
+///
+/// The downstream plugin crate is responsible for depending on `serde_json`
+/// and whatever OpenAPI builder it uses (for example `utoipa`).
+///
+/// Example:
+/// ```
+/// summit_rcm_plugin_api::declare_openapi_json_callbacks! {
+///     example_openapi_json => [
+///         <routes::v2::ApiDoc as utoipa::OpenApi>::openapi,
+///         routes::legacy::openapi_doc,
+///     ],
+/// }
+/// ```
+#[macro_export]
+macro_rules! declare_openapi_json_callbacks {
+    ($($fn_name:ident => [$($builder:expr),+ $(,)?]),+ $(,)?) => {
+        $(
+            unsafe extern "C" fn $fn_name(
+                _handle: *mut $crate::PluginHandle,
+            ) -> *mut ::libc::c_char {
+                let mut docs = [$(($builder)()),+].into_iter();
+                let Some(mut openapi) = docs.next() else {
+                    return ::std::ptr::null_mut();
+                };
+                for doc in docs {
+                    openapi.merge(doc);
+                }
+                match ::serde_json::to_string(&openapi) {
+                    Ok(json) => unsafe { $crate::alloc_cstring(&json) },
+                    Err(_) => ::std::ptr::null_mut(),
+                }
+            }
+        )+
+    };
+
+    ($($fn_name:ident => $builder:expr),+ $(,)?) => {
+        $crate::declare_openapi_json_callbacks! {
+            $($fn_name => [$builder]),+
         }
     };
 }

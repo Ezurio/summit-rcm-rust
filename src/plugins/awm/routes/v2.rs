@@ -4,6 +4,7 @@
 //
 
 use crate::plugins::awm::service::AwmConfigService;
+use crate::plugins::awm::routes::shared::current_scan_attempts;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use log::error;
@@ -11,19 +12,12 @@ use log::error;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetAwmResponses {
-        Ok(AwmState) => 200;
-    }
-    from AwmState => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetAwmResponses(AwmState);
 }
 
-crate::define_json_response_family! {
-    pub enum PutAwmResponses {
-        Ok(AwmState) => 200;
-        BadRequest => 400
-    }
-    from AwmState => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum PutAwmResponses(AwmState);
 }
 
 #[derive(Deserialize, Serialize)]
@@ -48,7 +42,7 @@ pub struct AwmPut {
 ))]
 pub async fn get_awm() -> GetAwmResponses {
     AwmState {
-        geolocation_scanning_enabled: AwmConfigService::get_scan_attempts().unwrap_or(1),
+        geolocation_scanning_enabled: current_scan_attempts(),
     }
     .into()
 }
@@ -65,12 +59,12 @@ pub async fn put_awm(Json(body): Json<AwmPut>) -> PutAwmResponses {
         if let Some(enable) = body.geolocation_scanning_enabled {
             if let Err(error) = AwmConfigService::set_scan_attempts(enable) {
                 error!("Failed to set AWM scan_attempts: {}", error);
-                return PutAwmResponses::BadRequest;
+                return PutAwmResponses::InternalError;
             }
         }
     }
     AwmState {
-        geolocation_scanning_enabled: AwmConfigService::get_scan_attempts().unwrap_or(1),
+        geolocation_scanning_enabled: current_scan_attempts(),
     }
     .into()
 }

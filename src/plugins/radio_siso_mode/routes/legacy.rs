@@ -4,6 +4,7 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
+use crate::plugins::radio_siso_mode::routes::shared::current_mode_value;
 use crate::plugins::radio_siso_mode::service::{RadioSISOMode, RadioSISOModeService};
 use serde::{Deserialize, Serialize};
 
@@ -19,35 +20,24 @@ pub struct SisoModeLegacyQuery {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacySisoModeResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "SISO_mode")]
     pub siso_mode: i32,
 }
 
-crate::define_json_response_family! {
-    pub enum GetRadioSisoLegacyResponses {
-        Ok(LegacySisoModeResponse) => 200;
-    }
-    from LegacySisoModeResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetRadioSisoLegacyResponses(LegacySisoModeResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutRadioSisoLegacyResponses {
-        Ok(LegacySisoModeResponse) => 200;
-    }
-    from LegacySisoModeResponse => Ok;
-}
+pub type PutRadioSisoLegacyResponses = GetRadioSisoLegacyResponses;
 
 fn legacy_siso_mode_response(
     operation: LegacyOperationResponse,
     siso_mode: i32,
 ) -> LegacySisoModeResponse {
     LegacySisoModeResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         siso_mode,
     }
 }
@@ -91,7 +81,7 @@ pub async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
 pub async fn put_radio_siso_mode_legacy(
     axum::extract::Query(q): axum::extract::Query<SisoModeLegacyQuery>,
 ) -> PutRadioSisoLegacyResponses {
-    let current = RadioSISOModeService::get_current_siso_mode().map(|m| m as i32).unwrap_or(-1);
+    let current = current_mode_value();
 
     let raw = q.siso_mode.as_deref().unwrap_or_default();
     let mode = match parse_legacy_siso_mode(raw) {
@@ -107,7 +97,7 @@ pub async fn put_radio_siso_mode_legacy(
 
     match RadioSISOModeService::set_siso_mode(mode).await {
         Ok(_) => {
-            let new = RadioSISOModeService::get_current_siso_mode().map(|m| m as i32).unwrap_or(-1);
+            let new = current_mode_value();
             legacy_siso_mode_response(ok_response(""), new).into()
         }
         Err(e) => legacy_siso_mode_response(

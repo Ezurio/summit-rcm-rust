@@ -9,42 +9,25 @@ use crate::plugins::unauthenticated::service::UnauthenticatedService;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum PutUnauthenticatedLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
+pub type PutUnauthenticatedLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+pub type DeleteUnauthenticatedLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
-crate::define_json_response_family! {
-    pub enum DeleteUnauthenticatedLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum GetUnauthenticatedLegacyResponses {
-        Ok(LegacyUnauthenticatedStateResponse) => 200;
-    }
-    from LegacyUnauthenticatedStateResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetUnauthenticatedLegacyResponses(LegacyUnauthenticatedStateResponse);
 }
 
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyUnauthenticatedStateResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "allowUnauthenticatedRebootReset")]
     pub allow_unauthenticated_reboot_reset: bool,
 }
 
 fn legacy_unauthenticated_state_response() -> LegacyUnauthenticatedStateResponse {
     LegacyUnauthenticatedStateResponse {
-        sdcerr: ok_response("").sdcerr,
-        info_msg: String::new(),
+        operation: ok_response(""),
         allow_unauthenticated_reboot_reset: UnauthenticatedService::get_allow_unauthenticated_enabled_legacy(),
     }
 }

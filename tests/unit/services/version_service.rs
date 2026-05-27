@@ -61,35 +61,13 @@ fn rejects_unversioned_supplicant_prefix_output() {
 }
 
 #[test]
-fn parses_boot_rootfs_info_output() {
-    let info = super::parse_boot_rootfs_info(
-        "rootDevType=SD\ncurrentSide=a\nnextSide=b\nbaseHwPartNumber=453-00003\n",
-    )
-    .expect("boot-rootfs info should parse");
-
-    assert_eq!(info.root_dev_type, "SD");
-    assert_eq!(info.current_side, "a");
-    assert_eq!(info.next_side, "b");
-    assert_eq!(info.base_hw_part_number, "453-00003");
-    assert!(info.is_running_on_sd());
-}
-
-#[test]
-fn rejects_incomplete_boot_rootfs_info_output() {
-    let error = super::parse_boot_rootfs_info("rootDevType=SD\nnextSide=b\n")
-        .expect_err("missing fields should fail");
-
-    assert!(error.to_string().contains("currentSide"));
-}
-
-#[test]
 fn parses_os_release_info() {
     let info = super::parse_os_release_info(
         "NAME=Summit\nVERSION=\"Summit Linux development build 0.0.0.0\"\n",
     )
     .expect("os-release should parse");
 
-    assert_eq!(info.version(), "Summit Linux development build 0.0.0.0");
+    assert_eq!(info, "Summit Linux development build 0.0.0.0");
 }
 
 #[test]

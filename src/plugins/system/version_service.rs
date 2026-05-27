@@ -5,9 +5,7 @@
 //! Version information service
 
 use anyhow::{anyhow, Result};
-use crate::utils::command_stdout;
-#[cfg(feature = "network-manager")]
-use crate::plugins::network_manager::service::{NetworkManagerVersionInfo, NetworkService};
+use crate::utils::{command_stdout, get_boot_rootfs_info, get_boot_rootfs_next_side};
 use serde::{Deserialize, Serialize};
 use std::{future::Future, path::Path, sync::LazyLock};
 use tokio::sync::OnceCell;
@@ -54,11 +52,11 @@ impl VersionService {
     }
 
     async fn build_cached_version_info() -> Result<VersionInfo> {
-        let network_manager_info = Self::get_network_manager_version_info().await?;
-        let nm_version = network_manager_info.nm_version.clone();
+        let nm_version = get_network_manager_version().await?;
+        let driver = get_wireless_driver().await?.unwrap_or_default();
         let radio_stack = nm_version.split('-').next().unwrap_or("").to_string();
-        let os_release = get_os_release_info().await?;
-        let build = os_release.version().to_string();
+        let kernel_vermagic = get_kernel_vermagic().await?;
+        let build = get_os_release_info().await?;
         let supplicant = get_supplicant_version().await?;
         let bluez = get_bluez_version().await.unwrap_or_else(|| "n/a".to_string());
         let uboot = Self::get_uboot_version().await.unwrap_or_default();
@@ -66,12 +64,12 @@ impl VersionService {
             Ok(info) if info.is_running_on_sd() => (
                 "sd".to_string(),
                 "sd".to_string(),
-                info.base_hw_part_number_owned(),
+                info.base_hw_part_number().to_string(),
             ),
             Ok(info) => (
-                info.current_side_or_unknown(),
-                info.next_side_or_unknown(),
-                info.base_hw_part_number_owned(),
+                info.current_side_or_unknown().to_string(),
+                info.next_side_or_unknown().to_string(),
+                info.base_hw_part_number().to_string(),
             ),
             Err(_) => (
                 "unknown".to_string(),
@@ -86,28 +84,13 @@ impl VersionService {
             build,
             supplicant,
             radio_stack,
-            driver: network_manager_info.driver,
-            kernel_vermagic: network_manager_info.driver_version,
+            driver,
+            kernel_vermagic,
             bluez,
             u_boot: uboot,
             current_side,
             next_side,
             base_hw_part_number,
-        })
-    }
-
-    #[cfg(feature = "network-manager")]
-    async fn get_network_manager_version_info() -> Result<NetworkManagerVersionInfo> {
-        NetworkService::get_version_info().await
-    }
-
-    #[cfg(not(feature = "network-manager"))]
-    async fn get_network_manager_version_info() -> Result<NetworkManagerVersionInfo> {
-        let nm_version = get_network_manager_version().await?;
-
-        Ok(NetworkManagerVersionInfo {
-            nm_version,
-            ..NetworkManagerVersionInfo::default()
         })
     }
 
@@ -135,66 +118,15 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BootRootfsInfo {
-    root_dev_type: String,
-    current_side: String,
-    next_side: String,
-    base_hw_part_number: String,
-}
-
-impl BootRootfsInfo {
-    pub(crate) fn is_running_on_sd(&self) -> bool {
-        self.root_dev_type == "SD"
-    }
-
-    pub(crate) fn current_side_option(&self) -> Option<&str> {
-        match self.current_side.as_str() {
-            "a" | "b" => Some(self.current_side.as_str()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn next_side_option(&self) -> Option<&str> {
-        match self.next_side.as_str() {
-            "a" | "b" => Some(self.next_side.as_str()),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn current_side_or_unknown(&self) -> String {
-        self.current_side_option().unwrap_or("unknown").to_string()
-    }
-
-    pub(crate) fn next_side_or_unknown(&self) -> String {
-        self.next_side_option().unwrap_or("unknown").to_string()
-    }
-
-    pub(crate) fn base_hw_part_number_owned(&self) -> String {
-        self.base_hw_part_number.clone()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OsReleaseInfo {
-    version: String,
-}
-
-impl OsReleaseInfo {
-    pub(crate) fn version(&self) -> &str {
-        &self.version
-    }
-}
-
 fn parse_bluez_version_output(output: &str) -> Option<String> {
-    output
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
+    first_non_empty_line(output)
 }
 
 fn parse_network_manager_version_output(output: &str) -> Option<String> {
+    first_non_empty_line(output)
+}
+
+fn first_non_empty_line(output: &str) -> Option<String> {
     output
         .lines()
         .map(str::trim)
@@ -202,71 +134,51 @@ fn parse_network_manager_version_output(output: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn parse_boot_rootfs_info(output: &str) -> Result<BootRootfsInfo> {
-    let mut root_dev_type = None;
-    let mut current_side = None;
-    let mut next_side = None;
-    let mut base_hw_part_number = None;
-
-    for line in output.lines() {
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        match key {
-            "rootDevType" => root_dev_type = Some(value.to_string()),
-            "currentSide" => current_side = Some(value.to_string()),
-            "nextSide" => next_side = Some(value.to_string()),
-            "baseHwPartNumber" => base_hw_part_number = Some(value.to_string()),
-            _ => {}
-        }
-    }
-
-    Ok(BootRootfsInfo {
-        root_dev_type: root_dev_type.ok_or_else(|| anyhow!("boot-rootfs.sh output missing rootDevType"))?,
-        current_side: current_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing currentSide"))?,
-        next_side: next_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing nextSide"))?,
-        base_hw_part_number: base_hw_part_number
-            .ok_or_else(|| anyhow!("boot-rootfs.sh output missing baseHwPartNumber"))?,
-    })
-}
-
-fn parse_os_release_info(content: &str) -> Result<OsReleaseInfo> {
-    let version = content
+fn parse_os_release_info(content: &str) -> Result<String> {
+    content
         .lines()
         .find_map(|line| line.strip_prefix("VERSION="))
         .map(|value| value.trim().trim_matches('"').to_string())
-        .ok_or_else(|| anyhow!("/etc/os-release missing VERSION"))?;
-
-    Ok(OsReleaseInfo { version })
+        .ok_or_else(|| anyhow!("/etc/os-release missing VERSION"))
 }
 
-pub(crate) async fn get_boot_rootfs_info() -> Result<BootRootfsInfo> {
-    let output = command_stdout(
-        "/bin/sh",
-        &[
-            "-c",
-            ". boot-rootfs.sh && getSide >/dev/null && base_hw=$(getBaseHwPartNumber) && printf 'rootDevType=%s\ncurrentSide=%s\nnextSide=%s\nbaseHwPartNumber=%s\n' \"$rootDevType\" \"$bootside\" unknown \"$base_hw\"",
-        ],
-    )
-    .await?;
-    let mut info = parse_boot_rootfs_info(&output)?;
-    info.next_side = get_boot_rootfs_next_side().await?;
-    Ok(info)
-}
-
-async fn get_boot_rootfs_next_side() -> Result<String> {
-    let output = command_stdout("/bin/sh", &["-c", ". boot-rootfs.sh && nextSide"]).await?;
-    output
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| anyhow!("boot-rootfs.sh nextSide returned no output"))
-}
-
-async fn get_os_release_info() -> Result<OsReleaseInfo> {
+async fn get_os_release_info() -> Result<String> {
     let content = tokio::fs::read_to_string("/etc/os-release").await?;
     parse_os_release_info(&content)
+}
+
+async fn get_kernel_vermagic() -> Result<String> {
+    let content = tokio::fs::read_to_string("/proc/sys/kernel/osrelease").await?;
+    let kernel_vermagic = content.trim();
+    if kernel_vermagic.is_empty() {
+        return Err(anyhow!("/proc/sys/kernel/osrelease returned no data"));
+    }
+    Ok(kernel_vermagic.to_string())
+}
+
+async fn get_wireless_driver() -> Result<Option<String>> {
+    let mut entries = tokio::fs::read_dir("/sys/class/net").await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let interface = entry.file_name();
+        let interface = interface.to_string_lossy().into_owned();
+        if !tokio::fs::try_exists(entry.path().join("wireless")).await? {
+            continue;
+        }
+        let driver_link = Path::new("/sys/class/net")
+            .join(&interface)
+            .join("device/driver");
+        let Ok(driver_path) = tokio::fs::read_link(&driver_link).await else {
+            continue;
+        };
+        let Some(driver_name) = driver_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !driver_name.is_empty() {
+            return Ok(Some(driver_name.to_string()));
+        }
+    }
+
+    Ok(None)
 }
 
 async fn get_bluez_version() -> Option<String> {

@@ -5,10 +5,10 @@
 
 use super::*;
 use log::debug;
-use std::sync::{Arc, LazyLock};
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tokio::{sync::Mutex, task::JoinHandle, time};
+use tokio::{task::JoinHandle, time};
 
 const BLE_NOTIFICATION_BUFFER: usize = 64;
 pub const BLE_NOTIFICATION_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -18,13 +18,25 @@ static BLE_NOTIFICATION_TX: LazyLock<broadcast::Sender<String>> = LazyLock::new(
     tx
 });
 
-static BLE_MONITOR_TASK: LazyLock<Arc<Mutex<Option<JoinHandle<()>>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(None)));
+struct WebsocketState {
+    enabled: bool,
+    task: Option<JoinHandle<()>>,
+}
+
+static BLE_WEBSOCKET_STATE: LazyLock<Mutex<WebsocketState>> = LazyLock::new(|| {
+    Mutex::new(WebsocketState {
+        enabled: false,
+        task: None,
+    })
+});
 
 impl BluetoothService {
     pub async fn subscribe_notifications() -> broadcast::Receiver<String> {
-        ensure_notification_task().await;
         BLE_NOTIFICATION_TX.subscribe()
+    }
+
+    pub fn websocket_notifications_enabled() -> bool {
+        BLE_WEBSOCKET_STATE.lock().unwrap().enabled
     }
 
     async fn get_snapshot_inner(controller: Option<&str>) -> anyhow::Result<BluetoothSnapshot> {
@@ -131,12 +143,17 @@ impl BluetoothService {
     }
 }
 
+pub async fn enable_notifications() {
+    BLE_WEBSOCKET_STATE.lock().unwrap().enabled = true;
+    ensure_notification_task().await;
+}
+
 pub async fn ensure_notification_task() {
-    let mut guard = BLE_MONITOR_TASK.lock().await;
-    let needs_start = guard.as_ref().map(|task| task.is_finished()).unwrap_or(true);
+    let mut state = BLE_WEBSOCKET_STATE.lock().unwrap();
+    let needs_start = state.task.as_ref().map(|task| task.is_finished()).unwrap_or(true);
 
     if needs_start {
-        *guard = Some(tokio::spawn(async {
+        state.task = Some(tokio::spawn(async {
             notification_loop().await;
         }));
     }

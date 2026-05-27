@@ -13,8 +13,8 @@ mod transitions;
 use anyhow::Result;
 use crate::dbus;
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::LazyLock};
-use tokio::{sync::{Mutex, OnceCell, RwLock}, task::JoinHandle};
+use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, LazyLock, Mutex}, time::Duration};
+use tokio::{sync::{OnceCell, RwLock}, task::JoinHandle};
 use zbus::{zvariant::{OwnedValue, Value as DbusValue}, Connection};
 
 pub const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
@@ -37,6 +37,7 @@ pub type NmProperties = HashMap<String, OwnedValue>;
 pub type NmConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
 
 static NETWORK_STATUS_CACHE: LazyLock<RwLock<Value>> = LazyLock::new(|| RwLock::new(json!({})));
+static NETWORK_STATUS_INIT_STARTED: AtomicBool = AtomicBool::new(false);
 static NETWORK_STATUS_WATCHER: LazyLock<OnceCell<()>> = LazyLock::new(OnceCell::new);
 static NETWORK_STATUS_SIGNAL_TASK: LazyLock<Mutex<Option<JoinHandle<()>>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -76,8 +77,8 @@ impl NMConnectivityState {
 pub struct NetworkManagerService;
 
 impl NetworkManagerService {
-    async fn system_bus() -> Result<&'static Connection> {
-        dbus::system_bus().await
+    async fn system_bus() -> Result<Arc<Connection>> {
+        dbus::system_bus_with_timeout(Some(Duration::from_secs(10))).await
     }
 
     fn into_owned_value<T>(value: T) -> Result<OwnedValue>

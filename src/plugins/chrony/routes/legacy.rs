@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
+use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationOkResponse, LegacyOperationResponse};
 use crate::plugins::chrony::service::{ADD_SOURCE, ChronyNTPService, ChronySource, REMOVE_SOURCE};
 use serde::{Deserialize, Serialize};
 use axum::{extract::Path, Json};
@@ -21,34 +21,17 @@ pub struct LegacyChronySourcesResponse {
     pub sources: Vec<ChronySource>,
 }
 
-#[derive(Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyChronyOperationResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
-}
-
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyChronyCommandRequest {
     pub sources: Vec<String>,
 }
 
-crate::define_json_response_family! {
-    pub enum GetNtpLegacyResponses {
-        Ok(LegacyChronySourcesResponse) => 200;
-    }
-    from LegacyChronySourcesResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetNtpLegacyResponses(LegacyChronySourcesResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutNtpLegacyResponses {
-        Ok(LegacyChronyOperationResponse) => 200;
-    }
-    from LegacyChronyOperationResponse => Ok;
-}
+pub type PutNtpLegacyResponses = LegacyOperationOkResponse;
 
 fn legacy_chrony_sources_response(
     operation: LegacyOperationResponse,
@@ -58,15 +41,6 @@ fn legacy_chrony_sources_response(
         sdcerr: operation.sdcerr,
         info_msg: operation.info_msg,
         sources,
-    }
-}
-
-fn legacy_chrony_operation_response(
-    operation: LegacyOperationResponse,
-) -> LegacyChronyOperationResponse {
-    LegacyChronyOperationResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
     }
 }
 
@@ -106,7 +80,7 @@ pub async fn get_ntp_legacy_with_command(Path(_command): Path<String>) -> GetNtp
     responses(PutNtpLegacyResponses)
 ))]
 pub async fn put_ntp_legacy_default(Json(_body): Json<LegacyChronyCommandRequest>) -> PutNtpLegacyResponses {
-    legacy_chrony_operation_response(fail_response("No command specified")).into()
+    fail_response("No command specified").into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -123,19 +97,19 @@ pub async fn put_ntp_legacy(
 ) -> PutNtpLegacyResponses {
 
     if ![ADD_SOURCE, REMOVE_SOURCE].contains(&command.as_str()) {
-        return legacy_chrony_operation_response(fail_response(format!(
+        return fail_response(format!(
             "supplied parameter 'command' value {} must be one of ['addSource', 'removeSource'], ",
             command
-        )))
+        ))
         .into();
     }
 
     match ChronyNTPService::configure_sources(&command, body.sources).await {
-        Ok(_) => legacy_chrony_operation_response(ok_response("")).into(),
-        Err(e) => legacy_chrony_operation_response(fail_response(format!(
+        Ok(_) => ok_response("").into(),
+        Err(e) => fail_response(format!(
             "Unable to update chrony sources - {}",
             e
-        )))
+        ))
         .into(),
     }
 }

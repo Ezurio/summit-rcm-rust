@@ -35,7 +35,7 @@ If you are checking the raw Cargo build products for the package, look under the
 Copy the rebuilt binary to the target and restart the service:
 
 ```bash
-scp output/<board>/per-package/summit-rcm-rust/target/usr/bin/summit-rcm \
+scp -O output/<board>/per-package/summit-rcm-rust/target/usr/bin/summit-rcm \
   root@<rust-target>:/usr/bin/summit-rcm
 
 ssh root@<rust-target> 'systemctl restart summit-rcm.service && systemctl --no-pager --full status summit-rcm.service | cat'
@@ -44,6 +44,7 @@ ssh root@<rust-target> 'systemctl restart summit-rcm.service && systemctl --no-p
 Notes:
 
 - Prefer `scp` over redirecting binary data through `ssh ... > file`.
+- Use `scp -O` so transfers work on targets that do not provide an SFTP subsystem.
 - If your lab setup uses password wrappers or `sshpass`, make sure host keys are already accepted.
 - If the service does not come back, check `journalctl -u summit-rcm.service` on the target.
 
@@ -103,6 +104,28 @@ The script:
 - creates temporary runtime files on both targets,
 - starts forwarded test instances on temporary local ports,
 - compares responses without depending on permanent target `/etc` state.
+
+For direct live target checks, use the deployed-service transport instead of SSH. Current WebLCM targets are legacy-only baselines, so always pass `--python-runtime weblcm` for them.
+
+```bash
+# Live legacy-only response parity against a WebLCM Python target
+python3 tests/parity/api_remote_parity.py responses \
+  --rust-ip <rust-target> \
+  --python-ip <python-target> \
+  --python-runtime weblcm
+
+# Live legacy websocket smoke parity against a WebLCM Python target
+python3 tests/parity/api_remote_parity.py websockets \
+  --rust-ip <rust-target> \
+  --python-ip <python-target> \
+  --python-runtime weblcm
+```
+
+Notes:
+
+- `--python-runtime weblcm` filters `/api/v2` response cases out of remote parity.
+- In `websockets` mode with `--python-runtime weblcm`, the harness probes only `/bluetoothWebsocket/ws`.
+- `websockets` mode currently supports direct deployed-service transport only.
 
 ## Serial / AT testing
 

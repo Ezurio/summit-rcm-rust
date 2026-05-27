@@ -41,16 +41,16 @@ pub mod wifi;
     ),
     components(
         schemas(
-            crate::plugins::network_manager::routes::v2::access_points::AccessPoint,
+            crate::plugins::network_manager::routes::shared::AccessPoint,
             crate::plugins::network_manager::routes::v2::access_points::AccessPointScanAge,
             crate::plugins::network_manager::routes::v2::access_points::AccessPointScanRequested,
             crate::plugins::network_manager::routes::v2::certificates::CertificateInfoRequest,
-            crate::plugins::network_manager::routes::v2::interfaces::DhcpLeasesResponse,
-            crate::plugins::network_manager::routes::v2::interfaces::Ipv4DhcpLease,
-            crate::plugins::network_manager::routes::v2::interfaces::Ipv6DhcpLease,
+            crate::plugins::network_manager::routes::shared::DhcpLeasesResponse,
+            crate::plugins::network_manager::routes::shared::Ipv4DhcpLease,
+            crate::plugins::network_manager::routes::shared::Ipv6DhcpLease,
             crate::plugins::network_manager::routes::shared::NetworkStatusResponse,
             crate::plugins::network_manager::routes::v2::wifi::WifiRequest,
-            crate::plugins::network_manager::routes::v2::wifi::WifiStatus
+            crate::plugins::network_manager::routes::shared::WifiStatus
         )
     )
 )]

@@ -8,11 +8,8 @@ use crate::plugins::unauthenticated::service::UnauthenticatedService;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetUnauthenticatedResponses {
-        Ok(AllowUnauthenticatedState) => 200;
-    }
-    from AllowUnauthenticatedState => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetUnauthenticatedResponses(AllowUnauthenticatedState);
 }
 
 type PutUnauthenticatedResponses = UnauthenticatedWriteResponses;

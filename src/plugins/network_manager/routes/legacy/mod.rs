@@ -21,6 +21,7 @@ pub mod network_status;
     crate::plugins::network_manager::routes::legacy::network::put_wifi_enable_legacy,
     crate::plugins::network_manager::routes::legacy::network::get_interface_legacy,
     crate::plugins::network_manager::routes::legacy::network::get_interfaces_legacy,
+    crate::plugins::network_manager::routes::legacy::network::get_interface_dhcp_leases_legacy,
     crate::plugins::network_manager::routes::legacy::network_status::get_network_status_legacy,
 ))]
 pub(crate) struct ApiDoc;

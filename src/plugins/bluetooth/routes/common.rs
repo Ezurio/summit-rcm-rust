@@ -206,7 +206,7 @@ pub struct BluetoothControllerModel {
 pub struct BluetoothStateResponse(pub BTreeMap<String, BluetoothControllerModel>);
 
 pub fn parse_bluetooth_state_response<T: Serialize>(value: T) -> Result<BluetoothStateResponse, serde_json::Error> {
-    serde_json::from_str(&serde_json::to_string(&value)?)
+    serde_json::from_value(serde_json::to_value(value)?)
 }
 
 pub fn parse_bluetooth_control_response<T: Serialize>(value: T) -> Result<BluetoothControlResponse, serde_json::Error> {
@@ -219,7 +219,7 @@ pub fn parse_bluetooth_control_response<T: Serialize>(value: T) -> Result<Blueto
 }
 
 pub fn parse_bluetooth_device_response<T: Serialize>(value: T) -> Result<BluetoothDeviceModel, serde_json::Error> {
-    serde_json::from_str(&serde_json::to_string(&value)?)
+    serde_json::from_value(serde_json::to_value(value)?)
 }
 
 impl BluetoothQuery {

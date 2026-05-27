@@ -3,19 +3,15 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::certificates::CertificatesService;
+use crate::certificates::{CertificateInfo, CertificatesService};
 use crate::plugins::files::FilesService;
-use crate::plugins::network_manager::routes::v2::certificates::CertificateInfo;
-use crate::web::legacy_response::SdcerrCode;
+use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use axum::extract::Query;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-crate::define_json_response_family! {
-    pub enum GetCertificatesLegacyResponses {
-        Ok(LegacyCertificateInfoResponse) => 200;
-    }
-    from LegacyCertificateInfoResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetCertificatesLegacyResponses(LegacyCertificateInfoResponse);
 }
 
 #[derive(Deserialize)]
@@ -35,10 +31,8 @@ pub enum LegacyCertificateInfoField {
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyCertificateInfoResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cert_info: Option<LegacyCertificateInfoField>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,28 +49,16 @@ pub struct LegacyCertificateInfoResponse {
 ))]
 pub async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> GetCertificatesLegacyResponses {
     if let Some(name) = q.name.as_deref().filter(|name| !name.is_empty()) {
-        return match CertificatesService::get_cert_info(name, q.password.as_deref()).await {
-            Ok(info) => match serde_json::from_value::<CertificateInfo>(info) {
-                Ok(cert_info) => LegacyCertificateInfoResponse {
-                    sdcerr: SdcerrCode::Success.as_i32(),
-                    info_msg: String::new(),
-                    cert_info: Some(LegacyCertificateInfoField::Detailed(cert_info)),
-                    files: None,
-                    count: None,
-                }
-                .into(),
-                Err(error) => LegacyCertificateInfoResponse {
-                    sdcerr: SdcerrCode::Fail.as_i32(),
-                    info_msg: format!("Invalid certificate info shape: {}", error),
-                    cert_info: None,
-                    files: None,
-                    count: None,
-                }
-                .into(),
-            },
+        return match CertificatesService::get_cert_info_model(name, q.password.as_deref()).await {
+            Ok(cert_info) => LegacyCertificateInfoResponse {
+                operation: ok_response(""),
+                cert_info: Some(LegacyCertificateInfoField::Detailed(cert_info)),
+                files: None,
+                count: None,
+            }
+            .into(),
             Err(error) => LegacyCertificateInfoResponse {
-                sdcerr: SdcerrCode::Fail.as_i32(),
-                info_msg: error.to_string(),
+                operation: fail_response(error.to_string()),
                 cert_info: if error.to_string().starts_with("Cannot find certificate with name ") {
                     Some(LegacyCertificateInfoField::Empty(BTreeMap::new()))
                 } else {
@@ -91,16 +73,14 @@ pub async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> G
 
     match FilesService::try_list_files("cert") {
         Ok(certs) => LegacyCertificateInfoResponse {
-            sdcerr: SdcerrCode::Success.as_i32(),
-            info_msg: "cert files".to_string(),
+            operation: ok_response("cert files"),
             cert_info: None,
             files: Some(certs.clone()),
             count: Some(certs.len()),
         }
         .into(),
         Err(_) => LegacyCertificateInfoResponse {
-            sdcerr: SdcerrCode::Fail.as_i32(),
-            info_msg: "Could not read certificate info".to_string(),
+            operation: fail_response("Could not read certificate info"),
             cert_info: None,
             files: None,
             count: None,

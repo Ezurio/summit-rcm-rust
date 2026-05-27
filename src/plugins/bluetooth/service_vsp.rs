@@ -9,11 +9,11 @@ use super::*;
 use log::debug;
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{tcp::OwnedWriteHalf, TcpListener},
-    sync::Mutex,
+    sync::mpsc,
     task::JoinHandle,
 };
 
@@ -21,8 +21,8 @@ const TCP_SOCKET_HOST: &str = "0.0.0.0";
 const DEFAULT_VSP_WRITE_SIZE: usize = 1;
 const MAX_VSP_RECV_LEN: usize = 512;
 
-static VSP_CONNECTIONS: LazyLock<Arc<Mutex<HashMap<String, VspConnectionHandle>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+static VSP_CONNECTIONS: LazyLock<StdMutex<HashMap<String, VspConnectionHandle>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum VspSocketRxType {
@@ -46,14 +46,14 @@ pub(super) struct VspConnectionState {
     pub(super) conn: Connection,
     pub(super) port: u16,
     pub(super) service_uuid: String,
-    pub(super) read_char_path: Mutex<String>,
+    pub(super) read_char_path: StdMutex<String>,
     read_char_uuid: String,
-    pub(super) write_char_path: Mutex<String>,
+    pub(super) write_char_path: StdMutex<String>,
     pub(super) write_char_uuid: String,
     pub(super) write_size: usize,
     pub(super) write_type: String,
     socket_rx_type: VspSocketRxType,
-    pub(super) writer: Mutex<Option<OwnedWriteHalf>>,
+    pub(super) writer_tx: StdMutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
 }
 
 impl VspConnectionState {
@@ -76,9 +76,20 @@ pub(super) struct VspConnectionHandle {
     pub(super) task: JoinHandle<()>,
 }
 
+async fn run_vsp_writer(
+    mut writer: OwnedWriteHalf,
+    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
+    while let Some(data) = rx.recv().await {
+        if writer.write_all(&data).await.is_err() {
+            break;
+        }
+    }
+}
+
 impl BluetoothService {
     pub(super) async fn list_vsp_connections() -> Vec<serde_json::Value> {
-        let guard = VSP_CONNECTIONS.lock().await;
+        let guard = VSP_CONNECTIONS.lock().unwrap();
         guard
             .iter()
             .map(|(device, handle)| {
@@ -91,7 +102,7 @@ impl BluetoothService {
     }
 
     pub(super) async fn active_vsp_state(device: &str) -> Option<Arc<VspConnectionState>> {
-        let guard = VSP_CONNECTIONS.lock().await;
+        let guard = VSP_CONNECTIONS.lock().unwrap();
         guard.get(device).map(|handle| handle.state.clone())
     }
 
@@ -104,13 +115,13 @@ impl BluetoothService {
     }
 
     pub(super) async fn write_vsp_bytes(state: &Arc<VspConnectionState>, data: &[u8]) {
-        let mut writer = state.writer.lock().await;
-        let Some(active_writer) = writer.as_mut() else {
+        let sender = state.writer_tx.lock().unwrap().clone();
+        let Some(sender) = sender else {
             return;
         };
 
-        if active_writer.write_all(data).await.is_err() {
-            *writer = None;
+        if sender.send(data.to_vec()).is_err() {
+            *state.writer_tx.lock().unwrap() = None;
         }
     }
 
@@ -133,14 +144,14 @@ impl BluetoothService {
             conn: conn.clone(),
             port,
             service_uuid,
-            read_char_path: Mutex::new(read_char_path),
+            read_char_path: StdMutex::new(read_char_path),
             read_char_uuid,
-            write_char_path: Mutex::new(write_char_path),
+            write_char_path: StdMutex::new(write_char_path),
             write_char_uuid,
             write_size,
             write_type,
             socket_rx_type,
-            writer: Mutex::new(None),
+            writer_tx: StdMutex::new(None),
         });
 
         let task_state = state.clone();
@@ -148,7 +159,7 @@ impl BluetoothService {
             Self::run_vsp_server(listener, task_state).await;
         });
 
-        let mut guard = VSP_CONNECTIONS.lock().await;
+        let mut guard = VSP_CONNECTIONS.lock().unwrap();
         guard.insert(
             device_address.to_string(),
             VspConnectionHandle { state, task },
@@ -158,7 +169,7 @@ impl BluetoothService {
 
     pub(super) async fn stop_vsp_connection(device_address: &str) -> anyhow::Result<bool> {
         let handle = {
-            let mut guard = VSP_CONNECTIONS.lock().await;
+            let mut guard = VSP_CONNECTIONS.lock().unwrap();
             guard.remove(device_address)
         };
 
@@ -166,7 +177,7 @@ impl BluetoothService {
             return Ok(false);
         };
 
-        let read_char_path = handle.state.read_char_path.lock().await.clone();
+        let read_char_path = handle.state.read_char_path.lock().unwrap().clone();
         let _ = Self::call_bluez_noargs(
             &handle.state.conn,
             read_char_path.as_str(),
@@ -188,8 +199,9 @@ impl BluetoothService {
 
             let (mut reader, writer) = stream.into_split();
             {
-                let mut active_writer = state.writer.lock().await;
-                *active_writer = Some(writer);
+                let (writer_tx, writer_rx) = mpsc::unbounded_channel();
+                *state.writer_tx.lock().unwrap() = Some(writer_tx);
+                tokio::spawn(run_vsp_writer(writer, writer_rx));
             }
 
             let mut pending = Vec::new();
@@ -218,8 +230,7 @@ impl BluetoothService {
                 }
             }
 
-            let mut active_writer = state.writer.lock().await;
-            *active_writer = None;
+            *state.writer_tx.lock().unwrap() = None;
         }
     }
 
@@ -227,18 +238,20 @@ impl BluetoothService {
         state: &Arc<VspConnectionState>,
         chunk: &[u8],
     ) -> anyhow::Result<()> {
-        let write_char_path = state.write_char_path.lock().await.clone();
+        let write_char_path = state.write_char_path.lock().unwrap().clone();
         let mut options = HashMap::<String, Value<'static>>::new();
         if !state.write_type.is_empty() {
             options.insert("type".to_string(), Value::from(state.write_type.as_str()));
         }
 
-        state.conn.call_method(
+        dbus::call_method(
+            &state.conn,
             Some(BLUEZ_SERVICE),
             write_char_path.as_str(),
             Some(GATT_CHR_IFACE),
             "WriteValue",
             &(chunk.to_vec(), options),
+            None,
         )
         .await?;
         Ok(())
@@ -269,11 +282,11 @@ impl BluetoothService {
         .ok_or_else(|| anyhow::anyhow!("no VSP write characteristic found for device {}", device_address))?;
 
         {
-            let mut active_read_path = state.read_char_path.lock().await;
+            let mut active_read_path = state.read_char_path.lock().unwrap();
             *active_read_path = read_char_path.clone();
         }
         {
-            let mut active_write_path = state.write_char_path.lock().await;
+            let mut active_write_path = state.write_char_path.lock().unwrap();
             *active_write_path = write_char_path;
         }
 

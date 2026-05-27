@@ -5,19 +5,19 @@
 //! Service for managing firmware updates via fw_update and the SWUpdate client API.
 
 use anyhow::{anyhow, Result};
-use parking_lot::Mutex;
-use crate::utils::command_output;
+use crate::utils::{command_output, get_boot_rootfs_info};
 use std::ffi::{c_void, CString};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::thread;
 use std::time::Duration;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::sync::Mutex as AsyncMutex;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use tokio::sync::mpsc;
 use log::{error, warn};
 
 const FW_UPDATE_SCRIPT: &str = "fw_update";
@@ -156,6 +156,12 @@ pub enum SummitRcmUpdateStatus {
     Updating = 5,
 }
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+enum FirmwareUpdatePipeMessage {
+    Data(Vec<u8>),
+    Finish,
+}
+
 pub struct FirmwareUpdateService {
     pub status: SummitRcmUpdateStatus,
     /// File descriptor for swclient pipe (non-SD-card updates). -1 when no update in progress.
@@ -165,7 +171,7 @@ pub struct FirmwareUpdateService {
     pub update_in_progress: bool,
     pub msg_fd: i32,
     pub status_note: Option<String>,
-    fw_update_pipe_stdin: Option<std::sync::Arc<AsyncMutex<tokio::process::ChildStdin>>>,
+    fw_update_pipe_tx: Option<mpsc::UnboundedSender<FirmwareUpdatePipeMessage>>,
 }
 
 static INSTANCE: LazyLock<Mutex<FirmwareUpdateService>> = LazyLock::new(|| {
@@ -177,9 +183,29 @@ static INSTANCE: LazyLock<Mutex<FirmwareUpdateService>> = LazyLock::new(|| {
         update_in_progress: false,
         msg_fd: -1,
         status_note: None,
-        fw_update_pipe_stdin: None,
+        fw_update_pipe_tx: None,
     })
 });
+
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+async fn run_fw_update_pipe_writer(
+    mut stdin: tokio::process::ChildStdin,
+    mut rx: mpsc::UnboundedReceiver<FirmwareUpdatePipeMessage>,
+) {
+    while let Some(message) = rx.recv().await {
+        match message {
+            FirmwareUpdatePipeMessage::Data(data) => {
+                if stdin.write_all(&data).await.is_err() {
+                    break;
+                }
+            }
+            FirmwareUpdatePipeMessage::Finish => break,
+        }
+    }
+
+    let _ = stdin.flush().await;
+    let _ = stdin.shutdown().await;
+}
 
 impl FirmwareUpdateService {
     pub fn instance() -> &'static Mutex<FirmwareUpdateService> {
@@ -204,14 +230,14 @@ impl FirmwareUpdateService {
     }
 
     pub async fn start_update(url: &str, image: &str) -> Result<()> {
-        let (running_on_sd, current_side) = match crate::plugins::system::version_service::get_boot_rootfs_info().await {
+        let (running_on_sd, current_side) = match get_boot_rootfs_info().await {
             Ok(info) if info.is_running_on_sd() => (true, None),
             Ok(info) => (false, info.current_side_option().map(str::to_string)),
             Err(_) => (false, None),
         };
 
         let (prepared_url, prepared_image, running_mode) = {
-            let mut service = Self::instance().lock();
+            let mut service = Self::instance().lock().unwrap();
             service.status_note = None;
             if !url.is_empty() {
                 service.url = url.to_string();
@@ -253,7 +279,7 @@ impl FirmwareUpdateService {
                         "libswupdate unavailable, continuing without SWUpdate progress IPC: {}",
                         error
                     );
-                    Self::instance().lock().status_note = Some(
+                    Self::instance().lock().unwrap().status_note = Some(
                         "host mode: SWUpdate progress tracking unavailable because libswupdate is missing"
                             .to_string(),
                     );
@@ -263,7 +289,7 @@ impl FirmwareUpdateService {
 
             if let Some(api) = api {
                 msg_fd = {
-                    let mut service = Self::instance().lock();
+                    let mut service = Self::instance().lock().unwrap();
                     service.open_ipc_locked(api)?
                 };
             }
@@ -289,9 +315,11 @@ impl FirmwareUpdateService {
                 .ok_or_else(|| anyhow!("failed to open fw_update stdin"))?;
 
             {
-                let mut service = Self::instance().lock();
-                service.fw_update_pipe_stdin = Some(std::sync::Arc::new(AsyncMutex::new(stdin)));
+                let (tx, rx) = mpsc::unbounded_channel();
+                let mut service = Self::instance().lock().unwrap();
+                service.fw_update_pipe_tx = Some(tx);
                 service.url = "pipe://stdin".to_string();
+                tokio::spawn(run_fw_update_pipe_writer(stdin, rx));
             }
 
             tokio::spawn(async move {
@@ -299,7 +327,7 @@ impl FirmwareUpdateService {
                     Ok(output) if output.status.success() => {}
                     Ok(output) => {
                         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                        let mut service = FirmwareUpdateService::instance().lock();
+                        let mut service = FirmwareUpdateService::instance().lock().unwrap();
                         if service.update_in_progress {
                             error!("fw_update pipe mode failed: {}", stderr);
                             service.status = SummitRcmUpdateStatus::Fail;
@@ -309,7 +337,7 @@ impl FirmwareUpdateService {
                         }
                     }
                     Err(err) => {
-                        let mut service = FirmwareUpdateService::instance().lock();
+                        let mut service = FirmwareUpdateService::instance().lock().unwrap();
                         if service.update_in_progress {
                             error!("fw_update pipe mode wait failed: {}", err);
                             service.status = SummitRcmUpdateStatus::Fail;
@@ -323,7 +351,7 @@ impl FirmwareUpdateService {
         } else if actual_url.is_empty() {
             let api = swupdate_api()?;
             msg_fd = {
-                let mut service = Self::instance().lock();
+                let mut service = Self::instance().lock().unwrap();
                 service.open_ipc_locked(api)?
             };
 
@@ -343,11 +371,11 @@ impl FirmwareUpdateService {
                 )
             };
             if fd <= 0 {
-                let mut service = Self::instance().lock();
+                let mut service = Self::instance().lock().unwrap();
                 service.url.clear();
                 service.image.clear();
                 service.status_note = None;
-                service.fw_update_pipe_stdin = None;
+                service.fw_update_pipe_tx = None;
                 service.close_ipc_locked(api);
                 return Err(anyhow!("error preparing for update: {}", fd));
             }
@@ -360,7 +388,7 @@ impl FirmwareUpdateService {
                         "libswupdate unavailable, continuing without SWUpdate progress IPC: {}",
                         error
                     );
-                    Self::instance().lock().status_note = Some(
+                    Self::instance().lock().unwrap().status_note = Some(
                         "host mode: SWUpdate progress tracking unavailable because libswupdate is missing"
                             .to_string(),
                     );
@@ -370,7 +398,7 @@ impl FirmwareUpdateService {
 
             if let Some(api) = api {
                 msg_fd = {
-                    let mut service = Self::instance().lock();
+                    let mut service = Self::instance().lock().unwrap();
                     service.open_ipc_locked(api)?
                 };
             }
@@ -390,20 +418,20 @@ impl FirmwareUpdateService {
             if !output.status.success() {
                 let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 if let Some(api) = api {
-                    let mut service = Self::instance().lock();
+                    let mut service = Self::instance().lock().unwrap();
                     service.close_ipc_locked(api);
                 }
-                let mut service = Self::instance().lock();
+                let mut service = Self::instance().lock().unwrap();
                 service.url.clear();
                 service.image.clear();
                 service.status_note = None;
-                service.fw_update_pipe_stdin = None;
+                service.fw_update_pipe_tx = None;
                 error!("start_update failed: {}", msg);
                 return Err(anyhow!(msg));
             }
         }
 
-        let mut service = Self::instance().lock();
+        let mut service = Self::instance().lock().unwrap();
         service.status = SummitRcmUpdateStatus::Updating;
         service.update_in_progress = true;
         service.msg_fd = msg_fd;
@@ -426,13 +454,13 @@ impl FirmwareUpdateService {
     pub fn cancel() {
         match swupdate_api() {
             Ok(api) => {
-                let mut service = Self::instance().lock();
+                let mut service = Self::instance().lock().unwrap();
                 service.status = SummitRcmUpdateStatus::NotUpdating;
                 service.stop_progress_monitor_locked(api);
             }
             Err(error) => {
                 warn!("cancel_update: {}", error);
-                let mut service = Self::instance().lock();
+                let mut service = Self::instance().lock().unwrap();
                 service.status = SummitRcmUpdateStatus::NotUpdating;
                 service.update_in_progress = false;
                 service.url.clear();
@@ -440,7 +468,7 @@ impl FirmwareUpdateService {
                 service.swclient_fd = -1;
                 service.msg_fd = -1;
                 service.status_note = None;
-                service.fw_update_pipe_stdin = None;
+                service.fw_update_pipe_tx = None;
             }
         }
     }
@@ -456,14 +484,15 @@ impl FirmwareUpdateService {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn handle_update_stream(data: &[u8]) -> Result<()> {
-        let (fw_pipe, fd) = {
-            let service = Self::instance().lock();
-            (service.fw_update_pipe_stdin.clone(), service.swclient_fd)
+        let (fw_pipe_tx, fd) = {
+            let service = Self::instance().lock().unwrap();
+            (service.fw_update_pipe_tx.clone(), service.swclient_fd)
         };
 
-        if let Some(fw_pipe) = fw_pipe {
-            let mut stdin = fw_pipe.lock().await;
-            stdin.write_all(data).await?;
+        if let Some(fw_pipe_tx) = fw_pipe_tx {
+            fw_pipe_tx
+                .send(FirmwareUpdatePipeMessage::Data(data.to_vec()))
+                .map_err(|_| anyhow!("no update in progress"))?;
             return Ok(());
         }
 
@@ -482,15 +511,15 @@ impl FirmwareUpdateService {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn finish_update_stream() -> Result<()> {
-        let fw_pipe = {
-            let mut service = Self::instance().lock();
-            service.fw_update_pipe_stdin.take()
+        let fw_pipe_tx = {
+            let mut service = Self::instance().lock().unwrap();
+            service.fw_update_pipe_tx.take()
         };
 
-        if let Some(fw_pipe) = fw_pipe {
-            let mut stdin = fw_pipe.lock().await;
-            stdin.flush().await?;
-            stdin.shutdown().await?;
+        if let Some(fw_pipe_tx) = fw_pipe_tx {
+            fw_pipe_tx
+                .send(FirmwareUpdatePipeMessage::Finish)
+                .map_err(|_| anyhow!("no update in progress"))?;
         }
 
         Ok(())
@@ -509,7 +538,7 @@ impl FirmwareUpdateService {
                 Ok(api) => api,
                 Err(error) => {
                     error!("swupdate progress monitor unavailable: {}", error);
-                    let mut service = FirmwareUpdateService::instance().lock();
+                    let mut service = FirmwareUpdateService::instance().lock().unwrap();
                     service.status = SummitRcmUpdateStatus::Fail;
                     service.update_in_progress = false;
                     return;
@@ -520,7 +549,7 @@ impl FirmwareUpdateService {
 
             loop {
                 {
-                    let service = FirmwareUpdateService::instance().lock();
+                    let service = FirmwareUpdateService::instance().lock().unwrap();
                     if !service.update_in_progress || service.msg_fd < 0 {
                         break;
                     }
@@ -537,7 +566,7 @@ impl FirmwareUpdateService {
                     }
                     match message.status {
                         SWUPDATE_STATUS_SUCCESS | SWUPDATE_STATUS_FAILURE => {
-                            let mut service = FirmwareUpdateService::instance().lock();
+                            let mut service = FirmwareUpdateService::instance().lock().unwrap();
                             service.status = if message.status == SWUPDATE_STATUS_SUCCESS {
                                 SummitRcmUpdateStatus::Updated
                             } else {
@@ -562,7 +591,7 @@ impl FirmwareUpdateService {
                 } else {
                     warn!("SWUpdate progress IPC receive failed: {}", rc);
                     let reopened = {
-                        let mut service = FirmwareUpdateService::instance().lock();
+                        let mut service = FirmwareUpdateService::instance().lock().unwrap();
                         service.close_ipc_locked(api);
                         match service.open_ipc_locked(api) {
                             Ok(new_fd) => {
@@ -597,7 +626,7 @@ impl FirmwareUpdateService {
         self.url.clear();
         self.image.clear();
         self.status_note = None;
-        self.fw_update_pipe_stdin = None;
+        self.fw_update_pipe_tx = None;
     }
 
     fn close_ipc_locked(&mut self, api: &SwupdateApi) {

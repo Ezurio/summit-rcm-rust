@@ -10,46 +10,26 @@ use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-crate::define_json_response_family! {
-    pub enum LegacyOperationResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
+pub type LegacyOperationResponses = crate::web::legacy_response::LegacyOperationOkResponse;
+
+crate::define_ok_json_response_family! {
+    pub enum LegacyAvailableApChannelsResponses(LegacyAvailableApChannelsResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum LegacyAvailableApChannelsResponses {
-        Ok(LegacyAvailableApChannelsResponse) => 200;
-    }
-    from LegacyAvailableApChannelsResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum LegacyInterfaceStatisticsResponses(LegacyInterfaceStatisticsResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum LegacyInterfaceStatisticsResponses {
-        Ok(LegacyInterfaceStatisticsResponse) => 200;
-    }
-    from LegacyInterfaceStatisticsResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum LegacyInterfaceDriverInfoResponses(LegacyInterfaceDriverInfoResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum LegacyInterfaceDriverInfoResponses {
-        Ok(LegacyInterfaceDriverInfoResponse) => 200;
-    }
-    from LegacyInterfaceDriverInfoResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum LegacyStationDumpResponses(LegacyStationDumpResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum LegacyStationDumpResponses {
-        Ok(LegacyStationDumpResponse) => 200;
-    }
-    from LegacyStationDumpResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum LegacySummitStatusResponses {
-        Ok(LegacySummitStatusResponse) => 200;
-    }
-    from LegacySummitStatusResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum LegacySummitStatusResponses(LegacySummitStatusResponse);
 }
 
 #[derive(Deserialize)]
@@ -74,10 +54,8 @@ pub struct InterfaceAddBody {
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyAvailableApChannelsResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub channels: Vec<AvailableApChannel>,
 }
 
@@ -98,20 +76,16 @@ pub struct LegacyInterfaceStats {
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyInterfaceStatisticsResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub statistics: LegacyInterfaceStats,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyInterfaceDriverInfoResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "driverInfo")]
     pub driver_info: InterfaceDriverInfo,
 }
@@ -119,20 +93,16 @@ pub struct LegacyInterfaceDriverInfoResponse {
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyStationDumpResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub stations: BTreeMap<String, Station>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacySummitStatusResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub last: String,
     pub best: String,
 }
@@ -142,8 +112,7 @@ fn available_ap_channels_response(
     channels: Vec<AvailableApChannel>,
 ) -> LegacyAvailableApChannelsResponse {
     LegacyAvailableApChannelsResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         channels,
     }
 }
@@ -153,8 +122,7 @@ fn interface_statistics_response(
     statistics: LegacyInterfaceStats,
 ) -> LegacyInterfaceStatisticsResponse {
     LegacyInterfaceStatisticsResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         statistics,
     }
 }
@@ -180,8 +148,7 @@ fn interface_driver_info_response(
     driver_info: InterfaceDriverInfo,
 ) -> LegacyInterfaceDriverInfoResponse {
     LegacyInterfaceDriverInfoResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         driver_info,
     }
 }
@@ -191,8 +158,7 @@ fn station_dump_response(
     stations: BTreeMap<String, Station>,
 ) -> LegacyStationDumpResponse {
     LegacyStationDumpResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         stations,
     }
 }
@@ -203,8 +169,7 @@ fn summit_status_response(
     best: String,
 ) -> LegacySummitStatusResponse {
     LegacySummitStatusResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         last,
         best,
     }

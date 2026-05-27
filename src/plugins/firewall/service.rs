@@ -5,8 +5,7 @@
 //! iptables-based firewall port forwarding service
 
 use crate::utils::command_output;
-use parking_lot::Mutex;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use serde::{Deserialize, Serialize};
 use log::error;
 
@@ -55,11 +54,11 @@ pub struct FirewallService;
 
 impl FirewallService {
     pub fn get_forwarded_ports() -> Vec<ForwardedPort> {
-        FORWARDED_PORTS.lock().clone()
+        FORWARDED_PORTS.lock().unwrap().clone()
     }
 
     pub fn port_is_present(port: &ForwardedPort) -> bool {
-        FORWARDED_PORTS.lock().contains(port)
+        FORWARDED_PORTS.lock().unwrap().contains(port)
     }
 
     pub async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
@@ -115,7 +114,7 @@ impl FirewallService {
             Err(e) => { return (false, e.to_string()); }
         }
 
-        let mut ports = FORWARDED_PORTS.lock();
+        let mut ports = FORWARDED_PORTS.lock().unwrap();
         if command == ADD_PORT {
             ports.push(fp);
         } else {

@@ -8,59 +8,20 @@
 //! GET  /api/v2/network/accessPoints/scan
 //! PUT  /api/v2/network/accessPoints/scan
 
+use crate::plugins::network_manager::routes::shared::AccessPoint;
 use crate::plugins::network_manager::service::NetworkService;
 use serde::{Deserialize, Serialize};
 
-crate::define_json_response_family! {
-    pub enum ListAccessPointsResponses {
-        Ok(Vec<AccessPoint>) => 200;
-        InternalError => 500
-    }
-    from Vec<AccessPoint> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum ListAccessPointsResponses(Vec<AccessPoint>);
 }
 
-crate::define_json_response_family! {
-    pub enum AccessPointScanAgeResponses {
-        Ok(AccessPointScanAge) => 200;
-        InternalError => 500
-    }
-    from AccessPointScanAge => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum AccessPointScanAgeResponses(AccessPointScanAge);
 }
 
-crate::define_json_response_family! {
-    pub enum AccessPointScanRequestedResponses {
-        Ok(AccessPointScanRequested) => 200;
-        InternalError => 500
-    }
-    from AccessPointScanRequested => Ok;
-}
-
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct AccessPoint {
-    #[cfg_attr(feature = "api-docs", schema(value_type = String))]
-    pub ssid: Option<String>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = String))]
-    pub hw_address: Option<String>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub strength: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub max_bitrate: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub frequency: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub flags: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub wpa_flags: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub rsn_flags: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = i32))]
-    pub last_seen: Option<i32>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = String))]
-    pub security: Option<String>,
-    #[cfg_attr(feature = "api-docs", schema(value_type = String))]
-    pub keymgmt: Option<String>,
+crate::define_ok_internal_json_response_family! {
+    pub enum AccessPointScanRequestedResponses(AccessPointScanRequested);
 }
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -84,10 +45,7 @@ pub struct AccessPointScanRequested {
     responses(ListAccessPointsResponses)
 ))]
 pub async fn list_access_points() -> ListAccessPointsResponses {
-    match NetworkService::get_access_points(None)
-        .await
-        .and_then(|value| serde_json::from_value::<Vec<AccessPoint>>(value).map_err(Into::into))
-    {
+    match NetworkService::get_access_points_model(None).await {
         Ok(value) => value.into(),
         Err(error) => {
             log::error!("list_access_points: {}", error);

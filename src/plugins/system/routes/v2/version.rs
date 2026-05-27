@@ -7,12 +7,8 @@
 use crate::plugins::system::{version_service::VersionInfo, VersionService};
 use log::error;
 
-crate::define_json_response_family! {
-    pub enum GetVersionResponses {
-        Ok(VersionInfo) => 200;
-        InternalError => 500
-    }
-    from VersionInfo => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetVersionResponses(VersionInfo);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(

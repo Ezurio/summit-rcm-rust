@@ -14,13 +14,8 @@ use axum::extract::Path;
 use std::collections::BTreeMap;
 use log::error;
 
-crate::define_json_response_family! {
-    pub enum PutInterfaceResponses {
-        Ok(VirtualInterfaceResponse) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from VirtualInterfaceResponse => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum PutInterfaceResponses(VirtualInterfaceResponse);
 }
 
 crate::define_status_response_family! {
@@ -32,46 +27,24 @@ crate::define_status_response_family! {
     }
 }
 
-crate::define_json_response_family! {
-    pub enum GetInterfaceStatsResponses {
-        Ok(InterfaceStats) => 200;
-        InternalError => 500
-    }
-    from InterfaceStats => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetInterfaceStatsResponses(InterfaceStats);
 }
 
-crate::define_json_response_family! {
-    pub enum GetInterfaceDriverInfoResponses {
-        Ok(InterfaceDriverInfo) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from InterfaceDriverInfo => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum GetInterfaceDriverInfoResponses(InterfaceDriverInfo);
 }
 
-crate::define_json_response_family! {
-    pub enum GetInterfaceAvailableApChannelsResponses {
-        Ok(Vec<AvailableApChannel>) => 200;
-        InternalError => 500
-    }
-    from Vec<AvailableApChannel> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetInterfaceAvailableApChannelsResponses(Vec<AvailableApChannel>);
 }
 
-crate::define_json_response_family! {
-    pub enum GetStationDumpResponses {
-        Ok(BTreeMap<String, Station>) => 200;
-        InternalError => 500
-    }
-    from BTreeMap<String, Station> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum GetStationDumpResponses(BTreeMap<String, Station>);
 }
 
-crate::define_json_response_family! {
-    pub enum GetInterfaceSummitStatusResponses {
-        Ok(SummitStatus) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from SummitStatus => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum GetInterfaceSummitStatusResponses(SummitStatus);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(

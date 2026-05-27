@@ -6,13 +6,11 @@
 
 use crate::config::SystemSettingsManage;
 use crate::plugins::logs::{CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalctlLogType, SupplicantLogLevel};
-use crate::plugins::network::service::wifi_driver_debug_param;
-use crate::utils::command_output;
+use crate::plugins::network::service::NetworkService;
 use anyhow::Result;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use time::format_description::FormatItem;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
@@ -37,17 +35,6 @@ pub struct JournalLogEntry {
 }
 
 impl LogsService {
-    async fn run_wpa_cli_log_level(args: &[&str]) -> Result<String> {
-        let output = command_output("wpa_cli", args).await?;
-        if !output.status.success() {
-            anyhow::bail!(
-                "wpa_cli log_level failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    }
-
     // ------------------------------------------------------------------ journal
 
     fn local_offset() -> UtcOffset {
@@ -98,9 +85,12 @@ impl LogsService {
             anyhow::bail!("Priority must be an int between 0-7");
         }
 
+        let max_entries = SystemSettingsManage::get_int("log_data_streaming_size", 100).max(1) as usize;
+
         let mut cmd = Command::new("journalctl");
         cmd.arg(format!("--priority={priority}"))
-            .arg("--output=json");
+            .arg("--output=json")
+            .arg(format!("--lines={max_entries}"));
 
         if let Some(identifier) = Self::journalctl_identifier(log_type) {
             cmd.arg(format!("--identifier={identifier}"));
@@ -122,10 +112,11 @@ impl LogsService {
         }
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let mut logs = Vec::with_capacity(
-            (SystemSettingsManage::get_int("log_data_streaming_size", 100) as usize).min(32),
-        );
+        let mut logs = Vec::with_capacity(max_entries.min(32));
         for line in stdout_str.lines() {
+            if logs.len() >= max_entries {
+                break;
+            }
             if line.trim().is_empty() {
                 break;
             }
@@ -160,13 +151,8 @@ impl LogsService {
     // ---------------------------------------------------------------- supplicant
 
     pub async fn try_get_supplicant_debug_level() -> Result<SupplicantLogLevel> {
-        let text = Self::run_wpa_cli_log_level(&["log_level"]).await?;
-        for line in text.to_lowercase().lines() {
-            if let Ok(level) = SupplicantLogLevel::from_str(line.trim()) {
-                return Ok(level);
-            }
-        }
-        anyhow::bail!("Unable to determine supplicant debug level")
+        let value = NetworkService::get_supplicant_debug_level().await?;
+        SupplicantLogLevel::from_str(value.trim()).map_err(anyhow::Error::msg)
     }
 
     #[cfg(any(feature = "api-v2", feature = "at-interface"))]
@@ -178,20 +164,15 @@ impl LogsService {
 
     pub async fn set_supplicant_debug_level(level: SupplicantLogLevel) -> Result<()> {
         let level_str = format!("{:?}", level).to_lowercase();
-        let _ = Self::run_wpa_cli_log_level(&["log_level", level_str.as_str()]).await?;
-        Ok(())
+        NetworkService::set_supplicant_debug_level(&level_str).await
     }
 
     // -------------------------------------------------------------- Wi-Fi driver
 
     pub fn try_get_wifi_driver_debug_level() -> Result<DriverLogLevel> {
-        let path = wifi_driver_debug_param();
-        let value = std::fs::read_to_string(path)?;
-        let parsed = value.trim().parse::<u8>()?;
-        Ok(if parsed == 0 {
-            DriverLogLevel::Disabled
-        } else {
-            DriverLogLevel::Enabled
+        Ok(match NetworkService::get_wifi_driver_debug_level()? {
+            0 => DriverLogLevel::Disabled,
+            _ => DriverLogLevel::Enabled,
         })
     }
 
@@ -201,24 +182,22 @@ impl LogsService {
     }
 
     pub fn set_wifi_driver_debug_level(level: DriverLogLevel) {
-        let path = wifi_driver_debug_param();
-        let val = match level {
-            DriverLogLevel::Disabled => "0",
-            DriverLogLevel::Enabled => "1",
+        let value = match level {
+            DriverLogLevel::Disabled => 0,
+            DriverLogLevel::Enabled => 1,
         };
-        if let Err(e) = std::fs::write(path, val) {
-            error!("Failed to set Wi-Fi driver debug level: {}", e);
+        if let Err(error) = NetworkService::set_wifi_driver_debug_level(value) {
+            error!("Failed to set Wi-Fi driver debug level: {}", error);
         }
     }
 
     // ------------------------------------------------------------ webserver log
 
     pub fn get_webserver_log_level() -> String {
-        WEBSERVER_LOG_LEVEL.lock().clone()
+        WEBSERVER_LOG_LEVEL.lock().unwrap().clone()
     }
 
     pub fn set_webserver_log_level(level: &str) {
-        *WEBSERVER_LOG_LEVEL.lock() = level.to_string();
-        // Logger reconfiguration is not applied live; callers must restart to pick up changes.
+        *WEBSERVER_LOG_LEVEL.lock().unwrap() = level.to_string();
     }
 }

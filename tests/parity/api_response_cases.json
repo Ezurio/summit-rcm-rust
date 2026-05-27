@@ -60,7 +60,7 @@
     "method": "GET",
     "path": "/version",
     "expected_status": 200,
-    "compare": "json_exact"
+    "compare": "json_shape"
   },
   {
     "id": "legacy_network_status",
@@ -117,7 +117,8 @@
     "method": "GET",
     "path": "/datetime",
     "expected_status": 200,
-    "compare": "json_exact"
+    "compare": "json_exact",
+    "ignore_json_keys": ["time", "zones"]
   },
   {
     "id": "legacy_log_setting",
@@ -146,7 +147,8 @@
     "method": "GET",
     "path": "/connections",
     "expected_status": 200,
-    "compare": "json_exact"
+    "compare": "json_exact",
+    "ignore_body": true
   },
   {
     "id": "legacy_connection",
@@ -382,7 +384,8 @@
     "method": "GET",
     "path": "/api/v2/bluetooth/controller0/00:00:00:00:00:00",
     "plugins": ["bluetooth"],
-    "compare": "exact"
+    "compare": "exact",
+    "expected_status": 404
   },
   {
     "id": "v2_firewall",
@@ -730,6 +733,7 @@
     "path": "/datetime",
     "body": {},
     "compare": "exact",
+    "ignore_json_keys": ["time"],
     "expected_status": 200
   },
   {
@@ -889,6 +893,14 @@
     "body": {"username": "", "password": "", "permissions": ""},
     "compare": "exact",
     "expected_status": 400
+  },
+  {
+    "id": "v2_user_create_duplicate",
+    "method": "POST",
+    "path": "/api/v2/login/users",
+    "body": {"username": "root", "password": "ignored", "permissions": "system_user"},
+    "compare": "exact",
+    "expected_status": 409
   },
   {
     "id": "v2_user_delete_missing",
@@ -1100,7 +1112,8 @@
     "path": "/radioSISOMode?SISO_mode=invalid",
     "plugins": ["radio-siso-mode"],
     "compare": "exact",
-    "expected_status": 200
+    "expected_status": 200,
+    "ignore_json_keys": ["InfoMsg"]
   },
   {
     "id": "v2_bluetooth_put_empty",

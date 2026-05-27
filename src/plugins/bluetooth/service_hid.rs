@@ -12,14 +12,14 @@ use std::{
     os::unix::fs::OpenOptionsExt,
     pin::Pin,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
+    sync::{Arc, LazyLock, Mutex as StdMutex},
 };
 
 use futures_util::StreamExt;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, Interest, unix::AsyncFd},
     net::{TcpListener, tcp::{OwnedReadHalf, OwnedWriteHalf}},
-    sync::Mutex,
+    sync::mpsc,
     task::JoinHandle,
 };
 use tokio_udev::{AsyncMonitorSocket, EventType, MonitorBuilder};
@@ -153,8 +153,8 @@ const HID_UPPERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
     Some('?'),
 ];
 
-static HID_CONNECTIONS: LazyLock<Arc<Mutex<StdHashMap<String, HidConnectionHandle>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(StdHashMap::new())));
+static HID_CONNECTIONS: LazyLock<StdMutex<StdHashMap<String, HidConnectionHandle>>> =
+    LazyLock::new(|| StdMutex::new(StdHashMap::new()));
 
 pub(super) async fn handle_hid_command(
     _objects: &ManagedObjects,
@@ -174,13 +174,24 @@ pub(super) async fn handle_hid_command(
 struct HidSharedState {
     device_uuid: String,
     port: u16,
-    writer: Mutex<Option<OwnedWriteHalf>>,
-    active_device_node: Mutex<Option<PathBuf>>,
+    writer_tx: StdMutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
+    active_device_node: StdMutex<Option<PathBuf>>,
 }
 
 struct HidConnectionHandle {
     state: Arc<HidSharedState>,
     connection_task: JoinHandle<()>,
+}
+
+async fn run_hid_writer(
+    mut writer: OwnedWriteHalf,
+    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
+    while let Some(payload) = rx.recv().await {
+        if writer.write_all(&payload).await.is_err() {
+            break;
+        }
+    }
 }
 
 type ReaderFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -204,8 +215,8 @@ impl HidSharedState {
         Arc::new(Self {
             device_uuid,
             port,
-            writer: Mutex::new(None),
-            active_device_node: Mutex::new(None),
+            writer_tx: StdMutex::new(None),
+            active_device_node: StdMutex::new(None),
         })
     }
 
@@ -218,16 +229,16 @@ impl HidSharedState {
     }
 
     async fn try_send(&self, payload: &[u8]) {
-        let mut guard = self.writer.lock().await;
-        if let Some(writer) = guard.as_mut() {
-            if writer.write_all(payload).await.is_err() {
-                *guard = None;
+        let sender = self.writer_tx.lock().unwrap().clone();
+        if let Some(sender) = sender {
+            if sender.send(payload.to_vec()).is_err() {
+                *self.writer_tx.lock().unwrap() = None;
             }
         }
     }
 
     async fn close_tcp_connection(&self) {
-        *self.writer.lock().await = None;
+        *self.writer_tx.lock().unwrap() = None;
     }
 
     async fn send_connected_state(&self, connected: bool) {
@@ -277,7 +288,7 @@ impl HidRawReader {
 }
 
 async fn handle_hid_list() -> anyhow::Result<serde_json::Value> {
-    let guard = HID_CONNECTIONS.lock().await;
+    let guard = HID_CONNECTIONS.lock().unwrap();
     let connections = guard
         .iter()
         .map(|(device, handle)| serde_json::json!({ "device": device, "port": handle.state.port }))
@@ -308,7 +319,7 @@ async fn handle_hid_connect(
     }
 
     {
-        let guard = HID_CONNECTIONS.lock().await;
+        let guard = HID_CONNECTIONS.lock().unwrap();
         if let Some(existing) = guard.get(&device_uuid) {
             return Ok(legacy_fail_value(format!(
                 "device {} already has hid connection on port {}",
@@ -355,7 +366,7 @@ async fn handle_hid_connect(
 
     HID_CONNECTIONS
         .lock()
-        .await
+        .unwrap()
         .insert(
             device_uuid,
             HidConnectionHandle {
@@ -372,7 +383,7 @@ async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<serde_jso
         .ok_or_else(|| anyhow::anyhow!("device address not specified"))?
         .to_ascii_uppercase();
 
-    let handle = { HID_CONNECTIONS.lock().await.remove(&device_uuid) };
+    let handle = { HID_CONNECTIONS.lock().unwrap().remove(&device_uuid) };
 
     let Some(handle) = handle else {
         return Ok(legacy_fail_value(format!(
@@ -414,7 +425,9 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
                 };
 
                 let (reader, writer) = stream.into_split();
-                *state.writer.lock().await = Some(writer);
+                let (writer_tx, writer_rx) = mpsc::unbounded_channel();
+                *state.writer_tx.lock().unwrap() = Some(writer_tx);
+                tokio::spawn(run_hid_writer(writer, writer_rx));
                 tcp_reader = Some(reader);
             }
             read_result = async {
@@ -441,7 +454,7 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
                         reader_state = Some(start_reader_state(state.clone(), devnode, true).await);
                     }
                     Some(MonitorAction::Remove(devnode)) => {
-                        let active = state.active_device_node.lock().await.clone();
+                        let active = state.active_device_node.lock().unwrap().clone();
                         if active.as_deref() == Some(devnode.as_path()) {
                             state.send_connected_state(false).await;
                         }
@@ -460,7 +473,7 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
                 let reader_state = reader_state
                     .take()
                     .expect("reader branch should only complete with an active reader");
-                let mut active = state.active_device_node.lock().await;
+                let mut active = state.active_device_node.lock().unwrap();
                 if active.as_deref() == Some(reader_state.devnode.as_path()) {
                     *active = None;
                 }
@@ -502,7 +515,7 @@ async fn start_reader_state(
     devnode: PathBuf,
     send_connected: bool,
 ) -> ReaderState {
-    *state.active_device_node.lock().await = Some(devnode.clone());
+    *state.active_device_node.lock().unwrap() = Some(devnode.clone());
     ReaderState {
         devnode: devnode.clone(),
         future: Box::pin(async move {

@@ -3,8 +3,11 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use crate::systemd_unit::SYSTEMD_UNIT_VALID_CONFIG_STATES;
+#[cfg(feature = "api-legacy")]
+use crate::web::legacy_response::{fail_response, SdcerrCode};
 
 crate::define_status_response_family! {
     pub enum StateValidationError {
@@ -37,6 +40,42 @@ pub struct StateResponse {
     pub state: ServiceState,
 }
 
+crate::define_json_response_family! {
+    pub enum GetStateResponses {
+        Ok(StateResponse) => 200;
+        Timeout => 504,
+        InternalError => 500
+    }
+    from StateResponse => Ok;
+}
+
+#[cfg(feature = "api-legacy")]
+#[derive(Serialize)]
+#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
+pub struct LegacyStateResponse {
+    #[serde(rename = "SDCERR")]
+    pub sdcerr: i32,
+    #[serde(rename = "InfoMsg")]
+    pub info_msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+
+#[cfg(feature = "api-legacy")]
+crate::define_ok_json_response_family! {
+    pub enum LegacyStateResponses(LegacyStateResponse);
+}
+
+crate::define_json_response_family! {
+    pub enum PutStateResponses {
+        Ok(StateResponse) => 200;
+        BadRequest => 400,
+        Timeout => 504,
+        InternalError => 500
+    }
+    from StateResponse => Ok;
+}
+
 pub fn state_doc(state: String) -> StateResponse {
     let state = match state.as_str() {
         "active" => ServiceState::Active,
@@ -59,4 +98,60 @@ pub fn validate_requested_state(body: StatePut) -> Result<String, StateValidatio
         return Err(StateValidationError::BadRequest);
     }
     Ok(requested)
+}
+
+pub fn get_state_error_response(error: &Error) -> GetStateResponses {
+    if crate::dbus::is_timeout_error(error) {
+        GetStateResponses::Timeout
+    } else {
+        GetStateResponses::InternalError
+    }
+}
+
+pub fn put_state_error_response(error: &Error) -> PutStateResponses {
+    if crate::dbus::is_timeout_error(error) {
+        PutStateResponses::Timeout
+    } else {
+        PutStateResponses::InternalError
+    }
+}
+
+pub fn is_already_requested_state_error(error: &Error) -> bool {
+    let message = error.to_string();
+    message.contains("already active") || message.contains("already inactive")
+}
+
+#[cfg(feature = "api-legacy")]
+pub fn legacy_state_model(state: String, error_msg: &str) -> LegacyStateResponse {
+    LegacyStateResponse {
+        sdcerr: if state != "unknown" {
+            SdcerrCode::Success.as_i32()
+        } else {
+            SdcerrCode::Fail.as_i32()
+        },
+        info_msg: if state != "unknown" {
+            String::new()
+        } else {
+            error_msg.to_string()
+        },
+        state: Some(state),
+    }
+}
+
+#[cfg(feature = "api-legacy")]
+pub fn legacy_state_error_response(error: &Error) -> LegacyStateResponse {
+    LegacyStateResponse {
+        sdcerr: fail_response("").sdcerr,
+        info_msg: error.to_string(),
+        state: Some("unknown".to_string()),
+    }
+}
+
+#[cfg(feature = "api-legacy")]
+pub fn legacy_state_with_message(state: Option<String>, message: String) -> LegacyStateResponse {
+    LegacyStateResponse {
+        sdcerr: fail_response("").sdcerr,
+        info_msg: message,
+        state,
+    }
 }

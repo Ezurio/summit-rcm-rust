@@ -21,6 +21,10 @@ impl LogForwardingService {
         self.unit.get_active_state().await
     }
 
+    pub async fn try_get_active_state(&self) -> Result<String> {
+        self.unit.try_get_active_state().await
+    }
+
     pub async fn set_state(&self, requested_state: &str) -> Result<()> {
         match requested_state {
             "active" => { let _ = std::fs::File::create(LOG_FORWARDING_ENABLED_FLAG_FILE); }

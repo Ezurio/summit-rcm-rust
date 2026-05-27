@@ -4,6 +4,7 @@
 //
 
 use crate::plugins::radio_siso_mode::service::{RadioSISOMode, RadioSISOModeService};
+use crate::plugins::radio_siso_mode::routes::shared::current_mode_value;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use log::error;
@@ -11,20 +12,12 @@ use log::error;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetRadioSisoResponses {
-        Ok(SisoModeState) => 200;
-    }
-    from SisoModeState => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetRadioSisoResponses(SisoModeState);
 }
 
-crate::define_json_response_family! {
-    pub enum PutRadioSisoResponses {
-        Ok(SisoModeState) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from SisoModeState => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum PutRadioSisoResponses(SisoModeState);
 }
 
 #[derive(Deserialize, Serialize)]
@@ -32,12 +25,6 @@ crate::define_json_response_family! {
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct SisoModeState {
     pub siso_mode: i32,
-}
-
-fn get_current_mode_value() -> i32 {
-    RadioSISOModeService::get_current_siso_mode()
-        .map(|m| m as i32)
-        .unwrap_or(-1)
 }
 
 #[derive(Deserialize)]
@@ -54,7 +41,7 @@ pub struct SisoModePut {
     responses(GetRadioSisoResponses)
 ))]
 pub async fn get_radio_siso_mode() -> GetRadioSisoResponses {
-    SisoModeState { siso_mode: get_current_mode_value() }.into()
+    SisoModeState { siso_mode: current_mode_value() }.into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -77,5 +64,5 @@ pub async fn put_radio_siso_mode(Json(body): Json<SisoModePut>) -> PutRadioSisoR
         }
     }
 
-    SisoModeState { siso_mode: get_current_mode_value() }.into()
+    SisoModeState { siso_mode: current_mode_value() }.into()
 }

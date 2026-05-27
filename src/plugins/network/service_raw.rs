@@ -6,8 +6,8 @@
 //! Raw network helpers that do not depend on NetworkManager.
 
 use anyhow::{Result, anyhow};
+use super::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
 use crate::dbus;
-use crate::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
 use crate::plugins::network::types::{
     AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
 };
@@ -16,13 +16,27 @@ use std::collections::BTreeMap;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::HashMap;
 use std::path::Path;
-use zbus::zvariant::OwnedObjectPath;
+use zbus::zvariant::{OwnedObjectPath, Value as DbusValue};
 
 pub struct NetworkService;
 
 const WPA_OBJ: &str = "/fi/w1/wpa_supplicant1";
 const WPA_IFACE: &str = "fi.w1.wpa_supplicant1";
 const SUPPLICANT_INTERFACE_IFACE: &str = "fi.w1.wpa_supplicant1.Interface";
+
+fn parse_country_codes(info: &str) -> Option<InterfaceDriverInfo> {
+    let line = info
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("Country code: '"))?;
+    let (adopted, rest) = line.split_once("' ('")?;
+    let (otp, _) = rest.split_once("')")?;
+
+    Some(InterfaceDriverInfo {
+        adopted_country_code: adopted.to_string(),
+        otp_country_code: otp.to_string(),
+    })
+}
 
 pub(crate) fn wifi_driver_debug_param() -> &'static str {
     if Path::new("/sys/module/lrdmwl/parameters/lrd_debug").exists() {
@@ -90,19 +104,81 @@ impl NetworkService {
 
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
         let conn = dbus::system_bus().await?.clone();
-        dbus::get_property(&conn, WPA_IFACE, WPA_OBJ, WPA_IFACE, "Interfaces").await
+        dbus::get_property_with_timeout(
+            &conn,
+            WPA_IFACE,
+            WPA_OBJ,
+            WPA_IFACE,
+            "Interfaces",
+            None,
+        )
+        .await
     }
 
     async fn get_supplicant_interface_name(interface_obj_path: &str) -> Result<String> {
         let conn = dbus::system_bus().await?.clone();
-        dbus::get_property(
+        dbus::get_property_with_timeout(
             &conn,
             WPA_IFACE,
             interface_obj_path,
             SUPPLICANT_INTERFACE_IFACE,
             "Ifname",
+            None,
         )
         .await
+    }
+
+    pub async fn get_supplicant_debug_level() -> Result<String> {
+        let conn = dbus::system_bus().await?.clone();
+        dbus::get_property_with_timeout(
+            &conn,
+            WPA_IFACE,
+            WPA_OBJ,
+            WPA_IFACE,
+            "DebugLevel",
+            None,
+        )
+        .await
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub async fn current_supplicant_debug_level() -> String {
+        Self::get_supplicant_debug_level()
+            .await
+            .unwrap_or_else(|_| "info".to_string())
+    }
+
+    pub async fn set_supplicant_debug_level(level: &str) -> Result<()> {
+        let conn = dbus::system_bus().await?.clone();
+        dbus::set_property_with_timeout(
+            &conn,
+            WPA_IFACE,
+            WPA_OBJ,
+            WPA_IFACE,
+            "DebugLevel",
+            DbusValue::from(level.to_string()),
+            None,
+        )
+        .await
+    }
+
+    pub fn get_wifi_driver_debug_level() -> Result<u8> {
+        let path = wifi_driver_debug_param();
+        let value = std::fs::read_to_string(path)?;
+        let parsed = value.trim().parse::<u8>()?;
+        Ok(if parsed == 0 { 0 } else { 1 })
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub fn current_wifi_driver_debug_level() -> u8 {
+        Self::get_wifi_driver_debug_level().unwrap_or(0)
+    }
+
+    pub fn set_wifi_driver_debug_level(level: u8) -> Result<()> {
+        let path = wifi_driver_debug_param();
+        let value = if level == 0 { "0" } else { "1" };
+        std::fs::write(path, value)?;
+        Ok(())
     }
 
     async fn read_interface_stat(base: &str, file_name: &str) -> i64 {
@@ -153,12 +229,8 @@ impl NetworkService {
         }
 
         let info = tokio::fs::read_to_string(&info_file).await?;
-        let re = regex::Regex::new(r"Country code\s*:\s*'(?P<adopted>.*)'\s*\('(?P<otp>.*)'\)")?;
-        if let Some(caps) = re.captures(&info) {
-            return Ok(InterfaceDriverInfo {
-                adopted_country_code: caps["adopted"].to_string(),
-                otp_country_code: caps["otp"].to_string(),
-            });
+        if let Some(driver_info) = parse_country_codes(&info) {
+            return Ok(driver_info);
         }
 
         anyhow::bail!("Unable to retrieve driver info")
@@ -212,12 +284,13 @@ impl NetworkService {
             }
 
             let conn = dbus::system_bus().await?.clone();
-            let summit_status: HashMap<String, String> = dbus::get_property(
+            let summit_status: HashMap<String, String> = dbus::get_property_with_timeout(
                 &conn,
                 WPA_IFACE,
                 interface_path.as_str(),
                 SUPPLICANT_INTERFACE_IFACE,
                 "SummitStatus",
+                None,
             )
             .await?;
             return Ok(SummitStatus {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::web::legacy_response::SdcerrCode;
+use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::logs::{CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalLogEntry, JournalctlLogType, LogsService, SupplicantLogLevel};
 use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
@@ -47,10 +47,8 @@ pub struct LogVerbosityRequest {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyLogDataResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -60,10 +58,8 @@ pub struct LegacyLogDataResponse {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyLogVerbosityResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "suppDebugLevel", skip_serializing_if = "Option::is_none")]
     pub supp_debug_level: Option<String>,
     #[serde(rename = "driverDebugLevel", skip_serializing_if = "Option::is_none")]
@@ -72,33 +68,32 @@ pub struct LegacyLogVerbosityResponse {
     pub error_msg: Option<String>,
 }
 
-crate::define_json_response_family! {
-    pub enum GetLogLegacyResponses {
-        Ok(LegacyLogDataResponse) => 200;
+crate::define_ok_json_response_family! {
+    pub enum GetLogLegacyResponses(LegacyLogDataResponse);
+}
+
+crate::define_ok_json_response_family! {
+    pub enum GetLogVerbosityLegacyResponses(LegacyLogVerbosityResponse);
+}
+
+pub type PutLogVerbosityLegacyResponses = GetLogVerbosityLegacyResponses;
+
+fn log_verbosity_response(
+    operation: LegacyOperationResponse,
+    supp_debug_level: Option<String>,
+    driver_debug_level: Option<String>,
+    error_msg: Option<String>,
+) -> LegacyLogVerbosityResponse {
+    LegacyLogVerbosityResponse {
+        operation,
+        supp_debug_level,
+        driver_debug_level,
+        error_msg,
     }
-    from LegacyLogDataResponse => Ok;
 }
 
-crate::define_json_response_family! {
-    pub enum GetLogVerbosityLegacyResponses {
-        Ok(LegacyLogVerbosityResponse) => 200;
-    }
-    from LegacyLogVerbosityResponse => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum PutLogVerbosityLegacyResponses {
-        Ok(LegacyLogVerbosityResponse) => 200;
-    }
-    from LegacyLogVerbosityResponse => Ok;
-}
-
-fn fail_code() -> i32 {
-    SdcerrCode::Fail.as_i32()
-}
-
-fn success_code() -> i32 {
-    SdcerrCode::Success.as_i32()
+fn log_verbosity_error(info_msg: impl Into<String>) -> LegacyLogVerbosityResponse {
+    log_verbosity_response(fail_response(info_msg), None, None, None)
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -119,8 +114,7 @@ pub async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyRespon
     let priority = q.priority.unwrap_or(7);
     if priority > 7 {
         return LegacyLogDataResponse {
-            sdcerr: fail_code(),
-            info_msg: "Priority must be an int between 0-7".to_string(),
+            operation: fail_response("Priority must be an int between 0-7"),
             count: None,
             log: None,
         }
@@ -129,20 +123,18 @@ pub async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyRespon
     let days = q.days.unwrap_or(1);
     match LogsService::get_journal_log_data(log_type, priority, days).await {
         Ok(log_entries) => LegacyLogDataResponse {
-            sdcerr: success_code(),
-            info_msg: format!(
+            operation: ok_response(format!(
                 "type: {}; days: {}; Priority: {}",
                 legacy_type_label,
                 days,
                 priority
-            ),
+            )),
             count: Some(log_entries.len()),
             log: Some(log_entries),
         }
         .into(),
         Err(_) => LegacyLogDataResponse {
-            sdcerr: fail_code(),
-            info_msg: "Could not read journal logs".to_string(),
+            operation: fail_response("Could not read journal logs"),
             count: None,
             log: None,
         }
@@ -157,13 +149,7 @@ pub async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyRespon
     responses(GetLogVerbosityLegacyResponses)
 ))]
 pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
-    let mut response = LegacyLogVerbosityResponse {
-        sdcerr: success_code(),
-        info_msg: "".to_string(),
-        supp_debug_level: None,
-        driver_debug_level: None,
-        error_msg: None,
-    };
+    let mut response = log_verbosity_response(ok_response(""), None, None, None);
 
     match LogsService::try_get_supplicant_debug_level().await {
         Ok(supplicant) => {
@@ -171,7 +157,7 @@ pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
         }
         Err(_) => {
             response.error_msg = Some("Unable to determine supplicant debug level".to_string());
-            response.sdcerr = fail_code();
+            response.operation = fail_response("");
         }
     }
 
@@ -186,7 +172,7 @@ pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
                 "Unable to determine supplicant nor driver debug level"
             };
             response.error_msg = Some(message.to_string());
-            response.sdcerr = fail_code();
+            response.operation = fail_response("");
         }
     }
 
@@ -202,34 +188,13 @@ pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
 ))]
 pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> PutLogVerbosityLegacyResponses {
     let Some(level) = body.supp_debug_level.as_deref() else {
-        return LegacyLogVerbosityResponse {
-            sdcerr: fail_code(),
-            info_msg: "suppDebugLevel missing from JSON data".to_string(),
-            supp_debug_level: None,
-            driver_debug_level: None,
-            error_msg: None,
-        }
-        .into();
+        return log_verbosity_error("suppDebugLevel missing from JSON data").into();
     };
     let Some(driver_level) = body.driver_debug_level.as_ref() else {
-        return LegacyLogVerbosityResponse {
-            sdcerr: fail_code(),
-            info_msg: "driverDebugLevel missing from JSON data".to_string(),
-            supp_debug_level: None,
-            driver_debug_level: None,
-            error_msg: None,
-        }
-        .into();
+        return log_verbosity_error("driverDebugLevel missing from JSON data").into();
     };
     let Ok(supplicant_level) = SupplicantLogLevel::from_str(level) else {
-        return LegacyLogVerbosityResponse {
-            sdcerr: fail_code(),
-            info_msg: "suppDebugLevel must be one of {'none', 'error', 'warning', 'info', 'debug', 'msgdump', 'excessive'}".to_string(),
-            supp_debug_level: None,
-            driver_debug_level: None,
-            error_msg: None,
-        }
-        .into();
+        return log_verbosity_error("suppDebugLevel must be one of {'none', 'error', 'warning', 'info', 'debug', 'msgdump', 'excessive'}").into();
     };
     let driver_level = match driver_level {
         LegacyDriverDebugLevelInput::Int(0) => Some(DriverLogLevel::Disabled),
@@ -239,14 +204,7 @@ pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> 
         _ => None,
     };
     let Some(driver_level) = driver_level else {
-        return LegacyLogVerbosityResponse {
-            sdcerr: fail_code(),
-            info_msg: "driverDebugLevel must be 0 or 1".to_string(),
-            supp_debug_level: None,
-            driver_debug_level: None,
-            error_msg: None,
-        }
-        .into();
+        return log_verbosity_error("driverDebugLevel must be 0 or 1").into();
     };
 
     if LogsService::set_supplicant_debug_level(supplicant_level).await.is_ok() {
@@ -255,27 +213,19 @@ pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> 
             DriverLogLevel::Disabled => "0",
             DriverLogLevel::Enabled => "1",
         };
-        LegacyLogVerbosityResponse {
-            sdcerr: success_code(),
-            info_msg: format!(
+        log_verbosity_response(
+            ok_response(format!(
                 "Supplicant debug level = {}; Driver debug level = {}",
                 level.to_lowercase(),
                 driver_level_string
-            ),
-            supp_debug_level: Some(level.to_lowercase()),
-            driver_debug_level: Some(driver_level_string.to_string()),
-            error_msg: None,
-        }
+            )),
+            Some(level.to_lowercase()),
+            Some(driver_level_string.to_string()),
+            None,
+        )
         .into()
     } else {
-        LegacyLogVerbosityResponse {
-            sdcerr: fail_code(),
-            info_msg: "failed to set supplicant log level".to_string(),
-            supp_debug_level: None,
-            driver_debug_level: None,
-            error_msg: None,
-        }
-        .into()
+        log_verbosity_error("failed to set supplicant log level").into()
     }
 }
 

@@ -4,9 +4,8 @@
 //
 
 use crate::plugins::bluetooth::routes::common::{
-    parse_bluetooth_control_response, parse_bluetooth_device_response,
-    parse_bluetooth_state_response, BluetoothCommandRequest, BluetoothControlResponse,
-    BluetoothDeviceModel, BluetoothQuery, BluetoothStateResponse,
+    BluetoothCommandRequest, BluetoothControlResponse, BluetoothDeviceModel,
+    BluetoothQuery, BluetoothStateResponse,
 };
 #[cfg(feature = "bluetooth-websocket")]
 use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
@@ -20,52 +19,43 @@ use axum::response::Response;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-    pub enum GetBluetoothResponses {
-        Ok(BluetoothStateResponse) => 200;
-        BadRequest => 400,
-        NotFound => 404,
-        InternalError => 500
-    }
-    from BluetoothStateResponse => Ok;
+define_bluetooth_v2_response_family! {
+    pub enum GetBluetoothResponses(BluetoothStateResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutBluetoothResponses {
-        Ok(BluetoothControlResponse) => 200;
-        BadRequest => 400,
-        NotFound => 404,
-        InternalError => 500
-    }
-    from BluetoothControlResponse => Ok;
+define_bluetooth_v2_response_family! {
+    pub enum PutBluetoothResponses(BluetoothControlResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum GetBluetoothDeviceResponses {
-        Ok(BluetoothDeviceModel) => 200;
-        BadRequest => 400,
-        NotFound => 404,
-        InternalError => 500
+define_bluetooth_v2_response_family! {
+    pub enum GetBluetoothDeviceResponses(BluetoothDeviceModel);
+}
+
+fn classify_get_error<R>(error: &anyhow::Error, not_found: R, bad_request: R, internal_error: R) -> R {
+    let message = error.to_string();
+    if message.contains("controller not found") {
+        not_found
+    } else if message.contains("device not found") || message.contains("filters") {
+        bad_request
+    } else {
+        internal_error
     }
-    from BluetoothDeviceModel => Ok;
 }
 
 fn get_error_response(error: &anyhow::Error) -> GetBluetoothResponses {
-    let message = error.to_string();
-    if message.contains("controller not found") {
-        GetBluetoothResponses::NotFound
-    } else if message.contains("device not found") || message.contains("filters") {
-        GetBluetoothResponses::BadRequest
-    } else {
-        GetBluetoothResponses::InternalError
-    }
+    classify_get_error(
+        error,
+        GetBluetoothResponses::NotFound,
+        GetBluetoothResponses::BadRequest,
+        GetBluetoothResponses::InternalError,
+    )
 }
 
 fn get_device_error_response(error: &anyhow::Error) -> GetBluetoothDeviceResponses {
     let message = error.to_string();
-    if message.contains("controller not found") {
+    if message.contains("controller not found") || message.contains("device not found") {
         GetBluetoothDeviceResponses::NotFound
-    } else if message.contains("device not found") || message.contains("filters") {
+    } else if message.contains("filters") {
         GetBluetoothDeviceResponses::BadRequest
     } else {
         GetBluetoothDeviceResponses::InternalError
@@ -90,14 +80,8 @@ fn put_error_response(message: &str) -> PutBluetoothResponses {
     responses(GetBluetoothResponses)
 ))]
 pub async fn get_bluetooth(Query(query): Query<BluetoothQuery>) -> GetBluetoothResponses {
-    match BluetoothService::get_state_v2_result(None, None, query.filters()).await {
-        Ok(value) => match parse_bluetooth_state_response(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_bluetooth invalid response shape: {}", error);
-                GetBluetoothResponses::InternalError
-            }
-        },
+    match BluetoothService::get_state_v2(None, None, query.filters()).await {
+        Ok(value) => value.into(),
         Err(error) => get_error_response(&error),
     }
 }
@@ -110,22 +94,8 @@ pub async fn get_bluetooth(Query(query): Query<BluetoothQuery>) -> GetBluetoothR
     responses(PutBluetoothResponses)
 ))]
 pub async fn put_bluetooth(Json(body): Json<BluetoothCommandRequest>) -> PutBluetoothResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("put_bluetooth invalid request shape: {}", error);
-            return PutBluetoothResponses::BadRequest;
-        }
-    };
-
-    let value = BluetoothService::handle_command(None, None, &body).await;
-    let info_msg = value
-        .get("InfoMsg")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    match parse_bluetooth_control_response(value) {
-        Ok(value) => {
+    match BluetoothService::handle_command_v2(None, None, body).await {
+        Ok((value, info_msg)) => {
             if info_msg.contains("No Bluetooth adapter found") || info_msg.contains("controller not found") {
                 PutBluetoothResponses::NotFound
             } else if info_msg.contains("Unknown command:") {
@@ -135,7 +105,7 @@ pub async fn put_bluetooth(Json(body): Json<BluetoothCommandRequest>) -> PutBlue
             }
         }
         Err(error) => {
-            log::error!("put_bluetooth invalid response shape: {}", error);
+            log::error!("put_bluetooth invalid request or response shape: {}", error);
             PutBluetoothResponses::InternalError
         }
     }
@@ -155,14 +125,8 @@ pub async fn get_bluetooth_controller(
     Path(controller): Path<String>,
     Query(query): Query<BluetoothQuery>,
 ) -> GetBluetoothResponses {
-    match BluetoothService::get_state_v2_result(Some(&controller), None, query.filters()).await {
-        Ok(value) => match parse_bluetooth_state_response(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_bluetooth_controller {} invalid response shape: {}", controller, error);
-                GetBluetoothResponses::InternalError
-            }
-        },
+    match BluetoothService::get_state_v2(Some(&controller), None, query.filters()).await {
+        Ok(value) => value.into(),
         Err(error) => get_error_response(&error),
     }
 }
@@ -179,22 +143,8 @@ pub async fn put_bluetooth_controller(
     Path(controller): Path<String>,
     Json(body): Json<BluetoothCommandRequest>,
 ) -> PutBluetoothResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("put_bluetooth_controller {} invalid request shape: {}", controller, error);
-            return PutBluetoothResponses::BadRequest;
-        }
-    };
-
-    let value = BluetoothService::handle_command(Some(&controller), None, &body).await;
-    let info_msg = value
-        .get("InfoMsg")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    match parse_bluetooth_control_response(value) {
-        Ok(value) => {
+    match BluetoothService::handle_command_v2(Some(&controller), None, body).await {
+        Ok((value, info_msg)) => {
             if info_msg.contains("No Bluetooth adapter found") || info_msg.contains("controller not found") {
                 put_error_response(&info_msg)
             } else {
@@ -202,7 +152,7 @@ pub async fn put_bluetooth_controller(
             }
         }
         Err(error) => {
-            log::error!("put_bluetooth_controller {} invalid response shape: {}", controller, error);
+            log::error!("put_bluetooth_controller {} invalid request or response shape: {}", controller, error);
             PutBluetoothResponses::InternalError
         }
     }
@@ -221,14 +171,8 @@ pub async fn put_bluetooth_controller(
 pub async fn get_bluetooth_device(
     Path((controller, device)): Path<(String, String)>,
 ) -> GetBluetoothDeviceResponses {
-    match BluetoothService::get_device_state_v2(&controller, &device).await {
-        Ok(value) => match parse_bluetooth_device_response(value) {
-            Ok(value) => value.into(),
-            Err(error) => {
-                log::error!("get_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
-                GetBluetoothDeviceResponses::InternalError
-            }
-        },
+    match BluetoothService::get_device_state(&controller, &device).await {
+        Ok(value) => value.into(),
         Err(error) => get_device_error_response(&error),
     }
 }
@@ -248,22 +192,8 @@ pub async fn put_bluetooth_device(
     Path((controller, device)): Path<(String, String)>,
     Json(body): Json<BluetoothCommandRequest>,
 ) -> PutBluetoothResponses {
-    let body = match serde_json::to_value(body) {
-        Ok(body) => body,
-        Err(error) => {
-            log::error!("put_bluetooth_device {} {} invalid request shape: {}", controller, device, error);
-            return PutBluetoothResponses::BadRequest;
-        }
-    };
-
-    let value = BluetoothService::handle_command(Some(&controller), Some(&device), &body).await;
-    let info_msg = value
-        .get("InfoMsg")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    match parse_bluetooth_control_response(value) {
-        Ok(value) => {
+    match BluetoothService::handle_command_v2(Some(&controller), Some(&device), body).await {
+        Ok((value, info_msg)) => {
             if info_msg.contains("No Bluetooth adapter found") || info_msg.contains("controller not found") {
                 put_error_response(&info_msg)
             } else if info_msg.contains("invalid") && info_msg.contains("command") {
@@ -273,7 +203,7 @@ pub async fn put_bluetooth_device(
             }
         }
         Err(error) => {
-            log::error!("put_bluetooth_device {} {} invalid response shape: {}", controller, device, error);
+            log::error!("put_bluetooth_device {} {} invalid request or response shape: {}", controller, device, error);
             PutBluetoothResponses::InternalError
         }
     }

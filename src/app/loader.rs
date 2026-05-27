@@ -27,18 +27,76 @@ use axum::{
 };
 use libc::{c_char, c_int, size_t};
 use libloading::{Library, Symbol};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use log::{error, info};
+
+#[cfg(feature = "api-docs")]
+use std::sync::LazyLock;
 
 use summit_rcm_plugin_api::{cstr_to_string, PluginHandle};
 
 use crate::config::ServerConfig;
-use crate::publication::PublishedRoute;
+use crate::publication::{PublishedRoute, RouteAuthPolicy};
+
+#[cfg(feature = "api-docs")]
+use crate::publication::{ResolvedOpenApiPublication, RouteDocPolicy};
+
+struct LoadedRoute {
+    route: PublishedRoute,
+    auth: RouteAuthPolicy,
+}
+
+#[cfg(feature = "api-docs")]
+#[derive(Default)]
+struct DynamicOpenApiRegistry {
+    publications: Vec<ResolvedOpenApiPublication>,
+}
+
+#[cfg(feature = "api-docs")]
+static DYNAMIC_OPENAPI_REGISTRY: LazyLock<Mutex<DynamicOpenApiRegistry>> =
+    LazyLock::new(|| Mutex::new(DynamicOpenApiRegistry::default()));
 
 type CreateFn = unsafe extern "C" fn() -> *mut PluginHandle;
+
+#[cfg(feature = "api-docs")]
+fn reset_dynamic_openapi_registry() {
+    *DYNAMIC_OPENAPI_REGISTRY.lock().unwrap() = DynamicOpenApiRegistry::default();
+}
+
+#[cfg(feature = "api-docs")]
+fn register_dynamic_openapi(publication: ResolvedOpenApiPublication) {
+    let mut registry = DYNAMIC_OPENAPI_REGISTRY.lock().unwrap();
+    registry.publications.push(publication);
+}
+
+#[cfg(feature = "api-docs")]
+pub fn dynamic_openapi_publications() -> Vec<ResolvedOpenApiPublication> {
+    DYNAMIC_OPENAPI_REGISTRY.lock().unwrap().publications.clone()
+}
+
+#[cfg(feature = "api-docs")]
+fn load_openapi_json(
+    handle: *mut PluginHandle,
+    callback: Option<unsafe extern "C" fn(handle: *mut PluginHandle) -> *mut c_char>,
+    _plugin_name: &str,
+) -> Option<String> {
+    let callback = callback?;
+    let ptr = unsafe { callback(handle) };
+    if ptr.is_null() {
+        return None;
+    }
+
+    let json = unsafe { cstr_to_string(ptr) };
+    unsafe { ((*handle).free_response)(handle, ptr) };
+
+    if json.trim().is_empty() {
+        return None;
+    }
+
+    Some(json)
+}
 
 // ─── Loaded plugin wrapper ────────────────────────────────────────────────────
 
@@ -106,7 +164,7 @@ fn do_dispatch(
     let mut content_type_ptr: *const c_char = std::ptr::null();
 
     let handle = state.plugin.handle;
-    let _guard = state.plugin.lock.lock();
+    let _guard = state.plugin.lock.lock().unwrap();
 
     let rc = unsafe {
         ((*handle).dispatch)(
@@ -219,7 +277,7 @@ fn build_method_router(state: Arc<DispatchState>, method: &str) -> routing::Meth
 
 fn load_one(
     path: &std::path::Path,
-) -> Result<(Arc<LoadedPlugin>, Vec<PublishedRoute>), Box<dyn std::error::Error>> {
+) -> Result<(Arc<LoadedPlugin>, Vec<LoadedRoute>), Box<dyn std::error::Error>> {
     let lib = unsafe { Library::new(path) }?;
     let create: Symbol<CreateFn> = unsafe { lib.get(b"summit_rcm_plugin_create\0") }?;
     let handle = unsafe { create() };
@@ -245,7 +303,10 @@ fn load_one(
         if should_log_routes {
             info!("  {} {}", method, path_str);
         }
-        route_list.push(PublishedRoute::leak(method, path_str));
+        route_list.push(LoadedRoute {
+            route: PublishedRoute::leak(method, path_str),
+            auth: rd.auth_policy,
+        });
     }
 
     let plugin = Arc::new(LoadedPlugin {
@@ -254,6 +315,17 @@ fn load_one(
         _lib: lib,
     });
 
+    #[cfg(feature = "api-docs")]
+    {
+        let route_policies = route_list
+            .iter()
+            .map(|route| RouteDocPolicy::new(route.route.path, route.auth))
+            .collect::<Vec<_>>();
+        let openapi_json = load_openapi_json(handle, unsafe { (*handle).openapi_json }, &name)
+            .unwrap_or_default();
+        register_dynamic_openapi(ResolvedOpenApiPublication::new(name.clone(), openapi_json, route_policies));
+    }
+
     Ok((plugin, route_list))
 }
 
@@ -261,6 +333,9 @@ fn load_one(
 
 /// Load all `*.so` plugins from the plugin directory and extend `router`.
 pub fn load_plugins(mut router: Router) -> Router {
+    #[cfg(feature = "api-docs")]
+    reset_dynamic_openapi_registry();
+
     let plugin_dir = ServerConfig::get_string("summit-rcm", "plugin_dir", "/usr/lib/summit-rcm/plugins");
 
     if !std::path::Path::new(&plugin_dir).exists() {
@@ -287,8 +362,14 @@ pub fn load_plugins(mut router: Router) -> Router {
                         plugin: plugin.clone(),
                         route_index: i,
                     });
-                    let mr = build_method_router(state, route.method);
-                    router = router.route(route.path, mr);
+                    let mr = build_method_router(state, route.route.method);
+                    let mr = match route.auth {
+                        RouteAuthPolicy::SessionRequired => {
+                            mr.route_layer(axum::middleware::from_fn(crate::web::auth::require_session))
+                        }
+                        RouteAuthPolicy::UnauthenticatedAllowed => mr,
+                    };
+                    router = router.route(route.route.path, mr);
                 }
                 info!("Loaded plugin: {}", path.display());
             }

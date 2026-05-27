@@ -48,7 +48,7 @@ impl DateTimeService {
     }
 
     pub async fn get_datetime() -> Result<DateTimeSnapshot> {
-        let zones = Self::list_timezones().await.unwrap_or_default();
+        let zones = Self::list_timezones().await?;
         let (success, current_datetime) = Self::check_current_date_and_time();
         let datetime = if success { current_datetime } else { String::new() };
 
@@ -73,12 +73,14 @@ impl DateTimeService {
         };
 
         let conn = dbus::system_bus().await?;
-        conn.call_method(
+        dbus::call_method(
+            conn,
             Some(TIMEDATE1_BUS_NAME),
             TIMEDATE1_MAIN_OBJ,
             Some("org.freedesktop.timedate1"),
             "SetTime",
             &(dt_int, false, false),
+            None,
         )
         .await?;
         Ok(())
@@ -86,12 +88,14 @@ impl DateTimeService {
 
     pub async fn set_timezone(timezone: &str) -> Result<()> {
         let conn = dbus::system_bus().await?;
-        conn.call_method(
+        dbus::call_method(
+            conn,
             Some(TIMEDATE1_BUS_NAME),
             TIMEDATE1_MAIN_OBJ,
             Some("org.freedesktop.timedate1"),
             "SetTimezone",
             &(timezone, false),
+            None,
         )
         .await?;
 
@@ -100,13 +104,14 @@ impl DateTimeService {
 
     pub async fn list_timezones() -> Result<Vec<String>> {
         let conn = dbus::system_bus().await?;
-        dbus::call_method_deserialize(
+        dbus::call_method_deserialize_with_timeout(
             conn,
             Some(TIMEDATE1_BUS_NAME),
             TIMEDATE1_MAIN_OBJ,
             Some("org.freedesktop.timedate1"),
             "ListTimezones",
             &(),
+            None,
         )
         .await
     }

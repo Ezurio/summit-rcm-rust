@@ -4,16 +4,12 @@
 //
 //! POST /api/v2/system/factoryReset
 
-use crate::plugins::system::SystemService;
+use crate::plugins::system::routes::shared::{self, FactoryResetResult};
 use serde::Serialize;
 use log::error;
 
-crate::define_json_response_family! {
-    pub enum FactoryResetResponses {
-        Ok(FactoryResetResponse) => 200;
-        InternalError => 500
-    }
-    from FactoryResetResponse => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum FactoryResetResponses(FactoryResetResponse);
 }
 
 #[derive(Serialize)]
@@ -29,15 +25,19 @@ pub struct FactoryResetResponse {
     responses(FactoryResetResponses)
 ))]
 pub async fn factory_reset() -> FactoryResetResponses {
-    let rc = SystemService::initiate_factory_reset().await;
-    if rc == 0 {
-        FactoryResetResponse {
+    match shared::run_factory_reset().await {
+        FactoryResetResult::Initiated => FactoryResetResponse {
             result: "ok".to_string(),
         }
-        .into()
-    } else {
-        error!("factory_reset returned: {}", rc);
-        FactoryResetResponses::InternalError
+        .into(),
+        FactoryResetResult::NotAvailable => {
+            error!("factory_reset unavailable on this image");
+            FactoryResetResponses::InternalError
+        }
+        FactoryResetResult::Failed(code) => {
+            error!("factory_reset returned: {}", code);
+            FactoryResetResponses::InternalError
+        }
     }
 }
 

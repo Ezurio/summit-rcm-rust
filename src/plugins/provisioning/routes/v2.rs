@@ -13,11 +13,8 @@ use log::error;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::openapi_doc;
 
-crate::define_json_response_family! {
-    pub enum GetProvisioningResponses {
-        Ok(ProvisioningStateResponse) => 200;
-    }
-    from ProvisioningStateResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetProvisioningResponses(ProvisioningStateResponse);
 }
 
 crate::define_status_response_family! {
@@ -28,13 +25,7 @@ crate::define_status_response_family! {
     }
 }
 
-crate::define_status_response_family! {
-    pub enum PutClientBundleResponses {
-        Ok => 200,
-        BadRequest => 400,
-        InternalError => 500
-    }
-}
+pub type PutClientBundleResponses = PutProvisioningResponses;
 
 crate::define_text_response_family! {
     pub enum ProvisioningTextResponses {

@@ -42,9 +42,9 @@ use summit_rcm_plugin_api::{
 
 summit_rcm_plugin_api::declare_plugin_api! {
     ROUTES = [
-        ROUTE_HELLO => GET "/api/v2/example/hello",
+        ROUTE_HELLO => unauthenticated GET "/api/v2/example/hello",
         // Axum-style path parameter: {msg} becomes a key in the path_params JSON
-        ROUTE_ECHO => GET "/api/v2/example/echo/{msg}",
+        ROUTE_ECHO => unauthenticated GET "/api/v2/example/echo/{msg}",
     ];
 }
 
@@ -95,7 +95,7 @@ unsafe extern "C" fn plugin_dispatch(
     status_code: *mut c_int,
     _content_type: *mut *const c_char,
 ) -> c_int {
-    let pp = cstr_to_string(path_params);
+    let pp = unsafe { cstr_to_string(path_params) };
 
     let (status, json) = match route_index {
         ROUTE_HELLO => handle_hello(),
@@ -103,23 +103,25 @@ unsafe extern "C" fn plugin_dispatch(
         _           => (404, r#"{"error":"unknown route"}"#.to_string()),
     };
 
-    *status_code  = status;
-    *response_body = alloc_cstring(&json);
+    unsafe {
+        *status_code  = status;
+        *response_body = alloc_cstring(&json);
+    }
     0 // 0 = success; non-zero triggers 500 in the host
 }
 
 unsafe extern "C" fn plugin_free_response(_handle: *mut PluginHandle, ptr: *mut c_char) {
-    free_cstring(ptr);
+    unsafe { free_cstring(ptr) };
 }
 
 unsafe extern "C" fn plugin_free_response_bytes(_handle: *mut PluginHandle, ptr: *mut u8) {
-    free_bytes(ptr);
+    unsafe { free_bytes(ptr) };
 }
 
 unsafe extern "C" fn plugin_destroy(handle: *mut PluginHandle) {
     if !handle.is_null() {
         // Reclaim the Box we allocated in summit_rcm_plugin_create.
-        let _ = Box::from_raw(handle);
+        let _ = unsafe { Box::from_raw(handle) };
     }
 }
 

@@ -24,27 +24,17 @@ pub struct LegacyForwardedPortResponse {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyFirewallListResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(rename = "Forward")]
     pub forward: Vec<LegacyForwardedPortResponse>,
 }
 
-crate::define_json_response_family! {
-    pub enum GetFirewallLegacyResponses {
-        Ok(LegacyFirewallListResponse) => 200;
-    }
-    from LegacyFirewallListResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetFirewallLegacyResponses(LegacyFirewallListResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutFirewallLegacyResponses {
-        Ok(LegacyOperationResponse) => 200;
-    }
-    from LegacyOperationResponse => Ok;
-}
+pub type PutFirewallLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
 fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortResponse {
     LegacyForwardedPortResponse {
@@ -68,8 +58,7 @@ pub async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
         .map(legacy_forwarded_port_response)
         .collect();
     LegacyFirewallListResponse {
-        sdcerr: ok_response("").sdcerr,
-        info_msg: "".to_string(),
+        operation: ok_response(""),
         forward: ports,
     }
     .into()

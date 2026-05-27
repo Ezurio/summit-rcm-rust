@@ -7,7 +7,8 @@
 //! GET /api/v2/system/power
 //! PUT /api/v2/system/power
 
-use crate::plugins::system::{PowerState, SystemService};
+use crate::plugins::system::routes::shared;
+use crate::plugins::system::PowerState;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use log::error;
@@ -25,20 +26,12 @@ pub struct PowerStateResponse {
     pub state: PowerState,
 }
 
-crate::define_json_response_family! {
-    pub enum GetPowerResponses {
-        Ok(PowerStateResponse) => 200;
-    }
-    from PowerStateResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetPowerResponses(PowerStateResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum SetPowerResponses {
-        Ok(PowerStateResponse) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from PowerStateResponse => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum SetPowerResponses(PowerStateResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -49,7 +42,7 @@ crate::define_json_response_family! {
 ))]
 pub async fn get_power() -> GetPowerResponses {
     PowerStateResponse {
-        state: SystemService::power_state(),
+        state: crate::plugins::system::SystemService::power_state(),
     }
     .into()
 }
@@ -66,12 +59,11 @@ pub async fn set_power(Json(body): Json<PowerStateRequest>) -> SetPowerResponses
         Ok(s) => s,
         Err(_) => return SetPowerResponses::BadRequest,
     };
-    if let Err(e) = SystemService::set_power_state(desired).await {
-        error!("set_power: {}", e);
-        return SetPowerResponses::InternalError;
+    match shared::set_power_state(desired).await {
+        Ok(state) => PowerStateResponse { state }.into(),
+        Err(error) => {
+            error!("set_power: {}", error);
+            SetPowerResponses::InternalError
+        }
     }
-    PowerStateResponse {
-        state: SystemService::power_state(),
-    }
-    .into()
 }

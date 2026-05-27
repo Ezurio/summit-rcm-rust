@@ -4,28 +4,13 @@
 //
 
 use crate::plugins::date_time::service::DateTimeService;
+use crate::dbus;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use log::error;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
-
-crate::define_json_response_family! {
-    pub enum GetDateTimeResponses {
-        Ok(DateTimeInfo) => 200;
-        InternalError => 500
-    }
-    from DateTimeInfo => Ok;
-}
-
-crate::define_json_response_family! {
-    pub enum SetDateTimeResponses {
-        Ok(DateTimeInfo) => 200;
-        InternalError => 500
-    }
-    from DateTimeInfo => Ok;
-}
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -43,6 +28,17 @@ pub struct DateTimeInfo {
     pub datetime: String,
 }
 
+crate::define_json_response_family! {
+    pub enum GetDateTimeResponses {
+        Ok(DateTimeInfo) => 200;
+        Timeout => 504,
+        InternalError => 500
+    }
+    from DateTimeInfo => Ok;
+}
+
+pub type SetDateTimeResponses = GetDateTimeResponses;
+
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
     path = "/api/v2/system/datetime",
@@ -58,7 +54,11 @@ pub async fn get_datetime() -> GetDateTimeResponses {
         }),
         Err(e) => {
             error!("get_datetime: {}", e);
-            GetDateTimeResponses::InternalError
+            if dbus::is_timeout_error(&e) {
+                GetDateTimeResponses::Timeout
+            } else {
+                GetDateTimeResponses::InternalError
+            }
         }
     }
 }
@@ -74,14 +74,22 @@ pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeRespo
     if let Some(tz) = body.zone.or(body.timezone) {
         if let Err(e) = DateTimeService::set_timezone(&tz).await {
             error!("set_datetime timezone: {}", e);
-            return SetDateTimeResponses::InternalError;
+            return if dbus::is_timeout_error(&e) {
+                SetDateTimeResponses::Timeout
+            } else {
+                SetDateTimeResponses::InternalError
+            };
         }
     }
 
     if let Some(datetime) = body.datetime {
         if let Err(e) = DateTimeService::set_time_manual(&datetime).await {
             error!("set_datetime manual: {}", e);
-            return SetDateTimeResponses::InternalError;
+            return if dbus::is_timeout_error(&e) {
+                SetDateTimeResponses::Timeout
+            } else {
+                SetDateTimeResponses::InternalError
+            };
         }
     }
 
@@ -93,7 +101,11 @@ pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeRespo
         }),
         Err(e) => {
             error!("set_datetime get: {}", e);
-            SetDateTimeResponses::InternalError
+            if dbus::is_timeout_error(&e) {
+                SetDateTimeResponses::Timeout
+            } else {
+                SetDateTimeResponses::InternalError
+            }
         }
     }
 }

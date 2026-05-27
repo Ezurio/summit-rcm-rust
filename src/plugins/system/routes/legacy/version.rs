@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::web::legacy_response::SdcerrCode;
+use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::system::{version_service::VersionInfo, VersionService};
 use log::error;
 
@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyVersionResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub nm_version: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -38,11 +36,8 @@ pub struct LegacyVersionResponse {
     pub next_bootside: String,
 }
 
-crate::define_json_response_family! {
-    pub enum GetVersionLegacyResponses {
-        Ok(LegacyVersionResponse) => 200;
-    }
-    from LegacyVersionResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetVersionLegacyResponses(LegacyVersionResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -67,8 +62,7 @@ pub async fn get_version_legacy() -> GetVersionLegacyResponses {
             next_side,
             ..
         }) => LegacyVersionResponse {
-            sdcerr: SdcerrCode::Success.as_i32(),
-            info_msg: String::new(),
+            operation: ok_response(""),
             nm_version,
             weblcm_python_webapp: summit_rcm,
             build,
@@ -87,8 +81,7 @@ pub async fn get_version_legacy() -> GetVersionLegacyResponses {
             let error_text = error.to_string();
             let info_msg = format!("An exception occurred while trying to get versioning info: {}", error_text);
             LegacyVersionResponse {
-                sdcerr: SdcerrCode::Fail.as_i32(),
-                info_msg,
+                operation: fail_response(info_msg),
                 nm_version: String::new(),
                 weblcm_python_webapp: String::new(),
                 build: String::new(),

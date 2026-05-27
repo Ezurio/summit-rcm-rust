@@ -1,7 +1,6 @@
 use super::{SummitRcmConfigManage, SystemSettingsManage, SETTINGS_CONFIG};
-use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 pub(crate) static SETTINGS_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 pub(crate) static SERVER_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -12,6 +11,7 @@ static SERVER_OVERRIDES: LazyLock<Mutex<HashMap<(String, String), String>>> =
 pub(crate) fn server_override(section: &str, key: &str) -> Option<String> {
     SERVER_OVERRIDES
         .lock()
+        .unwrap()
         .get(&(section.to_string(), key.to_string()))
         .cloned()
 }
@@ -19,11 +19,12 @@ pub(crate) fn server_override(section: &str, key: &str) -> Option<String> {
 pub(crate) fn set_server_override(section: &str, key: &str, value: &str) {
     SERVER_OVERRIDES
         .lock()
+        .unwrap()
         .insert((section.to_string(), key.to_string()), value.to_string());
 }
 
 pub(crate) fn clear_server_overrides() {
-    SERVER_OVERRIDES.lock().clear();
+    SERVER_OVERRIDES.lock().unwrap().clear();
 }
 
 pub(crate) fn set_system_setting(key: &str, value: &str) -> bool {
@@ -32,7 +33,7 @@ pub(crate) fn set_system_setting(key: &str, value: &str) -> bool {
 }
 
 pub(crate) fn delete_system_setting(key: &str) {
-    let mut cfg = SETTINGS_CONFIG.lock();
+    let mut cfg = SETTINGS_CONFIG.lock().unwrap();
     cfg.remove_key(SystemSettingsManage::SECTION, key);
 }
 
@@ -67,7 +68,7 @@ impl Drop for TestCleanup {
 
 #[test]
 fn system_settings_defaults_match_python_port_contract() {
-    let _guard = SETTINGS_LOCK.lock();
+    let _guard = SETTINGS_LOCK.lock().unwrap();
     let _cleanup = TestCleanup;
     clear_test_keys();
 

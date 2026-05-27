@@ -22,10 +22,8 @@ pub struct DateTimeBody {
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyDateTimeResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zones: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,19 +33,11 @@ pub struct LegacyDateTimeResponse {
     pub time: String,
 }
 
-crate::define_json_response_family! {
-    pub enum GetDateTimeLegacyResponses {
-        Ok(LegacyDateTimeResponse) => 200;
-    }
-    from LegacyDateTimeResponse => Ok;
+crate::define_ok_json_response_family! {
+    pub enum GetDateTimeLegacyResponses(LegacyDateTimeResponse);
 }
 
-crate::define_json_response_family! {
-    pub enum PutDateTimeLegacyResponses {
-        Ok(LegacyDateTimeResponse) => 200;
-    }
-    from LegacyDateTimeResponse => Ok;
-}
+pub type PutDateTimeLegacyResponses = GetDateTimeLegacyResponses;
 
 fn legacy_datetime_response(
     operation: LegacyOperationResponse,
@@ -57,8 +47,7 @@ fn legacy_datetime_response(
     time: impl Into<String>,
 ) -> LegacyDateTimeResponse {
     LegacyDateTimeResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         zones,
         zone,
         method,
@@ -127,7 +116,7 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
         match DateTimeService::get_datetime().await {
             Ok(dt) => {
                 return PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
-                    ok_response("Unable to determine timezone"),
+                    ok_response(dt.zone),
                     dt.datetime,
                 ));
             }
@@ -151,3 +140,4 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
         )),
     }
 }
+

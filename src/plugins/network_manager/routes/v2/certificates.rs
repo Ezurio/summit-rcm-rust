@@ -5,47 +5,20 @@
 
 //! Network certificate endpoints.
 
-use crate::certificates::{CertificatesService, CERT_DIR};
+use crate::certificates::{CertificateInfo, CertificatesService};
+use crate::definition::NETWORKMANAGER_CERT_DIR;
 use crate::plugins::files::FilesService;
 use axum::{body::to_bytes, extract::{multipart::MultipartRejection, Multipart, Path}};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::Path as FsPath;
 use log::error;
 
-crate::define_json_response_family! {
-    pub enum ListCertificatesResponses {
-        Ok(Vec<String>) => 200;
-        InternalError => 500
-    }
-    from Vec<String> => Ok;
+crate::define_ok_internal_json_response_family! {
+    pub enum ListCertificatesResponses(Vec<String>);
 }
 
-#[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CertificateExtension {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CertificateInfo {
-    pub version: i32,
-    pub serial_number: String,
-    pub subject: String,
-    pub issuer: String,
-    pub not_before: String,
-    pub not_after: String,
-    pub extensions: Vec<CertificateExtension>,
-}
-
-crate::define_json_response_family! {
-    pub enum GetCertificateResponses {
-        Ok(CertificateInfo) => 200;
-        BadRequest => 400,
-        InternalError => 500
-    }
-    from CertificateInfo => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+    pub enum GetCertificateResponses(CertificateInfo);
 }
 
 crate::define_status_response_family! {
@@ -115,14 +88,8 @@ pub async fn get_certificate(Path(name): Path<String>, req: axum::extract::Reque
         }
     };
 
-    match CertificatesService::get_cert_info(&name, password.as_deref()).await {
-        Ok(cert_info) => match serde_json::from_value::<CertificateInfo>(cert_info) {
-            Ok(cert_info) => cert_info.into(),
-            Err(error) => {
-                error!("get_certificate {} invalid response shape: {}", name, error);
-                GetCertificateResponses::InternalError
-            }
-        },
+    match CertificatesService::get_cert_info_model(&name, password.as_deref()).await {
+        Ok(cert_info) => cert_info.into(),
         Err(error) => {
             error!("get_certificate {}: {}", name, error);
             GetCertificateResponses::InternalError
@@ -179,7 +146,7 @@ pub async fn upload_certificate(
     responses(DeleteCertificateResponses)
 ))]
 pub async fn delete_certificate(Path(name): Path<String>) -> DeleteCertificateResponses {
-    let path = format!("{}{}", CERT_DIR, name);
+    let path = format!("{}{}", NETWORKMANAGER_CERT_DIR, name);
     if !FsPath::new(&path).exists() {
         return DeleteCertificateResponses::NotFound;
     }

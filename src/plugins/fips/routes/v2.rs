@@ -10,20 +10,12 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-crate::define_json_response_family! {
-	pub enum GetFipsResponses {
-		Ok(FipsState) => 200;
-	}
-	from FipsState => Ok;
+crate::define_ok_json_response_family! {
+	pub enum GetFipsResponses(FipsState);
 }
 
-crate::define_json_response_family! {
-	pub enum SetFipsResponses {
-		Ok(FipsState) => 200;
-		BadRequest => 400,
-		InternalError => 500
-	}
-	from FipsState => Ok;
+crate::define_ok_bad_request_internal_json_response_family! {
+	pub enum SetFipsResponses(FipsState);
 }
 
 #[derive(Deserialize)]

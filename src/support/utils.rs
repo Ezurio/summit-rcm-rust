@@ -4,26 +4,26 @@
 //
 //! Miscellaneous utility functions ported from utils.py
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use openssl::x509::X509VerifyResult;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::io::Read;
 use std::path::Path;
 use std::process::Output;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use std::time::Duration;
 use tokio::process::Command;
 
 /// Return the current CLOCK_BOOTTIME timestamp.
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 pub fn boottime() -> Timespec {
     clock_gettime(ClockId::Boottime)
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 pub fn timespec_duration(value: Timespec) -> Duration {
     Duration::new(value.tv_sec.try_into().unwrap_or(0), value.tv_nsec.try_into().unwrap_or(0))
 }
@@ -118,6 +118,98 @@ where
     S: AsRef<OsStr>,
 {
     Ok(command_output(program, args).await?.status.success())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BootRootfsInfo {
+    root_dev_type: String,
+    current_side: String,
+    next_side: String,
+    base_hw_part_number: String,
+}
+
+impl BootRootfsInfo {
+    pub fn is_running_on_sd(&self) -> bool {
+        self.root_dev_type == "SD"
+    }
+
+    pub fn current_side_option(&self) -> Option<&str> {
+        match self.current_side.as_str() {
+            "a" | "b" => Some(self.current_side.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn next_side_option(&self) -> Option<&str> {
+        match self.next_side.as_str() {
+            "a" | "b" => Some(self.next_side.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn current_side_or_unknown(&self) -> &str {
+        self.current_side_option().unwrap_or("unknown")
+    }
+
+    pub fn next_side_or_unknown(&self) -> &str {
+        self.next_side_option().unwrap_or("unknown")
+    }
+
+    pub fn base_hw_part_number(&self) -> &str {
+        &self.base_hw_part_number
+    }
+}
+
+fn parse_boot_rootfs_info(output: &str) -> Result<BootRootfsInfo> {
+    let mut root_dev_type = None;
+    let mut current_side = None;
+    let mut next_side = None;
+    let mut base_hw_part_number = None;
+
+    for line in output.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "rootDevType" => root_dev_type = Some(value.to_string()),
+            "currentSide" => current_side = Some(value.to_string()),
+            "nextSide" => next_side = Some(value.to_string()),
+            "baseHwPartNumber" => base_hw_part_number = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(BootRootfsInfo {
+        root_dev_type: root_dev_type.ok_or_else(|| anyhow!("boot-rootfs.sh output missing rootDevType"))?,
+        current_side: current_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing currentSide"))?,
+        next_side: next_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing nextSide"))?,
+        base_hw_part_number: base_hw_part_number
+            .ok_or_else(|| anyhow!("boot-rootfs.sh output missing baseHwPartNumber"))?,
+    })
+}
+
+pub async fn get_boot_rootfs_next_side() -> Result<String> {
+    let output = command_stdout("/bin/sh", &["-c", ". boot-rootfs.sh && nextSide"]).await?;
+    output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("boot-rootfs.sh nextSide returned no output"))
+}
+
+pub async fn get_boot_rootfs_info() -> Result<BootRootfsInfo> {
+    let output = command_stdout(
+        "/bin/sh",
+        &[
+            "-c",
+            ". boot-rootfs.sh && getSide >/dev/null && base_hw=$(getBaseHwPartNumber) && printf 'rootDevType=%s\ncurrentSide=%s\nnextSide=%s\nbaseHwPartNumber=%s\n' \"$rootDevType\" \"$bootside\" unknown \"$base_hw\"",
+        ],
+    )
+    .await?;
+    let mut info = parse_boot_rootfs_info(&output)?;
+    info.next_side = get_boot_rootfs_next_side().await?;
+    Ok(info)
 }
 
 /// Convert an IEEE 802.11 frequency (in MHz) to a channel number.

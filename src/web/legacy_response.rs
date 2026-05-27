@@ -19,13 +19,18 @@ impl SdcerrCode {
     }
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyOperationResponse {
     #[serde(rename = "SDCERR")]
     pub sdcerr: i32,
     #[serde(rename = "InfoMsg")]
     pub info_msg: String,
+}
+
+crate::define_ok_json_response_family! {
+    pub enum LegacyOperationOkResponse(LegacyOperationResponse);
 }
 
 #[derive(serde::Serialize)]
@@ -45,18 +50,6 @@ pub struct LegacySdcerrDefinitions {
     pub firmware_updating: i32,
 }
 
-#[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
-#[derive(serde::Serialize)]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyStateResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-}
-
 pub fn ok_response(info_msg: impl Into<String>) -> LegacyOperationResponse {
     LegacyOperationResponse {
         sdcerr: SdcerrCode::Success.as_i32(),
@@ -68,23 +61,6 @@ pub fn fail_response(info_msg: impl Into<String>) -> LegacyOperationResponse {
     LegacyOperationResponse {
         sdcerr: SdcerrCode::Fail.as_i32(),
         info_msg: info_msg.into(),
-    }
-}
-
-#[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
-pub fn legacy_state_model(state: String, error_msg: &str) -> LegacyStateResponse {
-    LegacyStateResponse {
-        sdcerr: if state != "unknown" {
-            SdcerrCode::Success.as_i32()
-        } else {
-            SdcerrCode::Fail.as_i32()
-        },
-        info_msg: if state != "unknown" {
-            "".to_string()
-        } else {
-            error_msg.to_string()
-        },
-        state: Some(state),
     }
 }
 

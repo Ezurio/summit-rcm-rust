@@ -9,8 +9,14 @@ use crate::config::ServerConfig;
 use crate::dbus;
 use crate::plugins::network_manager::FILEDIR_CERT;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use crate::plugins::network_manager::routes::connection_profile::ConnectionProfile;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use crate::plugins::network_manager::routes::shared::{
+    AccessPoint, LegacyNetworkStatusPayload, NetworkInterfaceResponse, NetworkStatusResponse,
+    WifiStatus,
+};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{boottime, timespec_duration};
-use crate::plugins::system::version_service::get_network_manager_version;
 use serde_json::{json, Value};
 use std::net::Ipv6Addr;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
@@ -45,14 +51,25 @@ fn append_managed_software_devices(interfaces: &mut Vec<String>) {
     append_missing_interfaces(interfaces, managed_software_devices());
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct NetworkManagerVersionInfo {
-    pub nm_version: String,
-    pub driver: String,
-    pub driver_version: String,
-}
-
 impl NetworkService {
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    fn encode_connection_profile(settings: ConnectionProfile) -> Result<Value> {
+        serde_json::to_value(settings).map_err(Into::into)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    fn decode_connection_profile(value: Value) -> Result<ConnectionProfile> {
+        serde_json::from_value(value).map_err(Into::into)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    fn decode_route_model<T>(value: Value) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        serde_json::from_value(value).map_err(Into::into)
+    }
+
     fn device_state_value(device: &Value) -> Option<i64> {
         device
             .get("status")
@@ -63,42 +80,6 @@ impl NetworkService {
                     .or_else(|| status.get("State"))
                     .and_then(Value::as_i64)
             })
-    }
-
-    pub async fn get_version_info() -> Result<NetworkManagerVersionInfo> {
-        let manager_properties = NetworkManagerService::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
-        let nm_version = get_network_manager_version().await?;
-        let device_paths_value = manager_properties
-            .get("Devices")
-            .ok_or_else(|| anyhow::anyhow!("Devices property missing"))?;
-        let device_paths: Vec<OwnedObjectPath> = dbus::clone_owned_value(device_paths_value)?.try_into()?;
-        let unmanaged_devices = unmanaged_hardware_devices();
-
-        for device_path in device_paths {
-            let device_properties = NetworkManagerService::get_properties(device_path.as_str(), NM_DEVICE_IFACE).await?;
-            let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface") else {
-                continue;
-            };
-            if unmanaged_devices.contains(&interface_name) {
-                continue;
-            }
-            if dbus::property::<u32>(&device_properties, "DeviceType").unwrap_or_default() != 2 {
-                continue;
-            }
-
-            return Ok(NetworkManagerVersionInfo {
-                nm_version,
-                driver: dbus::property::<String>(&device_properties, "Driver").unwrap_or_default(),
-                driver_version: dbus::property::<String>(&device_properties, "DriverVersion")
-                    .unwrap_or_default(),
-            });
-        }
-
-        Ok(NetworkManagerVersionInfo {
-            nm_version,
-            driver: String::new(),
-            driver_version: String::new(),
-        })
     }
 
     pub async fn get_all_interfaces() -> Result<Value> {
@@ -480,6 +461,18 @@ impl NetworkService {
         }))
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_status_model(is_legacy: bool) -> Result<NetworkStatusResponse> {
+        Self::get_status(is_legacy)
+            .await
+            .and_then(Self::decode_route_model)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_legacy_status_model() -> Result<LegacyNetworkStatusPayload> {
+        Self::get_status(true).await.and_then(Self::decode_route_model)
+    }
+
     #[cfg(feature = "at-interface")]
     fn interface_connection_name(device: &serde_json::Map<String, Value>) -> String {
         device
@@ -541,6 +534,11 @@ impl NetworkService {
         Ok(Self::normalize_interface_detail(Value::Object(interface)))
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_interface_model(name: &str) -> Result<NetworkInterfaceResponse> {
+        Self::get_interface(name).await.and_then(Self::decode_route_model)
+    }
+
     pub async fn get_interface_legacy(name: &str) -> Result<Value> {
         NetworkManagerService::get_interface_status(name, true).await
     }
@@ -586,6 +584,11 @@ impl NetworkService {
             }));
         }
         Ok(json!(connections))
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_all_interfaces_model() -> Result<Vec<String>> {
+        Self::get_all_interfaces().await.and_then(Self::decode_route_model)
     }
 
     /// Get legacy connection profiles keyed by UUID.
@@ -645,6 +648,20 @@ impl NetworkService {
             json!(NetworkManagerService::get_active_connection_path_by_uuid(uuid).await?.is_some()),
         );
         Ok(Value::Object(map))
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_connection_profile_by_uuid(uuid: &str) -> Result<ConnectionProfile> {
+        Self::get_connection_by_uuid(uuid)
+            .await
+            .and_then(Self::decode_connection_profile)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_connection_profile_by_id(id: &str) -> Result<ConnectionProfile> {
+        Self::get_connection_by_id(id)
+            .await
+            .and_then(Self::decode_connection_profile)
     }
 
     pub async fn delete_connection_by_uuid(uuid: &str) -> Result<()> {
@@ -711,6 +728,13 @@ impl NetworkService {
         Ok(json!(aps))
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_access_points_model(iface: Option<&str>) -> Result<Vec<AccessPoint>> {
+        Self::get_access_points(iface)
+            .await
+            .and_then(Self::decode_route_model)
+    }
+
     #[cfg(feature = "api-legacy")]
     pub async fn get_access_points_legacy(iface: Option<&str>) -> Result<Value> {
         let access_points = NetworkManagerService::get_access_points_legacy_dbus(iface).await?;
@@ -739,6 +763,11 @@ impl NetworkService {
         }))
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn get_wifi_status_model() -> Result<WifiStatus> {
+        Self::get_wifi_status().await.and_then(Self::decode_route_model)
+    }
+
     #[cfg(feature = "at-interface")]
     pub async fn get_wifi_hardware_enabled() -> Result<Value> {
         let enabled = NetworkManagerService::get_wifi_hardware_enabled_dbus().await?;
@@ -755,6 +784,15 @@ impl NetworkService {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn create_connection_profile(settings: Value) -> Result<(Value, bool)> {
         Self::create_connection_profile_with_overwrite(settings, true).await
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn create_connection_profile_typed(
+        settings: ConnectionProfile,
+    ) -> Result<(ConnectionProfile, bool)> {
+        let settings = Self::encode_connection_profile(settings)?;
+        let (profile, created) = Self::create_connection_profile(settings).await?;
+        Ok((Self::decode_connection_profile(profile)?, created))
     }
 
     pub async fn create_connection_profile_with_overwrite(
@@ -827,6 +865,16 @@ impl NetworkService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn update_connection_profile_typed(
+        profile: &str,
+        settings: ConnectionProfile,
+    ) -> Result<ConnectionProfile> {
+        let settings = Self::encode_connection_profile(settings)?;
+        let profile = Self::update_connection_profile(profile, settings).await?;
+        Self::decode_connection_profile(profile)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn patch_connection_profile_by_uuid(uuid: &str, settings: Value) -> Result<Value> {
         let mut settings = settings;
         if let Some(activate) = Self::extract_activation_request(&mut settings) {
@@ -841,6 +889,16 @@ impl NetworkService {
         Self::save_connection_profile_internal(settings, Some(uuid), None, false)
             .await
             .map(|(profile, _)| profile)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn patch_connection_profile_by_uuid_typed(
+        uuid: &str,
+        settings: ConnectionProfile,
+    ) -> Result<ConnectionProfile> {
+        let settings = Self::encode_connection_profile(settings)?;
+        let profile = Self::patch_connection_profile_by_uuid(uuid, settings).await?;
+        Self::decode_connection_profile(profile)
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -859,6 +917,16 @@ impl NetworkService {
         Self::save_connection_profile_internal(settings, Some(&uuid), Some(id), false)
             .await
             .map(|(profile, _)| profile)
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    pub async fn patch_connection_profile_by_id_typed(
+        id: &str,
+        settings: ConnectionProfile,
+    ) -> Result<ConnectionProfile> {
+        let settings = Self::encode_connection_profile(settings)?;
+        let profile = Self::patch_connection_profile_by_id(id, settings).await?;
+        Self::decode_connection_profile(profile)
     }
 
 }

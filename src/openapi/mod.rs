@@ -8,6 +8,7 @@
 
 use std::sync::LazyLock;
 
+use log::error;
 use utoipa::OpenApi as _;
 use utoipa::Modify as _;
 use utoipa::openapi::{OpenApi, RefOr, path::{ParameterIn, PathItem}, response::{Response, Responses}};
@@ -18,13 +19,20 @@ struct ImplicitResponses;
 #[cfg(feature = "api-docs")]
 impl utoipa::Modify for ImplicitResponses {
     fn modify(&self, openapi: &mut OpenApi) {
-        let protected_routes = crate::publication::builtin_publications()
+        let mut protected_routes = crate::publication::builtin_openapi_publications()
             .into_iter()
-            .filter_map(|publication| publication.openapi.route_policies)
-            .flatten()
+            .flat_map(|publication| publication.route_policies)
             .filter(|route| route.auth == crate::publication::RouteAuthPolicy::SessionRequired)
             .map(|route| route.path.to_string())
             .collect::<std::collections::BTreeSet<_>>();
+
+        protected_routes.extend(
+            crate::plugin_loader::dynamic_openapi_publications()
+                .into_iter()
+                .flat_map(|publication| publication.route_policies)
+                .filter(|route| route.auth == crate::publication::RouteAuthPolicy::SessionRequired)
+                .map(|route| route.path.to_string()),
+        );
 
         for (path, path_item) in &mut openapi.paths.paths {
             apply_implicit_responses(path, path_item, &protected_routes);
@@ -106,6 +114,18 @@ fn add_response_if_missing(responses: &mut Responses, status: &str, description:
         .or_insert_with(|| RefOr::T(Response::new(description)));
 }
 
+#[cfg(feature = "api-docs")]
+fn merge_plugin_openapi_json(doc: &mut OpenApi, plugin_name: &str, json: &str) {
+    if json.trim().is_empty() {
+        return;
+    }
+
+    match serde_json::from_str::<OpenApi>(json) {
+        Ok(plugin_doc) => doc.merge(plugin_doc),
+        Err(err) => error!("Failed to parse OpenAPI document from plugin '{}': {}", plugin_name, err),
+    }
+}
+
 // ── v2 API doc ───────────────────────────────────────────────────────────────
 #[cfg(feature = "api-v2")]
 #[derive(utoipa::OpenApi)]
@@ -162,10 +182,16 @@ pub fn build_openapi() -> OpenApi {
     #[cfg(feature = "api-legacy")]
     doc.merge(ApiDocLegacy::openapi());
 
-    for publication in crate::publication::builtin_publications() {
-        for openapi in publication.openapi.docs.iter().flatten() {
-            doc.merge(openapi());
+    for publication in crate::publication::builtin_openapi_publications() {
+        if let Some(plugin_doc) = publication.openapi {
+            doc.merge(plugin_doc);
+        } else {
+            merge_plugin_openapi_json(&mut doc, &publication.name, &publication.openapi_json);
         }
+    }
+
+    for publication in crate::plugin_loader::dynamic_openapi_publications() {
+        merge_plugin_openapi_json(&mut doc, &publication.name, &publication.openapi_json);
     }
 
     #[cfg(feature = "api-docs")]

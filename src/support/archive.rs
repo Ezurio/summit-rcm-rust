@@ -12,6 +12,7 @@ use anyhow::Result;
 use crate::utils::command_output_checked;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{command_output, command_output_checked_in_dir, random_token_hex};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::path::Path;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::path::PathBuf;

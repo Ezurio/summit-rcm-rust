@@ -7,11 +7,10 @@
 use crate::config::SystemSettingsManage;
 use crate::config::ServerConfig;
 use crate::utils::{boottime, elapsed_timespec};
-use parking_lot::Mutex;
 use rustix::time::Timespec;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -88,7 +87,7 @@ impl LoginService {
 
     /// Return true if the user is blocked due to too many failed login attempts
     pub fn is_user_blocked(username: &str) -> bool {
-        let mut state = LOGIN_STATE.lock();
+        let mut state = LOGIN_STATE.lock().unwrap();
         let now = current_boottime();
         if let Some(times) = state.failed_logins.get_mut(username) {
             let retry_times = SystemSettingsManage::get_int("login_retry_times", 5) as usize;
@@ -105,7 +104,7 @@ impl LoginService {
 
     /// Record a failed login attempt
     pub fn login_failed(username: &str) {
-        let mut state = LOGIN_STATE.lock();
+        let mut state = LOGIN_STATE.lock().unwrap();
         let now = current_boottime();
         let window = Duration::from_secs(SystemSettingsManage::get_int("login_retry_window", 600) as u64);
         let times = state.failed_logins.entry(username.to_string()).or_default();
@@ -115,13 +114,13 @@ impl LoginService {
 
     /// Reset failed login counter on successful login
     pub fn login_reset(username: &str) {
-        LOGIN_STATE.lock().failed_logins.remove(username);
+        LOGIN_STATE.lock().unwrap().failed_logins.remove(username);
     }
 
     /// Return true if the user already has an active session
     pub fn is_user_logged_in(username: &str) -> bool {
         let now = current_boottime();
-        let mut state = LOGIN_STATE.lock();
+        let mut state = LOGIN_STATE.lock().unwrap();
         state.prune_expired_sessions(now);
         state
             .tracked_sessions
@@ -131,14 +130,14 @@ impl LoginService {
 
     pub fn is_session_active(session_id: &str) -> bool {
         let now = current_boottime();
-        let mut state = LOGIN_STATE.lock();
+        let mut state = LOGIN_STATE.lock().unwrap();
         state.prune_expired_sessions(now);
         state.tracked_sessions.contains_key(session_id)
     }
 
     pub fn track_session(session_id: &str, username: &str, timeout_secs: u64) {
         let now = current_boottime();
-        LOGIN_STATE.lock().track_session(
+        LOGIN_STATE.lock().unwrap().track_session(
             session_id,
             username,
             now,
@@ -147,7 +146,7 @@ impl LoginService {
     }
 
     pub fn remove_session(session_id: &str) {
-        LOGIN_STATE.lock().tracked_sessions.remove(session_id);
+        LOGIN_STATE.lock().unwrap().tracked_sessions.remove(session_id);
     }
 
 }

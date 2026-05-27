@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+mod nl80211;
+
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 #[cfg(feature = "at-interface")]
