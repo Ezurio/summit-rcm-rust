@@ -162,10 +162,6 @@ fn max_web_clients() -> usize {
     crate::config::SystemSettingsManage::get_int("max_web_clients", 1) as usize
 }
 
-fn session_timeout_secs() -> u64 {
-    crate::config::SystemSettingsManage::get_int("session_timeout", 10) as u64 * 60
-}
-
 fn effective_permission_string(username: &str) -> String {
     use crate::config::SystemSettingsManage;
     use crate::definition::USER_PERMISSION_TYPES;
@@ -360,7 +356,6 @@ pub async fn post_login_legacy(
                 LoginService::track_session(
                     &session_id,
                     &username,
-                    session_timeout_secs(),
                 );
 
                 if username == LoginService::default_username()
@@ -468,7 +463,6 @@ pub async fn post_login_legacy(
     LoginService::track_session(
         &session_id.to_string(),
         &username,
-        session_timeout_secs(),
     );
 
     let perm = effective_permission_string(&username);

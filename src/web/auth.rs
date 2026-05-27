@@ -83,6 +83,12 @@ pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
                 return unauthorized();
             }
 
+            if !LoginService::refresh_session(&session_id) {
+                LoginService::remove_session(&session_id);
+                let _ = session.flush().await;
+                return unauthorized();
+            }
+
             next.run(req).await
         }
         Ok(None) => {

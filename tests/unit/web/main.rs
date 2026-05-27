@@ -32,6 +32,7 @@ impl Drop for ServerConfigTestCleanup {
     fn drop(&mut self) {
         test_support::clear_test_state();
         tests::clear_server_overrides();
+        tests::delete_system_setting("session_timeout");
         #[cfg(feature = "provisioning")]
         if let Ok(state_path) = std::env::var("SUMMIT_RCM_PROVISIONING_STATE_FILE") {
             let _ = std::fs::remove_file(&state_path);
@@ -166,6 +167,37 @@ async fn session_flow_requires_login_and_revokes_on_logout() {
         .body(Body::empty())
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn expired_session_loses_access_to_protected_route() {
+    let _settings_guard = tests::SETTINGS_LOCK.lock();
+    test_env!();
+    assert!(tests::set_system_setting("session_timeout", "1"));
+    test_support::set_boottime_secs(100);
+
+    let app: Router = build_router();
+
+    let login_request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"username":"root","password":"summit"}"#))
+        .unwrap();
+    let login_response = app.clone().oneshot(login_request).await.unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+    let cookie = session_cookie(&login_response).expect("session cookie should be set");
+
+    test_support::set_boottime_secs(161);
+
+    let request = Request::builder()
+        .uri("/api/v2/login/users")
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 

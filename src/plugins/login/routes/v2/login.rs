@@ -106,7 +106,6 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
                 LoginService::track_session(
                     &existing_id.to_string(),
                     username,
-                    crate::config::SystemSettingsManage::get_int("session_timeout", 10) as u64 * 60,
                 );
             }
             info!("User {} refreshed session", username);
@@ -170,7 +169,6 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
     LoginService::track_session(
         &session_id.to_string(),
         username,
-        crate::config::SystemSettingsManage::get_int("session_timeout", 10) as u64 * 60,
     );
 
     info!("User {} logged in", username);
@@ -185,6 +183,10 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
     responses(LogoutResponses)
 ))]
 pub async fn logout(session: Session) -> LogoutResponses {
+    if !sessions_enabled() {
+        return LogoutResponses::Ok;
+    }
+
     let username = match session.get::<String>("username").await {
         Ok(value) => value,
         Err(error) => {
