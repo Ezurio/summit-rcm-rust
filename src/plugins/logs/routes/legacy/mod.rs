@@ -8,8 +8,6 @@ use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 #[cfg(feature = "api-docs")]
-
-#[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
     crate::plugins::logs::routes::legacy::get_log_legacy,

@@ -10,8 +10,6 @@
 
 use crate::config::ServerConfig;
 use crate::plugins::login::LoginService;
-#[cfg(not(test))]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::middleware::ProvisioningAuthOverride;
@@ -25,24 +23,8 @@ use axum::{
 };
 use tower_sessions::Session;
 
-#[cfg(not(test))]
-static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
-
-pub(crate) fn initialize_sessions_enabled() {
-    #[cfg(not(test))]
-    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
-}
-
 fn sessions_enabled() -> bool {
-    #[cfg(test)]
-    {
-        return ServerConfig::get_bool("/", "tools.sessions.on", true);
-    }
-
-    #[cfg(not(test))]
-    {
-        SESSIONS_ENABLED.load(Ordering::Relaxed)
-    }
+    ServerConfig::get_bool("/", "tools.sessions.on", true)
 }
 
 pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
@@ -93,7 +75,8 @@ pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
         }
         Ok(None) => {
             if let Some(session_id) = session.id() {
-                LoginService::remove_session(&session_id.to_string());
+                let session_id = session_id.to_string();
+                LoginService::remove_session(&session_id);
             }
             let _ = session.flush().await;
             unauthorized()

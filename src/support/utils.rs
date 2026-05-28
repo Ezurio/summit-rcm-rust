@@ -6,6 +6,7 @@
 
 use anyhow::{anyhow, bail, Result};
 use openssl::x509::X509VerifyResult;
+use serde::{de::DeserializeOwned, Serialize};
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
@@ -16,6 +17,14 @@ use std::process::Output;
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use std::time::Duration;
 use tokio::process::Command;
+
+pub fn parse_model<T, U>(value: U) -> Result<T, serde_json::Error>
+where
+    T: DeserializeOwned,
+    U: Serialize,
+{
+    serde_json::from_value(serde_json::to_value(value)?)
+}
 
 /// Return the current CLOCK_BOOTTIME timestamp.
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
@@ -85,11 +94,15 @@ where
     let output = command_output(program, args).await?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        } else {
+            stderr
+        };
         bail!(
             "{} failed: {}",
             program,
-            if stderr.is_empty() { stdout } else { stderr }
+            message
         );
     }
     Ok(output)
@@ -103,11 +116,15 @@ where
     let output = command_output_in_dir(program, args, cwd).await?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let message = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        } else {
+            stderr
+        };
         bail!(
             "{} failed: {}",
             program,
-            if stderr.is_empty() { stdout } else { stderr }
+            message
         );
     }
     Ok(output)
@@ -220,7 +237,7 @@ pub fn frequency_to_channel(freq: u32) -> u32 {
     if freq < 2484 {
         return (freq - 2407) / 5;
     }
-    if freq >= 4910 && freq <= 4980 {
+    if (4910..=4980).contains(&freq) {
         return (freq - 4000) / 5;
     }
     if freq < 5925 {
@@ -232,7 +249,7 @@ pub fn frequency_to_channel(freq: u32) -> u32 {
     if freq <= 45000 {
         return (freq - 5950) / 5;
     }
-    if freq >= 58320 && freq <= 70200 {
+    if (58320..=70200).contains(&freq) {
         return (freq - 56160) / 2160;
     }
     0

@@ -5,6 +5,7 @@
 //! Helper for interacting with systemd units via D-Bus (zbus)
 
 use crate::dbus;
+use crate::dbus::DBUS_PROP_IFACE;
 use anyhow::Result;
 #[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
 use anyhow::{bail, Context};
@@ -42,7 +43,10 @@ impl SystemdUnit {
 
     pub async fn unit_path(&self) -> Result<OwnedObjectPath> {
         let conn = dbus::system_bus().await?;
+        self.unit_path_with_conn(conn.as_ref()).await
+    }
 
+    async fn unit_path_with_conn(&self, conn: &zbus::Connection) -> Result<OwnedObjectPath> {
         dbus::call_method_deserialize_with_timeout(
             conn,
             Some(SYSTEMD_BUS_NAME),
@@ -75,32 +79,28 @@ impl SystemdUnit {
 
     async fn query_active_state(&self) -> Result<String> {
         let conn = dbus::system_bus().await?;
-        let unit_path = self.unit_path().await?;
+        let unit_path = self.unit_path_with_conn(conn.as_ref()).await?;
+
+        let unit_properties: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
+            dbus::call_method_deserialize_with_timeout(
+                conn.as_ref(),
+                Some(SYSTEMD_BUS_NAME),
+                unit_path.as_str(),
+                Some(DBUS_PROP_IFACE),
+                "GetAll",
+                &(SYSTEMD_UNIT_IFACE,),
+                None,
+            )
+            .await?;
 
         // Match Python baseline behavior: if systemd cannot load the unit,
         // surface this as an unknown state instead of inactive.
-        let load_state = dbus::get_property_with_timeout::<String>(
-            conn.clone(),
-            SYSTEMD_BUS_NAME,
-            unit_path.as_str(),
-            SYSTEMD_UNIT_IFACE,
-            "LoadState",
-            None,
-        )
-        .await?;
+        let load_state = dbus::property::<String>(&unit_properties, "LoadState").unwrap_or_default();
         if load_state == "not-found" {
             return Ok("unknown".to_string());
         }
 
-        let state = dbus::get_property_with_timeout::<String>(
-            conn,
-            SYSTEMD_BUS_NAME,
-            unit_path.as_str(),
-            SYSTEMD_UNIT_IFACE,
-            "ActiveState",
-            None,
-        )
-        .await?;
+        let state = dbus::property::<String>(&unit_properties, "ActiveState").unwrap_or_default();
 
         Ok(state)
     }

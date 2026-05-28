@@ -83,14 +83,12 @@ impl TryFrom<i32> for ProvisioningState {
     }
 }
 
-#[derive(Debug)]
-pub struct InvalidCertificateError;
-impl std::fmt::Display for InvalidCertificateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Certificate verification failed")
-    }
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvisioningSaveError {
+    InvalidCertificate = 1,
+    Internal = 255,
 }
-impl std::error::Error for InvalidCertificateError {}
 
 pub struct CertificateProvisioningService;
 
@@ -429,16 +427,17 @@ impl CertificateProvisioningService {
         }
     }
 
-    pub async fn save_certificate_file() -> Result<()> {
+    pub async fn save_certificate_file() -> std::result::Result<(), ProvisioningSaveError> {
         if !Path::new(CERT_TEMP_PATH).exists() {
-            bail!("Certificate file not found");
+            return Err(ProvisioningSaveError::Internal);
         }
         if !Self::verify_certificate_against_ca(CERT_TEMP_PATH, PROVISIONING_CA_CERT_CHAIN_PATH).await {
-            return Err(anyhow::anyhow!(InvalidCertificateError));
+            return Err(ProvisioningSaveError::InvalidCertificate);
         }
-        std::fs::create_dir_all(PROVISIONING_DIR)?;
-        std::fs::rename(CERT_TEMP_PATH, DEVICE_SERVER_CERT_PATH)?;
-        Self::set_provisioning_state(ProvisioningState::PartiallyProvisioned)?;
+        std::fs::create_dir_all(PROVISIONING_DIR).map_err(|_| ProvisioningSaveError::Internal)?;
+        std::fs::rename(CERT_TEMP_PATH, DEVICE_SERVER_CERT_PATH).map_err(|_| ProvisioningSaveError::Internal)?;
+        Self::set_provisioning_state(ProvisioningState::PartiallyProvisioned)
+            .map_err(|_| ProvisioningSaveError::Internal)?;
         Ok(())
     }
 
@@ -453,34 +452,36 @@ impl CertificateProvisioningService {
             })
     }
 
-    pub async fn save_paired_client_cert(temp_path: &str) -> Result<()> {
+    pub async fn save_paired_client_cert(
+        temp_path: &str,
+    ) -> std::result::Result<(), ProvisioningSaveError> {
         if !Path::new(temp_path).exists() {
-            bail!("Paired client certificate temp file not found");
+            return Err(ProvisioningSaveError::Internal);
         }
 
         let dest = paired_client_cert_path();
         if dest.is_empty() {
             let _ = std::fs::remove_file(temp_path);
-            bail!("paired_client_cert_path not configured");
+            return Err(ProvisioningSaveError::Internal);
         }
 
         let content = match std::fs::read_to_string(temp_path) {
             Ok(content) => content,
             Err(_) => {
                 let _ = std::fs::remove_file(temp_path);
-                return Err(anyhow::anyhow!(InvalidCertificateError));
+                return Err(ProvisioningSaveError::InvalidCertificate);
             }
         };
 
         if !content.contains("-----BEGIN CERTIFICATE-----") {
             let _ = std::fs::remove_file(temp_path);
-            return Err(anyhow::anyhow!(InvalidCertificateError));
+            return Err(ProvisioningSaveError::InvalidCertificate);
         }
 
         if let Some(parent) = Path::new(&dest).parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|_| ProvisioningSaveError::Internal)?;
         }
-        std::fs::rename(temp_path, &dest)?;
+        std::fs::rename(temp_path, &dest).map_err(|_| ProvisioningSaveError::Internal)?;
         Ok(())
     }
 }

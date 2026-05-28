@@ -21,22 +21,9 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::{LazyLock, Mutex};
-#[cfg(not(test))]
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use time::{OffsetDateTime, UtcDateTime};
 use log::warn;
-
-#[cfg(not(test))]
-static DISABLE_CERTIFICATE_EXPIRY_VERIFICATION: AtomicBool = AtomicBool::new(true);
-
-pub(crate) fn initialize_disable_certificate_expiry_verification() {
-    #[cfg(not(test))]
-    DISABLE_CERTIFICATE_EXPIRY_VERIFICATION.store(
-        ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true),
-        Ordering::Relaxed,
-    );
-}
 
 fn rest_api_docs_enabled() -> bool {
     std::env::var("DOCS_GENERATION")
@@ -45,15 +32,7 @@ fn rest_api_docs_enabled() -> bool {
 }
 
 fn disable_certificate_expiry_verification() -> bool {
-    #[cfg(test)]
-    {
-        return ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true);
-    }
-
-    #[cfg(not(test))]
-    {
-        DISABLE_CERTIFICATE_EXPIRY_VERIFICATION.load(Ordering::Relaxed)
-    }
+    ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
 }
 
 static LAST_CLIENT_CERT_HASH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
@@ -179,11 +158,10 @@ fn check_for_new_fallback_timestamp(provisioning_state: ProvisioningState, tls_i
     };
 
     let fallback_timestamp = CertificateProvisioningService::read_fallback_timestamp().ok().flatten();
-    if fallback_timestamp.map(|ts| client_cert_not_before > ts).unwrap_or(true) {
-        if let Err(error) = CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before) {
+    if fallback_timestamp.map(|ts| client_cert_not_before > ts).unwrap_or(true)
+        && let Err(error) = CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before) {
             warn!("Couldn't update fallback timestamp from client certificate: {}", error);
         }
-    }
 }
 
 pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Response<Body> {
@@ -222,9 +200,9 @@ pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Respons
     }
 
     if provisioning_state != ProvisioningState::FullyProvisioned {
-        if enable_client_pairing && provisioning_state == ProvisioningState::PartiallyProvisioned {
-            req.extensions_mut().insert(ProvisioningAuthOverride);
-        } else if is_whitelisted(&path) {
+        if (enable_client_pairing && provisioning_state == ProvisioningState::PartiallyProvisioned)
+            || is_whitelisted(&path)
+        {
             req.extensions_mut().insert(ProvisioningAuthOverride);
         } else {
             return StatusCode::UNAUTHORIZED.into_response();
@@ -236,14 +214,12 @@ pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Respons
     if manual_time_set_request
         && response.status().is_success()
         && provisioning_state == ProvisioningState::PartiallyProvisioned
-    {
-        if CertificateProvisioningService::set_provisioning_state(ProvisioningState::FullyProvisioned).is_ok() {
+        && CertificateProvisioningService::set_provisioning_state(ProvisioningState::FullyProvisioned).is_ok() {
             tokio::spawn(async {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 let _ = CertificateProvisioningService::restart_summit_rcm().await;
             });
         }
-    }
 
     response
 }

@@ -5,98 +5,71 @@
 
 //! Firmware update AT commands owned by the update plugin.
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::at_files_service::AtFilesService;
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::files::FilesService;
 use crate::plugins::update::FirmwareUpdateService;
-use crate::publication::PublishedAtCommand;
 use log::error;
 
-pub struct FWUpdateRun;
+pub async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    if params.raw_input().trim().is_empty() {
+        FirmwareUpdateService::cancel();
+        return CommandOutcome::Ok;
+    }
 
-impl Command for FWUpdateRun {
-    fn signature(&self) -> &str { "at+fwrun" }
-    fn name(&self) -> &str { "FW Update Run" }
-    fn usage(&self) -> &str { "AT+FWRUN=<url>,<image>" }
+    let Some(url_raw) = params.raw_parameter(0) else {
+        return CommandOutcome::Error;
+    };
+    let image_raw = params
+        .iter_raw_parameters()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(",");
+    let url = url_raw.trim();
+    let image = image_raw.trim();
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            if params.trim().is_empty() {
-                FirmwareUpdateService::cancel();
-                return (true, "OK".to_string());
-            }
-            let parts: Vec<&str> = params.splitn(2, ',').collect();
-            let url = parts[0].trim();
-            let image = if parts.len() > 1 { parts[1].trim() } else { "" };
-
-            match FirmwareUpdateService::start_update(url, image).await {
-                Ok(_) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("FW update run error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    match FirmwareUpdateService::start_update(url, image).await {
+        Ok(_) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("FW update run error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct FWUpdateSend;
+pub async fn execute_fw_update_send(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let length: usize = match params.raw_input().trim().parse() {
+        Ok(v) => v,
+        Err(_) => return CommandOutcome::Error,
+    };
 
-impl Command for FWUpdateSend {
-    fn signature(&self) -> &str { "at+fwsend" }
-    fn name(&self) -> &str { "FW Update Send" }
-    fn usage(&self) -> &str { "AT+FWSEND=<length>" }
+    FsmHandle::at_output(b"> ", false, false);
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let length: usize = match params.trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
+    let (done, data, _len) = AtFilesService::write_upload_body(length, 256).await;
 
-            FsmHandle::at_output(b"> ", false, false);
+    if !done {
+        return CommandOutcome::PendingInput;
+    }
 
-            let (done, data, _len) = AtFilesService::write_upload_body(length, 256).await;
-
-            if !done {
-                return (false, String::new());
-            }
-
-            match FilesService::upload_fwupdate(&data).await {
-                Ok(_path) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("FW update send error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    match FilesService::upload_fwupdate(&data).await {
+        Ok(_path) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("FW update send error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct FWUpdateStatus;
-
-impl Command for FWUpdateStatus {
-    fn signature(&self) -> &str { "at+fwstatus" }
-    fn name(&self) -> &str { "FW Update Status" }
-    fn usage(&self) -> &str { "AT+FWSTATUS" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let (status, msg) = FirmwareUpdateService::instance().lock().unwrap().get_update_status();
-            (true, format!("+FWSTATUS: {},{}\r\nOK", status, msg))
-        })
-    }
+pub async fn execute_fw_update_status(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    let (status, msg) = FirmwareUpdateService::instance().lock().unwrap().get_update_status();
+    CommandOutcome::WithData(format!("+FWSTATUS: {},{}\r\nOK", status, msg))
 }
 
-pub static PUBLISHED_COMMANDS: &[PublishedAtCommand] = &[
-    PublishedAtCommand::new("at+fwrun", "FW Update Run"),
-    PublishedAtCommand::new("at+fwsend", "FW Update Send"),
-    PublishedAtCommand::new("at+fwstatus", "FW Update Status"),
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at+fwrun", "AT+FWRUN=<url>,<image>", 0, &[], execute_fw_update_run),
+    crate::at_interface::commands::command_spec!("at+fwsend", "AT+FWSEND=<length>", 0, &[], execute_fw_update_send),
+    crate::at_interface::commands::command_spec!("at+fwstatus", "AT+FWSTATUS", 0, &[], execute_fw_update_status),
 ];
 
-pub fn add_at_commands(cmds: &mut Vec<Box<dyn Command>>) {
-    cmds.push(Box::new(FWUpdateRun));
-    cmds.push(Box::new(FWUpdateSend));
-    cmds.push(Box::new(FWUpdateStatus));
-}

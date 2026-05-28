@@ -8,99 +8,118 @@
 pub mod basic;
 pub mod cip;
 pub mod http;
+pub mod params;
+
+pub use params::CsvParams;
 
 use crate::at_interface::fsm::FsmHandle;
-use crate::publication::PublishedAtCommand;
-use futures_util::future::BoxFuture;
+use std::future::Future;
+use std::pin::Pin;
 
-pub trait Command: Send + Sync {
-    fn signature(&self) -> &str;
-    fn name(&self) -> &str;
-    fn usage(&self) -> &str;
-    fn execute<'a>(&'a self, fsm: &'a FsmHandle, params: &'a str) -> BoxFuture<'a, (bool, String)>;
+pub type CommandExecFuture<'a> = Pin<Box<dyn Future<Output = CommandOutcome> + Send + 'a>>;
+pub type CommandExecutor = for<'a> fn(&'a FsmHandle, &'a params::CsvParams<'a>) -> CommandExecFuture<'a>;
+
+pub enum CommandOutcome {
+    Ok,
+    Error,
+    WithData(String),
+    PendingInput,
 }
 
-fn build_core_commands() -> Vec<Box<dyn Command>> {
-    vec![
-        Box::new(basic::CommunicationCheck),
-        Box::new(basic::Empty),
-        Box::new(basic::Ping),
-        Box::new(basic::ATEchoEnable),
-        Box::new(basic::ATEchoDisable),
-        Box::new(cip::CIPStart),
-        Box::new(cip::CIPClose),
-        Box::new(cip::CIPSend),
-        Box::new(cip::CIPConfigureSSL),
-        Box::new(http::HTTPConfigureTransaction),
-        Box::new(http::HTTPExecuteTransaction),
-        Box::new(http::HTTPAddHeader),
-        Box::new(http::HTTPEnableResponseHeader),
-        Box::new(http::HTTPClearConfiguration),
-        Box::new(http::HTTPConfigureSSL),
-    ]
+#[derive(Clone, Copy, Debug)]
+pub struct CommandHandler {
+    pub usage: &'static str,
+    pub param_count: usize,
+    pub required_non_empty_indices: &'static [usize],
+    pub execute: CommandExecutor,
 }
 
-fn core_published_commands() -> &'static [PublishedAtCommand] {
-    static COMMANDS: &[PublishedAtCommand] = &[
-        PublishedAtCommand::new("at", "Communication Check"),
-        PublishedAtCommand::new("", "Empty"),
-        PublishedAtCommand::new("at+ping", "Ping"),
-        PublishedAtCommand::new("ate1", "AT Echo Enable"),
-        PublishedAtCommand::new("ate0", "AT Echo Disable"),
-        PublishedAtCommand::new("at+cipstart", "CIP Start"),
-        PublishedAtCommand::new("at+cipclose", "CIP Close"),
-        PublishedAtCommand::new("at+cipsend", "CIP Send"),
-        PublishedAtCommand::new("at+cipssl", "CIP Configure SSL"),
-        PublishedAtCommand::new("at+httpconf", "HTTP Configure Transaction"),
-        PublishedAtCommand::new("at+httpexe", "HTTP Execute Transaction"),
-        PublishedAtCommand::new("at+httpaddhdr", "HTTP Add Header"),
-        PublishedAtCommand::new("at+httprshdr", "HTTP Enable Response Header"),
-        PublishedAtCommand::new("at+httpclr", "HTTP Clear Configuration"),
-        PublishedAtCommand::new("at+httpssl", "HTTP Configure SSL"),
-    ];
-    COMMANDS
+pub type PublishedCommand = (&'static str, &'static CommandHandler);
+
+macro_rules! command_spec {
+    (
+        $signature:expr,
+        $usage:expr,
+        $param_count:expr,
+        $required_non_empty_indices:expr,
+        $execute:path
+    ) => {
+        (
+            $signature,
+            &$crate::at_interface::commands::CommandHandler {
+                usage: $usage,
+                param_count: $param_count,
+                required_non_empty_indices: $required_non_empty_indices,
+                execute: |fsm, params| Box::pin($execute(fsm, params)),
+            },
+        )
+    };
 }
 
-pub fn build_commands() -> Vec<Box<dyn Command>> {
-    let mut cmds = build_core_commands();
-    for publication in crate::publication::builtin_at_publications() {
-        if let Some(at_commands) = publication.at_commands.as_ref() {
-            (at_commands.install)(&mut cmds);
-        }
-    }
+pub(crate) use command_spec;
 
-    for cmd in &cmds {
-        let _ = cmd.name();
-    }
+pub struct CommandRegistry;
 
-    let _published = published_commands();
+static CORE_COMMANDS: &[&[PublishedCommand]] = &[
+    basic::COMMANDS,
+    cip::COMMANDS,
+    http::COMMANDS,
+];
 
-    cmds
+pub fn build_command_registry() -> CommandRegistry {
+    CommandRegistry
 }
 
-pub fn published_commands() -> Vec<PublishedAtCommand> {
-    let mut commands = core_published_commands().to_vec();
-    for publication in crate::publication::builtin_at_publications() {
-        if let Some(at_commands) = publication.at_commands.as_ref() {
-            if let Some(metadata) = at_commands.metadata {
-                commands.extend_from_slice(metadata);
+fn find_published_command(signature: &str) -> Option<&'static CommandHandler> {
+    for published in CORE_COMMANDS {
+        for (candidate, command) in *published {
+            if *candidate == signature {
+                return Some(*command);
             }
         }
     }
-    commands
+
+    for publication in crate::publication::builtin_at_publications_slice() {
+        let Some(at_commands) = publication.at_commands.as_ref() else {
+            continue;
+        };
+
+        for (candidate, command) in at_commands.install {
+            if *candidate == signature {
+                return Some(*command);
+            }
+        }
+    }
+
+    None
 }
 
-pub fn lookup_command<'a>(
-    commands: &'a [Box<dyn Command>],
-    input: &str,
-) -> Option<(&'a dyn Command, String, bool)> {
+pub fn parse_command_params<'a>(
+    cmd: &CommandHandler,
+    params_str: &'a str,
+) -> Option<params::CsvParams<'a>> {
+    if cmd.param_count == 0 {
+        return params::CsvParams::parse_required(params_str, 0);
+    }
+
+    if cmd.required_non_empty_indices.is_empty() {
+        params::CsvParams::parse_required(params_str, cmd.param_count)
+    } else {
+        params::CsvParams::parse_required_non_empty(
+            params_str,
+            cmd.param_count,
+            cmd.required_non_empty_indices,
+        )
+    }
+}
+
+pub fn lookup_command_in_registry<'registry, 'input>(
+    _registry: &'registry CommandRegistry,
+    input: &'input str,
+) -> Option<(&'registry CommandHandler, &'input str, bool)> {
     if input.is_empty() {
-        for cmd in commands {
-            if cmd.signature().is_empty() {
-                return Some((&**cmd, String::new(), false));
-            }
-        }
-        return None;
+        let cmd = find_published_command("")?;
+        return Some((cmd, "", false));
     }
 
     let lower = input.to_lowercase();
@@ -116,19 +135,24 @@ pub fn lookup_command<'a>(
 
     if let Some(eq_pos) = stripped.find('=') {
         let sig = stripped[..eq_pos].to_lowercase();
-        let params = stripped[eq_pos + 1..].to_string();
-        for cmd in commands {
-            if sig == cmd.signature() {
-                return Some((&**cmd, params, print_usage));
-            }
+        let params = &stripped[eq_pos + 1..];
+        if let Some(cmd) = find_published_command(sig.as_str()) {
+            return Some((cmd, params, print_usage));
         }
     } else {
         let sig = stripped.to_lowercase();
-        for cmd in commands {
-            if sig == cmd.signature() {
-                return Some((&**cmd, String::new(), print_usage));
-            }
+        if let Some(cmd) = find_published_command(sig.as_str()) {
+            return Some((cmd, "", print_usage));
         }
     }
+
     None
+}
+
+pub async fn execute_registered_command(
+    command: &CommandHandler,
+    fsm: &FsmHandle,
+    params: &params::CsvParams<'_>,
+) -> CommandOutcome {
+    (command.execute)(fsm, params).await
 }

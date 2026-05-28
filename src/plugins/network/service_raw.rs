@@ -20,6 +20,14 @@ use zbus::zvariant::{OwnedObjectPath, Value as DbusValue};
 
 pub struct NetworkService;
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawNetworkError {
+    InvalidInterfaceName = 1,
+    InterfaceNotFound = 2,
+    Internal = 255,
+}
+
 const WPA_OBJ: &str = "/fi/w1/wpa_supplicant1";
 const WPA_IFACE: &str = "fi.w1.wpa_supplicant1";
 const SUPPLICANT_INTERFACE_IFACE: &str = "fi.w1.wpa_supplicant1.Interface";
@@ -103,7 +111,7 @@ impl NetworkService {
     }
 
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
-        let conn = dbus::system_bus().await?.clone();
+        let conn = dbus::system_bus().await?;
         dbus::get_property_with_timeout(
             &conn,
             WPA_IFACE,
@@ -116,7 +124,7 @@ impl NetworkService {
     }
 
     async fn get_supplicant_interface_name(interface_obj_path: &str) -> Result<String> {
-        let conn = dbus::system_bus().await?.clone();
+        let conn = dbus::system_bus().await?;
         dbus::get_property_with_timeout(
             &conn,
             WPA_IFACE,
@@ -129,7 +137,7 @@ impl NetworkService {
     }
 
     pub async fn get_supplicant_debug_level() -> Result<String> {
-        let conn = dbus::system_bus().await?.clone();
+        let conn = dbus::system_bus().await?;
         dbus::get_property_with_timeout(
             &conn,
             WPA_IFACE,
@@ -149,7 +157,7 @@ impl NetworkService {
     }
 
     pub async fn set_supplicant_debug_level(level: &str) -> Result<()> {
-        let conn = dbus::system_bus().await?.clone();
+        let conn = dbus::system_bus().await?;
         dbus::set_property_with_timeout(
             &conn,
             WPA_IFACE,
@@ -206,34 +214,38 @@ impl NetworkService {
         })
     }
 
-    pub async fn get_interface_driver_info(name: &str) -> Result<InterfaceDriverInfo> {
+    pub async fn get_interface_driver_info(
+        name: &str,
+    ) -> std::result::Result<InterfaceDriverInfo, RawNetworkError> {
         if name.is_empty() {
-            anyhow::bail!("No interface name provided");
+            return Err(RawNetworkError::InvalidInterfaceName);
+        }
+
+        let info_file = format!("/sys/class/net/{}/phy80211/device/lrd/info", name);
+        if tokio::fs::try_exists(&info_file).await.unwrap_or(false) {
+            let info = tokio::fs::read_to_string(&info_file)
+                .await
+                .map_err(|_| RawNetworkError::Internal)?;
+            if let Some(driver_info) = parse_country_codes(&info) {
+                return Ok(driver_info);
+            }
+            return Err(RawNetworkError::Internal);
         }
 
         let cc_file = format!("/sys/class/net/{}/phy80211/device/lrd/cc", name);
         if tokio::fs::try_exists(&cc_file).await.unwrap_or(false) {
-            tokio::fs::write(&cc_file, "0").await?;
-            let adopted = tokio::fs::read_to_string(&cc_file).await?.trim().to_string();
-            tokio::fs::write(&cc_file, "1").await?;
-            let otp = tokio::fs::read_to_string(&cc_file).await?.trim().to_string();
+            let code = tokio::fs::read_to_string(&cc_file)
+                .await
+                .map_err(|_| RawNetworkError::Internal)?
+                .trim()
+                .to_string();
             return Ok(InterfaceDriverInfo {
-                adopted_country_code: adopted,
-                otp_country_code: otp,
+                adopted_country_code: code.clone(),
+                otp_country_code: code,
             });
         }
 
-        let info_file = format!("/sys/class/net/{}/phy80211/device/lrd/info", name);
-        if !tokio::fs::try_exists(&info_file).await.unwrap_or(false) {
-            anyhow::bail!("Invalid interface name");
-        }
-
-        let info = tokio::fs::read_to_string(&info_file).await?;
-        if let Some(driver_info) = parse_country_codes(&info) {
-            return Ok(driver_info);
-        }
-
-        anyhow::bail!("Unable to retrieve driver info")
+        Err(RawNetworkError::InvalidInterfaceName)
     }
 
     pub async fn get_reg_domain_info() -> Result<String> {
@@ -273,17 +285,26 @@ impl NetworkService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_summit_status(ifname: &str) -> Result<SummitStatus> {
+    pub async fn get_summit_status(
+        ifname: &str,
+    ) -> std::result::Result<SummitStatus, RawNetworkError> {
         let target = if ifname.is_empty() { "wlan0" } else { ifname };
-        let interface_paths = Self::get_supplicant_interfaces().await?;
+        let interface_paths = Self::get_supplicant_interfaces()
+            .await
+            .map_err(|_| RawNetworkError::Internal)?;
 
         for interface_path in interface_paths {
-            let interface_name = Self::get_supplicant_interface_name(interface_path.as_str()).await?;
+            let interface_name = Self::get_supplicant_interface_name(interface_path.as_str())
+                .await
+                .map_err(|_| RawNetworkError::Internal)?;
             if interface_name != target {
                 continue;
             }
 
-            let conn = dbus::system_bus().await?.clone();
+            let conn = dbus::system_bus()
+                .await
+                .map_err(|_| RawNetworkError::Internal)?
+                .clone();
             let summit_status: HashMap<String, String> = dbus::get_property_with_timeout(
                 &conn,
                 WPA_IFACE,
@@ -292,14 +313,15 @@ impl NetworkService {
                 "SummitStatus",
                 None,
             )
-            .await?;
+            .await
+            .map_err(|_| RawNetworkError::Internal)?;
             return Ok(SummitStatus {
                 best: summit_status.get("best").cloned(),
                 last: summit_status.get("last").cloned(),
             });
         }
 
-        anyhow::bail!("interface not found")
+        Err(RawNetworkError::InterfaceNotFound)
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]

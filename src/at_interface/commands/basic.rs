@@ -5,7 +5,8 @@
 
 //! Basic AT commands: communication check, empty, ping, echo
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use anyhow::{Context, anyhow};
 use log::error;
@@ -76,100 +77,55 @@ fn format_ping_millis(duration: Duration) -> String {
     formatted.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-pub struct CommunicationCheck;
+pub async fn execute_communication_check(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    CommandOutcome::Ok
+}
 
-impl Command for CommunicationCheck {
-    fn signature(&self) -> &str { "at" }
-    fn name(&self) -> &str { "Communication Check" }
-    fn usage(&self) -> &str { "AT" }
+pub async fn execute_empty(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    CommandOutcome::Ok
+}
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move { (true, "OK".to_string()) })
+pub async fn execute_ping(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let target = params.trimmed(0);
+    let timeout_secs = if params.trimmed(1).is_empty() {
+        DEFAULT_TIMEOUT_SECS
+    } else {
+        match params.parse_value::<u64>(1) {
+            Some(timeout_secs) => timeout_secs,
+            None => return CommandOutcome::Error,
+        }
+    };
+    let protocol = match PingProtocol::from_param(params.trimmed(2)) {
+        Ok(protocol) => protocol,
+        Err(error) => {
+            error!("Ping parameter error: {error}");
+            return CommandOutcome::Error;
+        }
+    };
+
+    match ping_target(target, timeout_secs, protocol).await {
+        Ok(duration) => CommandOutcome::WithData(format!("+PING: {}\r\nOK", format_ping_millis(duration))),
+        Err(error) => {
+            error!("Ping error: {error}");
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct Empty;
-
-impl Command for Empty {
-    fn signature(&self) -> &str { "" }
-    fn name(&self) -> &str { "Empty" }
-    fn usage(&self) -> &str { "" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move { (true, String::new()) })
-    }
+pub async fn execute_at_echo_enable(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    FsmHandle::enable_echo(true);
+    CommandOutcome::Ok
 }
 
-pub struct Ping;
-
-impl Command for Ping {
-    fn signature(&self) -> &str { "at+ping" }
-    fn name(&self) -> &str { "Ping" }
-    fn usage(&self) -> &str { "AT+PING=<target>[,<timeout>[,<protocol>]]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(3, ',').collect();
-            if parts.len() < 3 {
-                return (true, "ERROR".to_string());
-            }
-            let target = parts[0];
-            let timeout = if parts[1].is_empty() {
-                DEFAULT_TIMEOUT_SECS
-            } else if let Ok(timeout) = parts[1].parse::<u64>() {
-                timeout
-            } else {
-                return (true, "ERROR".to_string());
-            };
-            let protocol = match PingProtocol::from_param(parts[2]) {
-                Ok(protocol) => protocol,
-                Err(error) => {
-                    error!("Ping parameter error: {error}");
-                    return (true, "ERROR".to_string());
-                }
-            };
-
-            if target.is_empty() {
-                return (true, "ERROR".to_string());
-            }
-
-            match ping_target(target, timeout, protocol).await {
-                Ok(duration) => (true, format!("+PING: {}\r\nOK", format_ping_millis(duration))),
-                Err(error) => {
-                    error!("Ping error: {error}");
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
-    }
+pub async fn execute_at_echo_disable(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    FsmHandle::enable_echo(false);
+    CommandOutcome::Ok
 }
 
-pub struct ATEchoEnable;
-
-impl Command for ATEchoEnable {
-    fn signature(&self) -> &str { "ate1" }
-    fn name(&self) -> &str { "AT Echo Enable" }
-    fn usage(&self) -> &str { "ATE1" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            FsmHandle::enable_echo(true);
-            (true, "OK".to_string())
-        })
-    }
-}
-
-pub struct ATEchoDisable;
-
-impl Command for ATEchoDisable {
-    fn signature(&self) -> &str { "ate0" }
-    fn name(&self) -> &str { "AT Echo Disable" }
-    fn usage(&self) -> &str { "ATE0" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            FsmHandle::enable_echo(false);
-            (true, "OK".to_string())
-        })
-    }
-}
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at", "AT", 0, &[], execute_communication_check),
+    crate::at_interface::commands::command_spec!("", "", 0, &[], execute_empty),
+    crate::at_interface::commands::command_spec!("at+ping", "AT+PING=<target>[,<timeout>[,<protocol>]]", 3, &[0], execute_ping),
+    crate::at_interface::commands::command_spec!("ate1", "ATE1", 0, &[], execute_at_echo_enable),
+    crate::at_interface::commands::command_spec!("ate0", "ATE0", 0, &[], execute_at_echo_disable),
+];

@@ -5,7 +5,9 @@
 //! Service for managing firmware updates via fw_update and the SWUpdate client API.
 
 use anyhow::{anyhow, Result};
-use crate::utils::{command_output, get_boot_rootfs_info};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use axum::body::Bytes;
+use crate::utils::get_boot_rootfs_info;
 use std::ffi::{c_void, CString};
 use std::mem::MaybeUninit;
 use std::path::Path;
@@ -158,8 +160,15 @@ pub enum SummitRcmUpdateStatus {
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 enum FirmwareUpdatePipeMessage {
-    Data(Vec<u8>),
+    Data(Bytes),
     Finish,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateStreamError {
+    NoUpdateInProgress = 1,
+    Internal = 255,
 }
 
 pub struct FirmwareUpdateService {
@@ -403,32 +412,46 @@ impl FirmwareUpdateService {
                 };
             }
 
-            let output = command_output(FW_UPDATE_SCRIPT, &["-x", "r", "-m", prepared_image.as_str(), actual_url.as_str()])
-                .await
+            let child = Command::new(FW_UPDATE_SCRIPT)
+                .args(["-x", "r", "-m", prepared_image.as_str(), actual_url.as_str()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
                 .map_err(|e| {
-                    if e.downcast_ref::<std::io::Error>()
-                        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
-                    {
+                    if e.kind() == std::io::ErrorKind::NotFound {
                         warn!("fw_update script not found");
                     } else {
                         error!("start_update: {}", e);
                     }
                     e
                 })?;
-            if !output.status.success() {
-                let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                if let Some(api) = api {
-                    let mut service = Self::instance().lock().unwrap();
-                    service.close_ipc_locked(api);
+
+            tokio::spawn(async move {
+                match child.wait_with_output().await {
+                    Ok(output) if output.status.success() => {}
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        let mut service = FirmwareUpdateService::instance().lock().unwrap();
+                        if service.update_in_progress {
+                            error!("fw_update url mode failed: {}", stderr);
+                            service.status = SummitRcmUpdateStatus::Fail;
+                            if let Ok(api) = swupdate_api() {
+                                service.stop_progress_monitor_locked(api);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        let mut service = FirmwareUpdateService::instance().lock().unwrap();
+                        if service.update_in_progress {
+                            error!("fw_update url mode wait failed: {}", err);
+                            service.status = SummitRcmUpdateStatus::Fail;
+                            if let Ok(api) = swupdate_api() {
+                                service.stop_progress_monitor_locked(api);
+                            }
+                        }
+                    }
                 }
-                let mut service = Self::instance().lock().unwrap();
-                service.url.clear();
-                service.image.clear();
-                service.status_note = None;
-                service.fw_update_pipe_tx = None;
-                error!("start_update failed: {}", msg);
-                return Err(anyhow!(msg));
-            }
+            });
         }
 
         let mut service = Self::instance().lock().unwrap();
@@ -483,7 +506,7 @@ impl FirmwareUpdateService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn handle_update_stream(data: &[u8]) -> Result<()> {
+    pub async fn handle_update_stream(data: Bytes) -> std::result::Result<(), UpdateStreamError> {
         let (fw_pipe_tx, fd) = {
             let service = Self::instance().lock().unwrap();
             (service.fw_update_pipe_tx.clone(), service.swclient_fd)
@@ -491,26 +514,26 @@ impl FirmwareUpdateService {
 
         if let Some(fw_pipe_tx) = fw_pipe_tx {
             fw_pipe_tx
-                .send(FirmwareUpdatePipeMessage::Data(data.to_vec()))
-                .map_err(|_| anyhow!("no update in progress"))?;
+                .send(FirmwareUpdatePipeMessage::Data(data))
+                .map_err(|_| UpdateStreamError::NoUpdateInProgress)?;
             return Ok(());
         }
 
         if fd < 0 {
-            return Err(anyhow!("no update in progress"));
+            return Err(UpdateStreamError::NoUpdateInProgress);
         }
-        let api = swupdate_api()?;
+        let api = swupdate_api().map_err(|_| UpdateStreamError::Internal)?;
         let written = unsafe {
             (api.ipc_send_data)(fd, data.as_ptr() as *mut libc::c_char, data.len() as libc::c_int)
         };
         if written < 0 {
-            return Err(anyhow!("error during update process: {}", written));
+            return Err(UpdateStreamError::Internal);
         }
         Ok(())
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn finish_update_stream() -> Result<()> {
+    pub async fn finish_update_stream() -> std::result::Result<(), UpdateStreamError> {
         let fw_pipe_tx = {
             let mut service = Self::instance().lock().unwrap();
             service.fw_update_pipe_tx.take()
@@ -519,7 +542,7 @@ impl FirmwareUpdateService {
         if let Some(fw_pipe_tx) = fw_pipe_tx {
             fw_pipe_tx
                 .send(FirmwareUpdatePipeMessage::Finish)
-                .map_err(|_| anyhow!("no update in progress"))?;
+                .map_err(|_| UpdateStreamError::NoUpdateInProgress)?;
         }
 
         Ok(())
@@ -585,7 +608,7 @@ impl FirmwareUpdateService {
                     }
                 } else if rc == 0 {
                     thread::sleep(Duration::from_millis(200));
-                } else if rc == -(libc::EBADMSG as i32) {
+                } else if rc == -libc::EBADMSG {
                     warn!("SWUpdate progress IPC returned an API version mismatch");
                     thread::sleep(Duration::from_millis(200));
                 } else {

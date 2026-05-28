@@ -26,8 +26,14 @@ fn legacy_upload_requires_zip_for_config() {
 }
 
 #[test]
-fn legacy_upload_accepts_non_zip_timezone_filename() {
-    assert!(validate_legacy_upload_request("timezone", "tz.bin", true).is_none());
+fn legacy_upload_requires_zip_for_timezone() {
+    let error = validate_legacy_upload_request("timezone", "tz.bin", true).unwrap();
+    assert_eq!(error.info_msg, "file POST type not .zip file");
+}
+
+#[test]
+fn legacy_upload_accepts_zip_for_timezone() {
+    assert!(validate_legacy_upload_request("timezone", "tz.zip", true).is_none());
 }
 
 #[tokio::test]

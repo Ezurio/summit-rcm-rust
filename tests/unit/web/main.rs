@@ -566,32 +566,43 @@ async fn legacy_log_data_rejects_out_of_range_priority_with_python_message() {
 
 #[cfg(feature = "at-interface")]
 #[test]
-fn at_command_publications_expose_awm_metadata() {
-    let commands = crate::at_interface::commands::published_commands();
+fn at_command_publications_expose_feature_gated_metadata() {
+    let commands: Vec<&str> = crate::publication::builtin_at_publications_slice()
+        .iter()
+        .copied()
+        .filter_map(|publication| publication.at_commands.as_ref())
+        .flat_map(|publication| publication.install.iter().map(|(signature, _)| *signature))
+        .collect();
 
-    assert!(commands.iter().any(|command| command.signature == "at+awmmode"));
-    assert!(commands.iter().any(|command| command.signature == "at+awmscan"));
-    assert!(commands.iter().any(|command| command.signature == "at+datetime"));
-    assert!(commands.iter().any(|command| command.signature == "at+logfwd"));
-    assert!(commands.iter().any(|command| command.signature == "at+connlist"));
+    assert!(commands.contains(&"at+datetime"));
+    assert!(commands.contains(&"at+connlist"));
+
+    if cfg!(feature = "awm") {
+        assert!(commands.contains(&"at+awmmode"));
+        assert!(commands.contains(&"at+awmscan"));
+    }
+
+    if cfg!(feature = "log-forwarding") {
+        assert!(commands.contains(&"at+logfwd"));
+    }
 }
 
 #[cfg(feature = "at-interface")]
 #[test]
 fn at_lookup_resolves_core_and_plugin_usage_commands() {
-    let commands = crate::at_interface::commands::build_commands();
+    let registry = crate::at_interface::commands::build_command_registry();
 
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command(&commands, "ATE1?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "ATE1?")
         .expect("ATE1? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command(&commands, "AT+VER?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "AT+VER?")
         .expect("AT+VER? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command(&commands, "AT+DATETIME?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "AT+DATETIME?")
         .expect("AT+DATETIME? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);

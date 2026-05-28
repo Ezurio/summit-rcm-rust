@@ -58,7 +58,7 @@ async fn v2_radio_siso_invalid_payload_does_not_return_sdcerr() {
 fn bluetooth_device_get_openapi_matches_bluetooth_state_contract() {
     use serde_json::Value;
 
-    let spec = serde_json::to_value(summit_rcm::openapi::build_openapi())
+    let spec = serde_json::to_value(summit_rcm::web::openapi::build_openapi())
         .expect("OpenAPI document should serialize");
 
     let paths = spec
@@ -83,7 +83,7 @@ fn bluetooth_device_get_openapi_matches_bluetooth_state_contract() {
         .and_then(|path| path.get("get"))
         .expect("legacy bluetooth device GET operation should be documented");
 
-    fn response_schema<'a>(operation: &'a Value) -> &'a Value {
+    fn response_schema(operation: &Value) -> &Value {
         operation
             .get("responses")
             .and_then(|responses| responses.get("200"))

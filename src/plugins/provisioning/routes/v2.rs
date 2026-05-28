@@ -5,7 +5,7 @@
 
 use crate::plugins::provisioning::{CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH, DEVICE_SERVER_CSR_PATH};
 use crate::plugins::provisioning::service::{
-    CertificateProvisioningService, InvalidCertificateError, ProvisioningState,
+    CertificateProvisioningService, ProvisioningSaveError, ProvisioningState,
 };
 use axum::{extract::multipart::MultipartRejection, extract::Multipart};
 use log::error;
@@ -166,11 +166,11 @@ pub async fn put_provisioning(
             tokio::spawn(async { CertificateProvisioningService::restart_summit_rcm().await });
             PutProvisioningResponses::Ok
         }
-        Err(e) if e.downcast_ref::<InvalidCertificateError>().is_some() => {
+        Err(ProvisioningSaveError::InvalidCertificate) => {
             PutProvisioningResponses::BadRequest
         }
-        Err(e) => {
-            error!("Couldn't upload certificate file: {}", e);
+        Err(error) => {
+            error!("Couldn't upload certificate file: {:?}", error);
             PutProvisioningResponses::InternalError
         }
     }
@@ -219,12 +219,12 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
             tokio::spawn(async { CertificateProvisioningService::restart_summit_rcm().await });
             PutClientBundleResponses::Ok
         }
-        Err(e) if e.downcast_ref::<InvalidCertificateError>().is_some() => {
+        Err(ProvisioningSaveError::InvalidCertificate) => {
             let _ = std::fs::remove_file(TEMP_PATH);
             PutClientBundleResponses::BadRequest
         }
-        Err(e) => {
-            error!("Couldn't upload paired client certificate: {}", e);
+        Err(error) => {
+            error!("Couldn't upload paired client certificate: {:?}", error);
             let _ = std::fs::remove_file(TEMP_PATH);
             PutClientBundleResponses::InternalError
         }

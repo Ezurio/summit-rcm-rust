@@ -11,57 +11,70 @@ use anyhow::Result;
 use crate::definition::{
     relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
 };
-use crate::plugins::network_manager::routes::shared::DhcpLeasesResponse;
 use serde_json::{json, Value};
 
-use super::service::NetworkService;
+use super::service::{InterfaceError, NetworkService};
 use crate::plugins::network_manager::manager::NetworkManagerService;
 
+fn is_valid_interface_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('\0')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':'))
+}
+
 impl NetworkService {
-    pub fn get_dhcp_leases(name: &str) -> Result<Value> {
-        if name.is_empty() {
-            anyhow::bail!("No interface name provided");
+    pub fn get_dhcp_leases(name: &str) -> std::result::Result<Value, InterfaceError> {
+        if !is_valid_interface_name(name) {
+            return Err(InterfaceError::InvalidName);
         }
-        let safe_name = std::path::Path::new(name)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(name);
-        let lease_path = format!("/var/lib/NetworkManager/dnsmasq-{}.leases", safe_name);
+        let lease_path = format!("/var/lib/NetworkManager/dnsmasq-{}.leases", name);
         if !std::path::Path::new(&lease_path).exists() {
-            anyhow::bail!("Invalid interface name");
+            return Err(InterfaceError::InvalidName);
         }
-        let content = std::fs::read_to_string(&lease_path)?;
-        let mut ipv4: Vec<Value> = Vec::new();
-        let mut ipv6: Vec<Value> = Vec::new();
+        let content = std::fs::read_to_string(&lease_path).map_err(|_| InterfaceError::Internal)?;
+        let lease_count = content.lines().count();
+        let mut ipv4: Vec<Value> = Vec::with_capacity(lease_count);
+        let mut ipv6: Vec<Value> = Vec::with_capacity(lease_count);
         for line in content.lines() {
-            let elems: Vec<&str> = line.split_whitespace().collect();
-            if elems.len() < 5 {
+            let mut elems = line.split_whitespace();
+            let Some(expiry_raw) = elems.next() else {
                 continue;
-            }
-            let expiry: i64 = elems[0].parse().unwrap_or(0);
-            if elems[1].contains(':') {
+            };
+            let Some(second) = elems.next() else {
+                continue;
+            };
+            let Some(ip_address) = elems.next() else {
+                continue;
+            };
+            let Some(hostname) = elems.next() else {
+                continue;
+            };
+            let Some(identity) = elems.next() else {
+                continue;
+            };
+
+            let expiry: i64 = expiry_raw.parse().unwrap_or(0);
+            if second.contains(':') {
                 ipv4.push(json!({
                     "expiry": expiry,
-                    "macAddress": elems[1],
-                    "ipAddress": elems[2],
-                    "hostname": elems[3],
-                    "clientIdentifier": elems[4],
+                    "macAddress": second,
+                    "ipAddress": ip_address,
+                    "hostname": hostname,
+                    "clientIdentifier": identity,
                 }));
             } else {
                 ipv6.push(json!({
                     "expiry": expiry,
-                    "iaid": elems[1],
-                    "ipAddress": elems[2],
-                    "hostname": elems[3],
-                    "clientDuid": elems[4],
+                    "iaid": second,
+                    "ipAddress": ip_address,
+                    "hostname": hostname,
+                    "clientDuid": identity,
                 }));
             }
         }
         Ok(json!({ "ipv4": ipv4, "ipv6": ipv6 }))
-    }
-
-    pub fn get_dhcp_leases_model(name: &str) -> Result<DhcpLeasesResponse> {
-        Self::get_dhcp_leases(name).and_then(|value| serde_json::from_value(value).map_err(Into::into))
     }
 
     pub async fn export_connections(password: &str) -> Result<Vec<u8>> {

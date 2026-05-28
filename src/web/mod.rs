@@ -30,13 +30,14 @@ use openssl::{
     x509::X509VerifyResult,
 };
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 use log::{info, warn};
 
 #[cfg(feature = "provisioning")]
 use axum::Extension;
-use crate::config::ServerConfig;
+use crate::config::{ServerConfig, SystemSettingsManage};
 use crate::plugin_loader;
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::service::{
@@ -58,6 +59,15 @@ fn default_bind_addr() -> String {
     let port = port.trim().trim_matches('"');
     let port = if port.is_empty() { "8080" } else { port };
     format!("0.0.0.0:{port}")
+}
+
+fn max_active_web_connections() -> usize {
+    let configured = SystemSettingsManage::get_int("max_web_clients", 1);
+    if configured < 1 {
+        1
+    } else {
+        configured as usize
+    }
 }
 
 #[cfg(feature = "swagger-ui")]
@@ -390,6 +400,13 @@ async fn serve_tls(
     acceptor: Arc<SslAcceptor>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
+    let max_connections = max_active_web_connections();
+    let connection_slots = Arc::new(Semaphore::new(max_connections));
+    info!(
+        "Web concurrency limit set to {} active TLS connection(s)",
+        max_connections
+    );
+
     loop {
         tokio::select! {
             changed = shutdown.changed() => {
@@ -401,8 +418,16 @@ async fn serve_tls(
                 let (stream, _) = accepted?;
                 let app = app.clone();
                 let acceptor = acceptor.clone();
+                let Ok(slot_permit) = connection_slots.clone().try_acquire_owned() else {
+                    warn!(
+                        "Web concurrency limit reached ({}); rejecting incoming TLS connection",
+                        max_connections
+                    );
+                    continue;
+                };
 
                 tokio::spawn(async move {
+                    let _slot_permit = slot_permit;
                     if let Err(error) = serve_tls_connection(stream, app, acceptor).await {
                         warn!("TLS connection handling failed: {}", error);
                     }
@@ -432,11 +457,10 @@ async fn serve_tls_connection(
         let ssl = stream.ssl();
         let mut chain = Vec::new();
 
-        if let Some(cert) = ssl.peer_certificate() {
-            if let Ok(pem) = cert.to_pem() {
+        if let Some(cert) = ssl.peer_certificate()
+            && let Ok(pem) = cert.to_pem() {
                 chain.push(String::from_utf8_lossy(&pem).to_string());
             }
-        }
 
         if let Some(extra_chain) = ssl.peer_cert_chain() {
             for cert in extra_chain {
@@ -498,20 +522,7 @@ fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuth
     api
 }
 
-fn apply_base_api_publications(mut api: Router) -> Router {
-    for publication in crate::publication::builtin_http_publications() {
-        debug_assert!(!publication.name.is_empty());
-        if let Some(install) = publication.base_api {
-            api = install(api);
-        }
-    }
-
-    api
-}
-
 pub fn build_router() -> Router {
-    auth::initialize_sessions_enabled();
-
     #[allow(unused_mut)]
     let mut unauthenticated_api = Router::new();
     unauthenticated_api = apply_route_publications(
@@ -535,6 +546,9 @@ pub fn build_router() -> Router {
             security_headers::add_security_headers,
         ));
 
+    #[cfg(feature = "provisioning")]
+    let base_router = crate::plugins::provisioning::apply_global_middleware(base_router);
+
     let session_layer = SessionManagerLayer::new(MemoryStore::default())
         .with_name("session_id")
         .with_http_only(ServerConfig::get_bool("/", "tools.sessions.httponly", true))
@@ -542,8 +556,7 @@ pub fn build_router() -> Router {
         .with_secure(ServerConfig::get_bool("/", "tools.sessions.secure", true))
         .with_path("/");
 
-    let app_router = apply_base_api_publications(base_router);
-    app_router.layer(session_layer)
+    base_router.layer(session_layer)
 }
 
 pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {

@@ -42,10 +42,11 @@ fn summit_rcm_errors_exports_python_compatible_codes() {
 #[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
 mod state_model_tests {
     use super::SdcerrCode;
+    use summit_rcm::systemd_state::legacy_state_model;
 
     #[test]
     fn legacy_state_model_uses_success_for_known_state() {
-        let payload = serde_json::to_value(summit_rcm::web::legacy_response::legacy_state_model(
+        let payload = serde_json::to_value(legacy_state_model(
             "active".to_string(),
             "ignored error",
         ))
@@ -58,7 +59,7 @@ mod state_model_tests {
 
     #[test]
     fn legacy_state_model_uses_failure_for_unknown_state() {
-        let payload = serde_json::to_value(summit_rcm::web::legacy_response::legacy_state_model(
+        let payload = serde_json::to_value(legacy_state_model(
             "unknown".to_string(),
             "Could not retrieve state",
         ))

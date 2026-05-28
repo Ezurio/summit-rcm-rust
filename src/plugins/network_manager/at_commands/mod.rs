@@ -5,358 +5,266 @@
 //! Network manager AT commands owned by the network_manager plugin.
 
 use crate::certificates::CertificatesService;
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::network_manager::service::NetworkService;
-use crate::publication::PublishedAtCommand;
 use serde_json::{Value, from_str, to_string};
 use log::error;
 
-pub struct ConnectionList;
-
-impl Command for ConnectionList {
-    fn signature(&self) -> &str { "at+connlist" }
-    fn name(&self) -> &str { "Connection List" }
-    fn usage(&self) -> &str { "AT+CONNLIST" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            match NetworkService::get_connections().await {
-                Ok(v) => {
-                    let mut out = String::new();
-                    if let Some(arr) = v.as_array() {
-                        for conn in arr {
-                            let uuid = conn.get("uuid").and_then(|x| x.as_str()).unwrap_or("");
-                            let id = conn.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                            let activated = conn.get("activated").and_then(|x| x.as_bool()).unwrap_or(false) as i32;
-                            out.push_str(&format!("+CONNLIST: {}:{},{}\r\n", uuid, id, activated));
-                        }
-                    }
-                    out.push_str("OK");
-                    (true, out)
-                }
-                Err(e) => {
-                    error!("Connection list error: {}", e);
-                    (true, "ERROR".to_string())
+pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    match NetworkService::get_connections().await {
+        Ok(v) => {
+            let mut out = String::new();
+            if let Some(arr) = v.as_array() {
+                for conn in arr {
+                    let uuid = conn.get("uuid").and_then(|x| x.as_str()).unwrap_or("");
+                    let id = conn.get("id").and_then(|x| x.as_str()).unwrap_or("");
+                    let activated = conn.get("activated").and_then(|x| x.as_bool()).unwrap_or(false) as i32;
+                    out.push_str(&format!("+CONNLIST: {}:{},{}\r\n", uuid, id, activated));
                 }
             }
-        })
+            out.push_str("OK");
+            CommandOutcome::WithData(out)
+        }
+        Err(e) => {
+            error!("Connection list error: {}", e);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct ConnectionActivate;
+pub async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(profile) = params.raw_parameter(0) else {
+        return CommandOutcome::Error;
+    };
 
-impl Command for ConnectionActivate {
-    fn signature(&self) -> &str { "at+connact" }
-    fn name(&self) -> &str { "Connection Activate" }
-    fn usage(&self) -> &str { "AT+CONNACT=<uuid>|<id>,<activate>" }
+    let activate_raw = params.iter_raw_parameters().skip(1).collect::<Vec<_>>().join(",");
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(2, ',').collect();
-            if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-                return (true, "ERROR".to_string());
+    if profile.is_empty() || activate_raw.is_empty() {
+        return CommandOutcome::Error;
+    }
+
+    let activate: i32 = match activate_raw.trim().parse() {
+        Ok(v) => v,
+        Err(_) => return CommandOutcome::Error,
+    };
+
+    let result = if activate != 0 {
+        NetworkService::activate_connection(profile, None).await
+    } else {
+        NetworkService::deactivate_connection(profile).await
+    };
+
+    match result {
+        Ok(_) => CommandOutcome::Ok,
+        Err(e) => {
+            error!("Connection activate error: {}", e);
+            CommandOutcome::Error
+        }
+    }
+}
+
+pub async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    if params.parameter_count() < 2 {
+        return CommandOutcome::Error;
+    }
+
+    let Some(mode_raw) = params.raw_parameter(0) else {
+        return CommandOutcome::Error;
+    };
+    let mode: i32 = match mode_raw.trim().parse() {
+        Ok(value) => value,
+        Err(_) => return CommandOutcome::Error,
+    };
+    let profile = params.raw_parameter(1).unwrap_or("").trim();
+    let settings_raw = params.iter_raw_parameters().skip(2).collect::<Vec<_>>().join(",");
+    let settings = if settings_raw.is_empty() {
+        None
+    } else {
+        let raw_settings = settings_raw.trim();
+        if raw_settings.is_empty() {
+            None
+        } else {
+            match from_str::<Value>(raw_settings) {
+                Ok(value) => Some(value),
+                Err(_) => return CommandOutcome::Error,
             }
-            let profile = parts[0];
-            let activate: i32 = match parts[1].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
+        }
+    };
+
+    let result = match mode {
+        0 => {
+            let Some(settings) = settings else {
+                return CommandOutcome::Error;
             };
-
-            let result = if activate != 0 {
-                NetworkService::activate_connection(profile, None).await
-            } else {
-                NetworkService::deactivate_connection(profile).await
+            NetworkService::create_connection_profile_with_overwrite(settings, false)
+                .await
+                .map(|_| ())
+        }
+        1 => {
+            let Some(settings) = settings else {
+                return CommandOutcome::Error;
             };
-
-            match result {
-                Ok(_) => (true, "OK".to_string()),
-                Err(e) => {
-                    error!("Connection activate error: {}", e);
-                    (true, "ERROR".to_string())
-                }
+            if profile.is_empty() {
+                return CommandOutcome::Error;
             }
-        })
+            NetworkService::update_connection_profile(profile, settings)
+                .await
+                .map(|_| ())
+        }
+        2 => {
+            if profile.is_empty() {
+                return CommandOutcome::Error;
+            }
+            NetworkService::delete_connection_profile(profile).await
+        }
+        _ => return CommandOutcome::Error,
+    };
+
+    match result {
+        Ok(()) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("Connection modify error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct ConnectionModify;
+pub async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    if params.parameter_count() != 2 {
+        return CommandOutcome::Error;
+    }
 
-impl Command for ConnectionModify {
-    fn signature(&self) -> &str { "at+connmod" }
-    fn name(&self) -> &str { "Connection Modify" }
-    fn usage(&self) -> &str { "AT+CONNMOD=<json>" }
+    let name = params.raw_parameter(0).unwrap_or("").trim();
+    let password = params.raw_parameter(1).unwrap_or("").trim();
+    if name.is_empty() {
+        return CommandOutcome::Error;
+    }
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(3, ',').collect();
-            if parts.len() < 2 {
-                return (true, "ERROR".to_string());
+    match CertificatesService::get_cert_info(name, Some(password)).await {
+        Ok(info) => match to_string(&info) {
+            Ok(serialized) => CommandOutcome::WithData(format!("+CERTGET: {}\r\nOK", serialized)),
+            Err(error) => {
+                error!("Certificates get serialization error: {}", error);
+                CommandOutcome::Error
             }
-
-            let mode: i32 = match parts[0].trim().parse() {
-                Ok(value) => value,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let profile = parts[1].trim();
-            let settings = if let Some(raw_settings) = parts.get(2) {
-                let raw_settings = raw_settings.trim();
-                if raw_settings.is_empty() {
-                    None
-                } else {
-                    match from_str::<Value>(raw_settings) {
-                        Ok(value) => Some(value),
-                        Err(_) => return (true, "ERROR".to_string()),
-                    }
-                }
-            } else {
-                None
-            };
-
-            let result = match mode {
-                0 => {
-                    let Some(settings) = settings else {
-                        return (true, "ERROR".to_string());
-                    };
-                    NetworkService::create_connection_profile_with_overwrite(settings, false)
-                        .await
-                        .map(|_| ())
-                }
-                1 => {
-                    let Some(settings) = settings else {
-                        return (true, "ERROR".to_string());
-                    };
-                    if profile.is_empty() {
-                        return (true, "ERROR".to_string());
-                    }
-                    NetworkService::update_connection_profile(profile, settings)
-                        .await
-                        .map(|_| ())
-                }
-                2 => {
-                    if profile.is_empty() {
-                        return (true, "ERROR".to_string());
-                    }
-                    NetworkService::delete_connection_profile(profile).await
-                }
-                _ => return (true, "ERROR".to_string()),
-            };
-
-            match result {
-                Ok(()) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("Connection modify error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+        },
+        Err(error) => {
+            error!("Certificates get error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct CertificatesGet;
-
-impl Command for CertificatesGet {
-    fn signature(&self) -> &str { "at+certget" }
-    fn name(&self) -> &str { "Certificates Get" }
-    fn usage(&self) -> &str { "AT+CERTGET=<name>[,<password>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let params_list: Vec<&str> = params.split(',').collect();
-            if params_list.len() != 2 {
-                return (true, "ERROR".to_string());
-            }
-
-            let name = params_list[0].trim();
-            let password = params_list[1].trim();
-            if name.is_empty() {
-                return (true, "ERROR".to_string());
-            }
-
-            match CertificatesService::get_cert_info(name, Some(password)).await {
-                Ok(info) => match to_string(&info) {
-                    Ok(serialized) => (true, format!("+CERTGET: {}\r\nOK", serialized)),
-                    Err(error) => {
-                        error!("Certificates get serialization error: {}", error);
-                        (true, "ERROR".to_string())
+pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let name = params.raw_input().trim();
+    if name.is_empty() {
+        match NetworkService::get_interfaces().await {
+            Ok(v) => {
+                let mut out = String::new();
+                if let Some(arr) = v.as_array() {
+                    for iface in arr {
+                        let n = iface.get("name").and_then(|x| x.as_str()).unwrap_or("");
+                        out.push_str(&format!("+NETIF: {}\r\n", n));
                     }
-                },
-                Err(error) => {
-                    error!("Certificates get error: {}", error);
-                    (true, "ERROR".to_string())
                 }
+                out.push_str("OK");
+                CommandOutcome::WithData(out)
             }
-        })
+            Err(e) => {
+                error!("Network interfaces error: {}", e);
+                CommandOutcome::Error
+            }
+        }
+    } else {
+        match NetworkService::get_interface(name).await {
+            Ok(v) => CommandOutcome::WithData(format!("+NETIF: {}\r\nOK", v)),
+            Err(e) => {
+                error!("Network interface error: {:?}", e);
+                CommandOutcome::Error
+            }
+        }
     }
 }
 
-pub struct NetworkInterfaces;
-
-impl Command for NetworkInterfaces {
-    fn signature(&self) -> &str { "at+netif" }
-    fn name(&self) -> &str { "Network Interfaces" }
-    fn usage(&self) -> &str { "AT+NETIF[=<name>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let name = params.trim();
-            if name.is_empty() {
-                match NetworkService::get_interfaces().await {
-                    Ok(v) => {
-                        let mut out = String::new();
-                        if let Some(arr) = v.as_array() {
-                            for iface in arr {
-                                let n = iface.get("name").and_then(|x| x.as_str()).unwrap_or("");
-                                out.push_str(&format!("+NETIF: {}\r\n", n));
-                            }
-                        }
-                        out.push_str("OK");
-                        (true, out)
-                    }
-                    Err(e) => {
-                        error!("Network interfaces error: {}", e);
-                        (true, "ERROR".to_string())
-                    }
-                }
-            } else {
-                match NetworkService::get_interface(name).await {
-                    Ok(v) => (true, format!("+NETIF: {}\r\nOK", v)),
-                    Err(e) => {
-                        error!("Network interface error: {}", e);
-                        (true, "ERROR".to_string())
-                    }
+pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let iface_name = params.raw_input().trim();
+    let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
+    match NetworkService::get_access_points(iface).await {
+        Ok(v) => {
+            let mut out = String::new();
+            if let Some(arr) = v.as_array() {
+                for ap in arr {
+                    out.push_str(&format!("+WLIST: {}\r\n", ap));
                 }
             }
-        })
+            out.push_str("OK");
+            CommandOutcome::WithData(out)
+        }
+        Err(e) => {
+            error!("WiFi list error: {}", e);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct WifiList;
-
-impl Command for WifiList {
-    fn signature(&self) -> &str { "at+wlist" }
-    fn name(&self) -> &str { "WiFi List" }
-    fn usage(&self) -> &str { "AT+WLIST[=<iface>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let iface = if params.trim().is_empty() { None } else { Some(params.trim()) };
-            match NetworkService::get_access_points(iface).await {
-                Ok(v) => {
-                    let mut out = String::new();
-                    if let Some(arr) = v.as_array() {
-                        for ap in arr {
-                            out.push_str(&format!("+WLIST: {}\r\n", ap));
-                        }
-                    }
-                    out.push_str("OK");
-                    (true, out)
-                }
-                Err(e) => {
-                    error!("WiFi list error: {}", e);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+pub async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let iface_name = params.raw_input().trim();
+    let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
+    match NetworkService::scan_access_points(iface).await {
+        Ok(_) => CommandOutcome::Ok,
+        Err(e) => {
+            error!("WiFi scan error: {}", e);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct WifiScan;
-
-impl Command for WifiScan {
-    fn signature(&self) -> &str { "at+wscan" }
-    fn name(&self) -> &str { "WiFi Scan" }
-    fn usage(&self) -> &str { "AT+WSCAN[=<iface>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let iface = if params.trim().is_empty() { None } else { Some(params.trim()) };
-            match NetworkService::scan_access_points(iface).await {
-                Ok(_) => (true, "OK".to_string()),
-                Err(e) => {
-                    error!("WiFi scan error: {}", e);
-                    (true, "ERROR".to_string())
-                }
+pub async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let val = params.raw_input().trim();
+    if val.is_empty() {
+        match NetworkService::get_wifi_status().await {
+            Ok(v) => CommandOutcome::WithData(format!("+WENABLE: {}\r\nOK", v)),
+            Err(e) => {
+                error!("WiFi enabled get error: {}", e);
+                CommandOutcome::Error
             }
-        })
+        }
+    } else {
+        let enabled = match val.parse::<i32>() {
+            Ok(v) => v != 0,
+            Err(_) => return CommandOutcome::Error,
+        };
+        match NetworkService::set_wifi_enabled(enabled).await {
+            Ok(_) => CommandOutcome::Ok,
+            Err(e) => {
+                error!("WiFi enable set error: {}", e);
+                CommandOutcome::Error
+            }
+        }
     }
 }
 
-pub struct WiFiEnabled;
-
-impl Command for WiFiEnabled {
-    fn signature(&self) -> &str { "at+wenable" }
-    fn name(&self) -> &str { "WiFi Enabled" }
-    fn usage(&self) -> &str { "AT+WENABLE[=<0|1>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let val = params.trim();
-            if val.is_empty() {
-                match NetworkService::get_wifi_status().await {
-                    Ok(v) => (true, format!("+WENABLE: {}\r\nOK", v)),
-                    Err(e) => {
-                        error!("WiFi enabled get error: {}", e);
-                        (true, "ERROR".to_string())
-                    }
-                }
-            } else {
-                let enabled = match val.parse::<i32>() {
-                    Ok(v) => v != 0,
-                    Err(_) => return (true, "ERROR".to_string()),
-                };
-                match NetworkService::set_wifi_enabled(enabled).await {
-                    Ok(_) => (true, "OK".to_string()),
-                    Err(e) => {
-                        error!("WiFi enable set error: {}", e);
-                        (true, "ERROR".to_string())
-                    }
-                }
-            }
-        })
+pub async fn execute_wifi_hardware(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    match NetworkService::get_wifi_hardware_enabled().await {
+        Ok(v) => CommandOutcome::WithData(format!("+WHARD: {}\r\nOK", v)),
+        Err(e) => {
+            error!("WiFi hardware error: {}", e);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct WiFiHardware;
-
-impl Command for WiFiHardware {
-    fn signature(&self) -> &str { "at+whard" }
-    fn name(&self) -> &str { "WiFi Hardware" }
-    fn usage(&self) -> &str { "AT+WHARD" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            match NetworkService::get_wifi_hardware_enabled().await {
-                Ok(v) => (true, format!("+WHARD: {}\r\nOK", v)),
-                Err(e) => {
-                    error!("WiFi hardware error: {}", e);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
-    }
-}
-
-pub static PUBLISHED_COMMANDS: &[PublishedAtCommand] = &[
-    PublishedAtCommand::new("at+connlist", "Connection List"),
-    PublishedAtCommand::new("at+connact", "Connection Activate"),
-    PublishedAtCommand::new("at+connmod", "Connection Modify"),
-    PublishedAtCommand::new("at+certget", "Certificates Get"),
-    PublishedAtCommand::new("at+netif", "Network Interfaces"),
-    PublishedAtCommand::new("at+wlist", "WiFi List"),
-    PublishedAtCommand::new("at+wscan", "WiFi Scan"),
-    PublishedAtCommand::new("at+wenable", "WiFi Enabled"),
-    PublishedAtCommand::new("at+whard", "WiFi Hardware"),
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at+connlist", "AT+CONNLIST", 0, &[], execute_connection_list),
+    crate::at_interface::commands::command_spec!("at+connact", "AT+CONNACT=<uuid>|<id>,<activate>", 0, &[], execute_connection_activate),
+    crate::at_interface::commands::command_spec!("at+connmod", "AT+CONNMOD=<json>", 0, &[], execute_connection_modify),
+    crate::at_interface::commands::command_spec!("at+certget", "AT+CERTGET=<name>[,<password>]", 0, &[], execute_certificates_get),
+    crate::at_interface::commands::command_spec!("at+netif", "AT+NETIF[=<name>]", 0, &[], execute_network_interfaces),
+    crate::at_interface::commands::command_spec!("at+wlist", "AT+WLIST[=<iface>]", 0, &[], execute_wifi_list),
+    crate::at_interface::commands::command_spec!("at+wscan", "AT+WSCAN[=<iface>]", 0, &[], execute_wifi_scan),
+    crate::at_interface::commands::command_spec!("at+wenable", "AT+WENABLE[=<0|1>]", 0, &[], execute_wifi_enabled),
+    crate::at_interface::commands::command_spec!("at+whard", "AT+WHARD", 0, &[], execute_wifi_hardware),
 ];
 
-pub fn add_at_commands(cmds: &mut Vec<Box<dyn Command>>) {
-    cmds.push(Box::new(ConnectionList));
-    cmds.push(Box::new(ConnectionActivate));
-    cmds.push(Box::new(ConnectionModify));
-    cmds.push(Box::new(CertificatesGet));
-    cmds.push(Box::new(NetworkInterfaces));
-    cmds.push(Box::new(WifiList));
-    cmds.push(Box::new(WifiScan));
-    cmds.push(Box::new(WiFiEnabled));
-    cmds.push(Box::new(WiFiHardware));
-}

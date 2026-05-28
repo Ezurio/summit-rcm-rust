@@ -62,10 +62,13 @@ impl HttpService {
     }
 
     pub fn configure_transaction(&mut self, host: &str, port: u16, method: &str, url: &str, timeout: u64) {
-        self.host = host.to_string();
+        self.host.clear();
+        self.host.push_str(host);
         self.port = port;
-        self.method = method.to_string();
-        self.url = url.to_string();
+        self.method.clear();
+        self.method.push_str(method);
+        self.url.clear();
+        self.url.push_str(url);
         self.timeout_secs = timeout;
     }
 
@@ -121,21 +124,16 @@ impl HttpService {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
             let listener_id = FsmHandle::register_listener(tx);
             let mut buf = Vec::new();
-            loop {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(config.timeout_secs + 5),
-                    rx.recv(),
-                )
-                .await
-                {
-                    Ok(Some(data)) => {
-                        buf.extend_from_slice(&data);
-                        if buf.len() >= length {
-                            buf.truncate(length);
-                            break;
-                        }
-                    }
-                    _ => break,
+            while let Ok(Some(data)) = tokio::time::timeout(
+                std::time::Duration::from_secs(config.timeout_secs + 5),
+                rx.recv(),
+            )
+            .await
+            {
+                buf.extend_from_slice(&data);
+                if buf.len() >= length {
+                    buf.truncate(length);
+                    break;
                 }
             }
             FsmHandle::deregister_listener(listener_id);

@@ -6,7 +6,7 @@
 //! NetworkManager-owned network interface endpoints.
 
 use crate::plugins::network_manager::routes::shared::{DhcpLeasesResponse, NetworkInterfaceResponse};
-use crate::plugins::network_manager::service::NetworkService;
+use crate::plugins::network_manager::service::{InterfaceError, NetworkService};
 use axum::extract::Path;
 use log::error;
 
@@ -46,15 +46,18 @@ pub async fn list_interfaces() -> ListInterfacesResponses {
     responses(GetInterfaceResponses)
 ))]
 pub async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
-    match NetworkService::get_interface_model(&name).await {
-        Ok(value) => value.into(),
-        Err(error) => {
-            error!("get_interface {}: {}", name, error);
-            if error.to_string().contains("not found") {
-                GetInterfaceResponses::NotFound
-            } else {
+    match NetworkService::get_interface(&name).await {
+        Ok(value) => match serde_json::from_value::<NetworkInterfaceResponse>(value) {
+            Ok(value) => value.into(),
+            Err(error) => {
+                error!("get_interface {} decode: {}", name, error);
                 GetInterfaceResponses::InternalError
             }
+        },
+        Err(InterfaceError::NotFound) => GetInterfaceResponses::NotFound,
+        Err(error) => {
+            error!("get_interface {}: {:?}", name, error);
+            GetInterfaceResponses::InternalError
         }
     }
 }
@@ -67,17 +70,20 @@ pub async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
     responses(GetInterfaceDhcpLeasesResponses)
 ))]
 pub async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetInterfaceDhcpLeasesResponses {
-    match NetworkService::get_dhcp_leases_model(&name) {
-        Ok(value) => value.into(),
-        Err(error) => {
-            error!("get_interface_dhcp_leases {}: {}", name, error);
-            if error.to_string().contains("Invalid interface")
-                || error.to_string().contains("No interface")
-            {
-                GetInterfaceDhcpLeasesResponses::BadRequest
-            } else {
+    match NetworkService::get_dhcp_leases(&name) {
+        Ok(value) => match serde_json::from_value::<DhcpLeasesResponse>(value) {
+            Ok(value) => value.into(),
+            Err(error) => {
+                error!("get_interface_dhcp_leases {} decode: {}", name, error);
                 GetInterfaceDhcpLeasesResponses::InternalError
             }
+        },
+        Err(InterfaceError::InvalidName) => {
+            GetInterfaceDhcpLeasesResponses::BadRequest
+        }
+        Err(error) => {
+            error!("get_interface_dhcp_leases {}: {:?}", name, error);
+            GetInterfaceDhcpLeasesResponses::InternalError
         }
     }
 }

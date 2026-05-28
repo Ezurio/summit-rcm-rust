@@ -306,13 +306,12 @@ macro_rules! declare_plugin {
     (
         cfg($($cfg:tt)+);
         name: $name:literal
-        $(, base_api: $base_api:expr)?
-        $(, at_commands: ($commands:expr, $install:expr $(,)?))?
+        $(, at_commands: $commands:expr)?
         $(,)?
     ) => {
         #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy")))]
         pub static HTTP_PUBLICATION: $crate::publication::HttpPluginPublication = {
-            let publication = $crate::publication::HttpPluginPublication::new($name)$(.with_base_api_install($base_api))?;
+            let publication = $crate::publication::HttpPluginPublication::new($name);
             let publication = publication.with_routes(ROUTE_PUBLICATIONS);
             publication
         };
@@ -329,11 +328,18 @@ macro_rules! declare_plugin {
         #[cfg(all($($cfg)+, feature = "at-interface"))]
         pub static AT_PUBLICATION: $crate::publication::AtPluginPublication = {
             let publication = $crate::publication::AtPluginPublication::new($name);
-            $(
-                #[cfg(feature = "at-interface")]
-                let publication = publication.with_at_command_routes($commands, $install);
-            )?
+            let publication = $crate::declare_plugin!(@with_at_commands publication $(, $commands)?);
             publication
         };
     };
+
+    (@with_at_commands $publication:ident) => {
+        $publication
+    };
+
+    (@with_at_commands $publication:ident, $commands:expr) => {{
+        #[cfg(feature = "at-interface")]
+        let publication = $publication.with_at_commands($commands);
+        publication
+    }};
 }

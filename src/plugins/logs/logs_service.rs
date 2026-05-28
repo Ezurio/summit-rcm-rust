@@ -85,12 +85,9 @@ impl LogsService {
             anyhow::bail!("Priority must be an int between 0-7");
         }
 
-        let max_entries = SystemSettingsManage::get_int("log_data_streaming_size", 100).max(1) as usize;
-
         let mut cmd = Command::new("journalctl");
         cmd.arg(format!("--priority={priority}"))
-            .arg("--output=json")
-            .arg(format!("--lines={max_entries}"));
+            .arg("--output=json");
 
         if let Some(identifier) = Self::journalctl_identifier(log_type) {
             cmd.arg(format!("--identifier={identifier}"));
@@ -112,11 +109,8 @@ impl LogsService {
         }
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let mut logs = Vec::with_capacity(max_entries.min(32));
+        let mut logs = Vec::with_capacity(SystemSettingsManage::get_int("log_data_streaming_size", 100).max(1) as usize);
         for line in stdout_str.lines() {
-            if logs.len() >= max_entries {
-                break;
-            }
             if line.trim().is_empty() {
                 break;
             }

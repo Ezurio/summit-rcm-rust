@@ -4,7 +4,7 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::plugins::network::service::NetworkService;
+use crate::plugins::network::service::{NetworkService, RawNetworkError};
 use crate::plugins::network::routes::v2::interfaces::{AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station};
 use axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
@@ -233,7 +233,7 @@ pub async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> Leg
         return available_ap_channels_response(fail_response("Invalid interface name"), Vec::new()).into();
     };
 
-    match NetworkService::get_interface_available_ap_channels(&name).await {
+    match NetworkService::get_interface_available_ap_channels(name).await {
         Ok(channels) => available_ap_channels_response(ok_response(""), channels).into(),
         Err(error) => available_ap_channels_response(
             fail_response(format!("Could not read available AP channels - {}", error)),
@@ -265,7 +265,7 @@ pub async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) ->
         return interface_statistics_response(fail_response("interface required"), default_statistics).into();
     };
 
-    match NetworkService::get_interface_statistics(&iface).await {
+    match NetworkService::get_interface_statistics(iface).await {
         Ok(stats) => interface_statistics_response(ok_response(""), stats.into()).into(),
         Err(error) => interface_statistics_response(fail_response(error.to_string()), default_statistics).into(),
     }
@@ -286,13 +286,13 @@ pub async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -
         return interface_driver_info_response(fail_response("Invalid interface name"), default_driver_info).into();
     };
 
-    match NetworkService::get_interface_driver_info(&iface).await {
+    match NetworkService::get_interface_driver_info(iface).await {
         Ok(info) => interface_driver_info_response(ok_response(""), info).into(),
-        Err(error) if error.to_string().contains("Invalid interface name") => {
+        Err(RawNetworkError::InvalidInterfaceName) => {
             interface_driver_info_response(fail_response("Invalid interface name"), default_driver_info).into()
         }
         Err(error) => interface_driver_info_response(
-            fail_response(format!("Could not read interface driver info - {}", error)),
+            fail_response(format!("Could not read interface driver info - {:?}", error)),
             default_driver_info,
         )
         .into(),
@@ -331,18 +331,18 @@ pub async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) -> Legacy
         return summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into();
     };
 
-    match NetworkService::get_summit_status(&iface).await {
+    match NetworkService::get_summit_status(iface).await {
         Ok(status) => summit_status_response(
             ok_response(""),
             status.last.unwrap_or_default(),
             status.best.unwrap_or_default(),
         )
         .into(),
-        Err(error) if error.to_string().contains("interface not found") => {
+        Err(RawNetworkError::InterfaceNotFound) => {
             summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into()
         }
         Err(error) => summit_status_response(
-            fail_response(format!("Could not retrieve interface summit status - {}", error)),
+            fail_response(format!("Could not retrieve interface summit status - {:?}", error)),
             String::new(),
             String::new(),
         )

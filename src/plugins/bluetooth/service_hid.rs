@@ -230,11 +230,10 @@ impl HidSharedState {
 
     async fn try_send(&self, payload: &[u8]) {
         let sender = self.writer_tx.lock().unwrap().clone();
-        if let Some(sender) = sender {
-            if sender.send(payload.to_vec()).is_err() {
+        if let Some(sender) = sender
+            && sender.send(payload.to_vec()).is_err() {
                 *self.writer_tx.lock().unwrap() = None;
             }
-        }
     }
 
     async fn close_tcp_connection(&self) {
@@ -486,13 +485,9 @@ fn classify_monitor_event(
     device_uuid: &str,
     event: std::io::Result<tokio_udev::Event>,
 ) -> Option<MonitorAction> {
-    let Ok(event) = event else {
-        return None;
-    };
+    let event = event.ok()?;
 
-    let Some(address) = hid_device_get_bt_address(event.device().syspath()) else {
-        return None;
-    };
+    let address = hid_device_get_bt_address(event.device().syspath())?;
     if !address.eq_ignore_ascii_case(device_uuid) {
         return None;
     }
@@ -569,11 +564,10 @@ async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf)
                 continue;
             }
 
-            if barcode.len() < MAX_BARCODE_LEN {
-                if let Some(character) = decode_hid_character(code, use_uppercase) {
+            if barcode.len() < MAX_BARCODE_LEN
+                && let Some(character) = decode_hid_character(code, use_uppercase) {
                     barcode.push(character);
                 }
-            }
                     use_uppercase = false;
         }
     }

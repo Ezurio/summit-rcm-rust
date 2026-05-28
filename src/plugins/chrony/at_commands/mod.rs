@@ -4,102 +4,73 @@
 //
 //! Chrony NTP AT commands: at+ntpconf, at+ntpget
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
-use crate::publication::PublishedAtCommand;
 use log::error;
 
-pub struct NtpConf;
+pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let command = params.trimmed(0).to_string();
+    let sources: Vec<String> = params
+        .iter_parameters()
+        .skip(1)
+        .map(|s| s.to_string())
+        .collect();
 
-impl Command for NtpConf {
-    fn signature(&self) -> &str { "at+ntpconf" }
-    fn name(&self) -> &str { "NTP Configure" }
-    fn usage(&self) -> &str { "AT+NTPCONF=<command>,<source1>[,<source2>...]" }
+    match crate::plugins::chrony::service::ChronyNTPService::configure_sources(&command, sources).await {
+        Ok(_) => CommandOutcome::Ok,
+        Err(e) => {
+            error!("NTP configure error: {}", e);
+            CommandOutcome::Error
+        }
+    }
+}
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let mut parts = params.splitn(2, ',');
-            let command = match parts.next() {
-                Some(c) if !c.trim().is_empty() => c.trim().to_string(),
-                _ => return (true, "ERROR".to_string()),
+pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let scope = params.trimmed(0);
+    let mut out = String::new();
+
+    match scope {
+        "" | "-1" => {
+            let sources = match crate::plugins::chrony::service::ChronyNTPService::get_sources().await {
+                Ok(sources) => sources,
+                Err(error) => {
+                    error!("NTP get error: {}", error);
+                    return CommandOutcome::Error;
+                }
             };
-            let sources_str = parts.next().unwrap_or("");
-            let sources: Vec<String> = sources_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
 
-            match crate::plugins::chrony::service::ChronyNTPService::configure_sources(&command, sources).await {
-                Ok(_) => (true, "OK".to_string()),
-                Err(e) => {
-                    error!("NTP configure error: {}", e);
-                    (true, "ERROR".to_string())
-                }
+            for source in &sources {
+                out.push_str(&format!("+NTPGET: {},{}\r\n", source.address, source.source_type));
             }
-        })
+        }
+        "0" => {
+            for source in crate::plugins::chrony::service::ChronyNTPService::get_static_sources().await {
+                out.push_str(&format!("+NTPGET: {}\r\n", source));
+            }
+        }
+        "1" => {
+            let sources = match crate::plugins::chrony::service::ChronyNTPService::get_current_sources().await {
+                Ok(sources) => sources,
+                Err(error) => {
+                    error!("NTP get error: {}", error);
+                    return CommandOutcome::Error;
+                }
+            };
+
+            for source in &sources {
+                out.push_str(&format!("+NTPGET: {}\r\n", source));
+            }
+        }
+        _ => return CommandOutcome::Error,
     }
+
+    out.push_str("OK");
+    CommandOutcome::WithData(out)
 }
 
-pub struct NtpGet;
-
-impl Command for NtpGet {
-    fn signature(&self) -> &str { "at+ntpget" }
-    fn name(&self) -> &str { "NTP Get" }
-    fn usage(&self) -> &str { "AT+NTPGET[=<scope>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let scope = params.trim();
-            let mut out = String::new();
-
-            match scope {
-                "" | "-1" => {
-                    let sources = match crate::plugins::chrony::service::ChronyNTPService::get_sources().await {
-                        Ok(sources) => sources,
-                        Err(error) => {
-                            error!("NTP get error: {}", error);
-                            return (true, "ERROR".to_string());
-                        }
-                    };
-
-                    for source in &sources {
-                        out.push_str(&format!("+NTPGET: {},{}\r\n", source.address, source.source_type));
-                    }
-                }
-                "0" => {
-                    for source in crate::plugins::chrony::service::ChronyNTPService::get_static_sources().await {
-                        out.push_str(&format!("+NTPGET: {}\r\n", source));
-                    }
-                }
-                "1" => {
-                    let sources = match crate::plugins::chrony::service::ChronyNTPService::get_current_sources().await {
-                        Ok(sources) => sources,
-                        Err(error) => {
-                            error!("NTP get error: {}", error);
-                            return (true, "ERROR".to_string());
-                        }
-                    };
-
-                    for source in &sources {
-                        out.push_str(&format!("+NTPGET: {}\r\n", source));
-                    }
-                }
-                _ => return (true, "ERROR".to_string()),
-            }
-
-            out.push_str("OK");
-            (true, out)
-        })
-    }
-}
-
-pub static PUBLISHED_COMMANDS: &[PublishedAtCommand] = &[
-    PublishedAtCommand::new("at+ntpconf", "NTP Configure"),
-    PublishedAtCommand::new("at+ntpget", "NTP Get"),
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at+ntpconf", "AT+NTPCONF=<command>,<source1>[,<source2>...]", 2, &[0], execute_ntp_conf),
+    crate::at_interface::commands::command_spec!("at+ntpget", "AT+NTPGET[=<scope>]", 1, &[], execute_ntp_get),
 ];
 
-pub fn add_at_commands(cmds: &mut Vec<Box<dyn Command>>) {
-    cmds.push(Box::new(NtpConf));
-    cmds.push(Box::new(NtpGet));
-}

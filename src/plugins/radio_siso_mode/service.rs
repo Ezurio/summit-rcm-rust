@@ -42,7 +42,7 @@ impl RadioSISOModeService {
     pub fn get_running_driver_interface() -> Result<String> {
         let entries = std::fs::read_dir(LRDMWL_HOLDERS_PATH)
             .context("Failed to read lrdmwl holders")?;
-        for e in entries.flatten() {
+        if let Some(e) = entries.flatten().next() {
             return Ok(e.file_name().to_string_lossy().into_owned());
         }
         bail!("No driver interface found in lrdmwl holders")

@@ -11,27 +11,10 @@ use crate::web::legacy_response::{ok_response, LegacyOperationResponse};
 use crate::definition::USER_PERMISSION_TYPES;
 use serde::Serialize;
 use std::collections::BTreeMap;
-#[cfg(not(test))]
-use std::sync::atomic::{AtomicBool, Ordering};
-
-#[cfg(not(test))]
-static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
-
-pub(crate) fn initialize_sessions_enabled() {
-    #[cfg(not(test))]
-    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
-}
+use std::sync::LazyLock;
 
 fn sessions_enabled() -> bool {
-    #[cfg(test)]
-    {
-        return ServerConfig::get_bool("/", "tools.sessions.on", true);
-    }
-
-    #[cfg(not(test))]
-    {
-        SESSIONS_ENABLED.load(Ordering::Relaxed)
-    }
+    ServerConfig::get_bool("/", "tools.sessions.on", true)
 }
 
 #[derive(Serialize)]
@@ -40,7 +23,7 @@ pub struct LegacyDefinitionsSettings {
     pub session_timeout: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyPermissionDefinitions {
     #[serde(rename = "UserPermissionTypes")]
@@ -135,29 +118,40 @@ fn device_states() -> BTreeMap<String, String> {
     ])
 }
 
-fn permissions() -> LegacyPermissionDefinitions {
+const LEGACY_PERMISSION_ATTR_ROWS: &[(&str, &str, &str)] = &[
+    ("Networking Status", "checked", "disabled"),
+    ("View Connections", "checked", "disabled"),
+    ("Edit Connection", "", ""),
+    ("Activate Connection", "", ""),
+    ("Activate AP", "", ""),
+    ("Delete Connection", "", ""),
+    ("Wifi Scan", "", ""),
+    ("Manage Certs", "", ""),
+    ("Logging", "", ""),
+    ("Version", "checked", "disabled"),
+    ("Date & time", "", ""),
+    ("Firmware Update", "", ""),
+    ("Update Password", "checked", "disabled"),
+    ("Advance Setting", "", ""),
+    ("Positioning", "", ""),
+    ("Reboot", "", ""),
+    ("", "", ""),
+];
+
+static LEGACY_PERMISSION_DEFINITIONS: LazyLock<LegacyPermissionDefinitions> = LazyLock::new(|| {
     LegacyPermissionDefinitions {
         user_permission_types: USER_PERMISSION_TYPES.iter().map(|value| (*value).to_string()).collect(),
-        user_permission_attrs: vec![
-            vec!["Networking Status".to_string(), "checked".to_string(), "disabled".to_string()],
-            vec!["View Connections".to_string(), "checked".to_string(), "disabled".to_string()],
-            vec!["Edit Connection".to_string(), String::new(), String::new()],
-            vec!["Activate Connection".to_string(), String::new(), String::new()],
-            vec!["Activate AP".to_string(), String::new(), String::new()],
-            vec!["Delete Connection".to_string(), String::new(), String::new()],
-            vec!["Wifi Scan".to_string(), String::new(), String::new()],
-            vec!["Manage Certs".to_string(), String::new(), String::new()],
-            vec!["Logging".to_string(), String::new(), String::new()],
-            vec!["Version".to_string(), "checked".to_string(), "disabled".to_string()],
-            vec!["Date & time".to_string(), String::new(), String::new()],
-            vec!["Firmware Update".to_string(), String::new(), String::new()],
-            vec!["Update Password".to_string(), "checked".to_string(), "disabled".to_string()],
-            vec!["Advance Setting".to_string(), String::new(), String::new()],
-            vec!["Positioning".to_string(), String::new(), String::new()],
-            vec!["Reboot".to_string(), String::new(), String::new()],
-            vec![String::new(), String::new(), String::new()],
-        ],
+        user_permission_attrs: LEGACY_PERMISSION_ATTR_ROWS
+            .iter()
+            .map(|(name, selected, disabled)| {
+                vec![(*name).to_string(), (*selected).to_string(), (*disabled).to_string()]
+            })
+            .collect(),
     }
+});
+
+fn permissions() -> LegacyPermissionDefinitions {
+    LEGACY_PERMISSION_DEFINITIONS.clone()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(

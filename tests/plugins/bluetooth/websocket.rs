@@ -6,7 +6,7 @@ use axum::http::Request;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use summit_rcm::plugins::bluetooth::service::{BLE_NOTIFICATION_POLL_INTERVAL, format_notification};
+use summit_rcm::plugins::bluetooth::service::{BLE_NOTIFICATION_RESYNC_INTERVAL, format_notification};
 use summit_rcm::plugins::bluetooth::service::BluetoothService;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
@@ -69,8 +69,8 @@ fn notification_payload_preserves_unsorted_char_order() {
 }
 
 #[test]
-fn notification_poll_interval_matches_python_websocket_delay() {
-    assert_eq!(BLE_NOTIFICATION_POLL_INTERVAL, Duration::from_millis(100));
+fn notification_resync_interval_matches_websocket_contract() {
+    assert_eq!(BLE_NOTIFICATION_RESYNC_INTERVAL, Duration::from_secs(5));
 }
 
 fn websocket_test_router() -> Router {

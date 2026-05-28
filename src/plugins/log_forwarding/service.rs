@@ -12,6 +12,12 @@ pub struct LogForwardingService {
     unit: SystemdUnit,
 }
 
+impl Default for LogForwardingService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogForwardingService {
     pub fn new() -> Self {
         Self { unit: SystemdUnit::new(SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE) }

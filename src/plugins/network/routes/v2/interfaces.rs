@@ -5,7 +5,7 @@
 
 //! Network interface endpoints.
 
-use crate::plugins::network::service::NetworkService;
+use crate::plugins::network::service::{NetworkService, RawNetworkError};
 pub use crate::plugins::network::types::{
     AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
     VirtualInterfaceResponse,
@@ -126,15 +126,10 @@ pub async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsR
 pub async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterfaceDriverInfoResponses {
     match NetworkService::get_interface_driver_info(&name).await {
         Ok(value) => value.into(),
+        Err(RawNetworkError::InvalidInterfaceName) => GetInterfaceDriverInfoResponses::BadRequest,
         Err(error) => {
-            error!("get_interface_driver_info {}: {}", name, error);
-            if error.to_string().contains("No interface name")
-                || error.to_string().contains("Invalid interface name")
-            {
-                GetInterfaceDriverInfoResponses::BadRequest
-            } else {
-                GetInterfaceDriverInfoResponses::InternalError
-            }
+            error!("get_interface_driver_info {}: {:?}", name, error);
+            GetInterfaceDriverInfoResponses::InternalError
         }
     }
 }
@@ -183,13 +178,10 @@ pub async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpRespons
 pub async fn get_interface_summit_status(Path(name): Path<String>) -> GetInterfaceSummitStatusResponses {
     match NetworkService::get_summit_status(&name).await {
         Ok(value) => value.into(),
+        Err(RawNetworkError::InterfaceNotFound) => GetInterfaceSummitStatusResponses::BadRequest,
         Err(error) => {
-            error!("get_interface_summit_status {}: {}", name, error);
-            if error.to_string().contains("interface not found") {
-                GetInterfaceSummitStatusResponses::BadRequest
-            } else {
-                GetInterfaceSummitStatusResponses::InternalError
-            }
+            error!("get_interface_summit_status {}: {:?}", name, error);
+            GetInterfaceSummitStatusResponses::InternalError
         }
     }
 }

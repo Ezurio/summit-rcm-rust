@@ -13,14 +13,6 @@ pub mod routes;
 pub use self::login_service::LoginService;
 pub use self::user_service::UserService;
 
-fn initialize_login_settings(api: axum::Router) -> axum::Router {
-	#[cfg(feature = "api-v2")]
-	routes::v2::login::initialize_sessions_enabled();
-	#[cfg(feature = "api-legacy")]
-	routes::legacy::initialize_sessions_enabled();
-	api
-}
-
 crate::declare_plugin_api! {
 	route_table {
 		v2 => [
@@ -66,6 +58,5 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "login",
-	base_api: initialize_login_settings,
 }
 

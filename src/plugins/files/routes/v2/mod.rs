@@ -8,8 +8,6 @@ use axum::{extract::{Multipart, multipart::MultipartRejection}, http::StatusCode
 use serde::{Deserialize, Serialize};
 use log::error;
 #[cfg(feature = "api-docs")]
-
-#[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
 	crate::plugins::files::routes::v2::export_config,
@@ -83,12 +81,12 @@ async fn parse_import_config_request(
     let mut archive_data: Vec<u8> = Vec::new();
     let mut password = String::new();
     while let Ok(Some(field)) = multipart.next_field().await {
-        let field_name = field.name().unwrap_or("").to_string();
+        let field_name = field.name().map(str::to_owned).unwrap_or_default();
         let data = field.bytes().await.unwrap_or_default();
         if field_name == "archive" {
-            archive_data = data.to_vec();
+            archive_data = data.into_iter().collect();
         } else if field_name == "password" {
-            password = String::from_utf8_lossy(&data).to_string();
+            password = String::from_utf8_lossy(&data).into_owned();
         }
     }
     if archive_data.is_empty() || password.is_empty() {

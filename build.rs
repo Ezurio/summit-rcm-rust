@@ -41,7 +41,7 @@ fn generate_builtin_plugin_registry() -> Result<(), Box<dyn Error>> {
     let plugins_dir = Path::new("src/plugins");
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
 
-    let mut plugins = fs::read_dir(&plugins_dir)?
+    let mut plugins = fs::read_dir(plugins_dir)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter_map(|path| {
             if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("rs") {

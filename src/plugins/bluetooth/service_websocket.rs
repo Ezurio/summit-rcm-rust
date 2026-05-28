@@ -4,6 +4,7 @@
 //
 
 use super::*;
+use futures_util::StreamExt;
 use log::debug;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -11,7 +12,8 @@ use tokio::sync::broadcast;
 use tokio::{task::JoinHandle, time};
 
 const BLE_NOTIFICATION_BUFFER: usize = 64;
-pub const BLE_NOTIFICATION_POLL_INTERVAL: Duration = Duration::from_millis(100);
+pub const BLE_NOTIFICATION_RESYNC_INTERVAL: Duration = Duration::from_secs(5);
+pub const BLE_NOTIFICATION_SIGNAL_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 static BLE_NOTIFICATION_TX: LazyLock<broadcast::Sender<String>> = LazyLock::new(|| {
     let (tx, _) = broadcast::channel(BLE_NOTIFICATION_BUFFER);
@@ -89,11 +91,10 @@ impl BluetoothService {
                     "timestamp": Self::timestamp(),
                 });
 
-                if device.connected {
-                    if let Some(services) = device.services_json() {
+                if device.connected
+                    && let Some(services) = device.services_json() {
                         connect["services"] = services;
                     }
-                }
 
                 send_notification(serde_json::json!({
                     "connect": connect,
@@ -112,13 +113,12 @@ impl BluetoothService {
                         continue;
                     };
 
-                    if characteristic.value_hex != previous_characteristic.value_hex {
-                        if let Some(value_hex) = characteristic.value_hex.clone() {
+                    if characteristic.value_hex != previous_characteristic.value_hex
+                        && let Some(value_hex) = characteristic.value_hex.clone() {
                             BluetoothService::send_char_value_notification(&characteristic.uuid, value_hex);
                             #[cfg(feature = "bluetooth-vsp")]
                             vsp::handle_characteristic_value_change(device, characteristic).await;
                         }
-                    }
                 }
             }
         }
@@ -161,8 +161,77 @@ pub async fn ensure_notification_task() {
 
 async fn notification_loop() {
     let mut previous_snapshot: Option<BluetoothSnapshot> = None;
+    let mut signal_stream = match dbus::subscribe_to_signal(
+        BLUEZ_SERVICE,
+        dbus::DBUS_PROP_IFACE,
+        "PropertiesChanged",
+        BLE_NOTIFICATION_BUFFER,
+    )
+    .await
+    {
+        Ok(stream) => Some(stream),
+        Err(error) => {
+            debug!("bluetooth websocket signal subscription unavailable: {}", error);
+            None
+        }
+    };
+
+    let mut resync = time::interval(BLE_NOTIFICATION_RESYNC_INTERVAL);
+    let mut retry = time::interval(BLE_NOTIFICATION_SIGNAL_RETRY_INTERVAL);
+
+    enum RefreshAction {
+        Refresh,
+        Skip,
+    }
 
     loop {
+        let refresh_action = if let Some(stream) = signal_stream.as_mut() {
+            tokio::select! {
+                _ = resync.tick() => RefreshAction::Refresh,
+                message = stream.next() => {
+                    match message {
+                        Some(Ok(_)) => RefreshAction::Refresh,
+                        Some(Err(error)) => {
+                            debug!("bluetooth websocket signal stream error: {}", error);
+                            signal_stream = None;
+                            RefreshAction::Skip
+                        }
+                        None => {
+                            debug!("bluetooth websocket signal stream ended");
+                            signal_stream = None;
+                            RefreshAction::Skip
+                        }
+                    }
+                }
+            }
+        } else {
+            tokio::select! {
+                _ = resync.tick() => RefreshAction::Refresh,
+                _ = retry.tick() => {
+                    match dbus::subscribe_to_signal(
+                        BLUEZ_SERVICE,
+                        dbus::DBUS_PROP_IFACE,
+                        "PropertiesChanged",
+                        BLE_NOTIFICATION_BUFFER,
+                    ).await {
+                        Ok(stream) => {
+                            debug!("bluetooth websocket signal subscription restored");
+                            signal_stream = Some(stream);
+                            RefreshAction::Refresh
+                        }
+                        Err(error) => {
+                            debug!("bluetooth websocket signal retry failed: {}", error);
+                            RefreshAction::Skip
+                        }
+                    }
+                }
+            }
+        };
+
+        if let RefreshAction::Skip = refresh_action {
+            continue;
+        }
+
         match BluetoothService::get_snapshot_inner(None).await {
             Ok(snapshot) => {
                 if let Some(previous) = &previous_snapshot {
@@ -175,8 +244,6 @@ async fn notification_loop() {
                 previous_snapshot = None;
             }
         }
-
-        time::sleep(BLE_NOTIFICATION_POLL_INTERVAL).await;
     }
 }
 

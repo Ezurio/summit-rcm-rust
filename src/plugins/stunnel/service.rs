@@ -11,6 +11,12 @@ pub struct StunnelService {
     unit: SystemdUnit,
 }
 
+impl Default for StunnelService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StunnelService {
     pub fn new() -> Self {
         Self { unit: SystemdUnit::new(STUNNEL_SERVICE_FILE) }

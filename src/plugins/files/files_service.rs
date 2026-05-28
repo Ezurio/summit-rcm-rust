@@ -4,7 +4,7 @@
 //
 //! Service for file management: certificates, config archives, firmware updates
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
@@ -33,6 +33,14 @@ pub const SECURED_FWUPDATE_FILE_PATH: &str = "/data/summit-rcm-update.swu";
 pub const UNSECURED_FWUPDATE_FILE_PATH: &str = "/usr/share/summit-rcm-update.swu";
 
 pub struct FilesService;
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileDeleteError {
+    NotFound = 1,
+    InvalidFileType = 2,
+    Internal = 255,
+}
 
 impl FilesService {
     // -------------------------------------------------------------------------
@@ -158,7 +166,21 @@ impl FilesService {
             .ok_or_else(|| anyhow::anyhow!("Unknown file type '{}'", file_type))?;
         let path = format!("{}{}", dir, safe_name);
         std::fs::remove_file(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to delete '{}': {}", safe_name, e))
+            .with_context(|| format!("Failed to delete '{}'", safe_name))
+    }
+
+    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+    pub fn delete_file_typed(file_type: &str, name: &str) -> std::result::Result<(), FileDeleteError> {
+        let safe_name = Self::sanitize_filename(name).map_err(|_| FileDeleteError::Internal)?;
+        let dir = Self::get_file_dir(file_type).ok_or(FileDeleteError::InvalidFileType)?;
+        let path = format!("{}{}", dir, safe_name);
+        std::fs::remove_file(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                FileDeleteError::NotFound
+            } else {
+                FileDeleteError::Internal
+            }
+        })
     }
 
     /// Write raw bytes to the destination directory for `file_type`.

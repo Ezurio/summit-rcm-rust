@@ -12,12 +12,12 @@ use crate::plugins::network_manager::FILEDIR_CERT;
 use crate::plugins::network_manager::routes::connection_profile::ConnectionProfile;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::plugins::network_manager::routes::shared::{
-    AccessPoint, LegacyNetworkStatusPayload, NetworkInterfaceResponse, NetworkStatusResponse,
-    WifiStatus,
+    AccessPoint, LegacyNetworkStatusPayload, NetworkStatusResponse, WifiStatus,
 };
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{boottime, timespec_duration};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
@@ -27,6 +27,14 @@ use crate::plugins::network_manager::manager::{
 };
 
 pub struct NetworkService;
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceError {
+    NotFound = 1,
+    InvalidName = 2,
+    Internal = 255,
+}
 
 fn unmanaged_hardware_devices() -> Vec<String> {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")
@@ -40,8 +48,9 @@ fn append_missing_interfaces<I>(interfaces: &mut Vec<String>, extra_interfaces: 
 where
     I: IntoIterator<Item = String>,
 {
+    let mut known_interfaces: HashSet<String> = interfaces.iter().cloned().collect();
     for device in extra_interfaces {
-        if !interfaces.contains(&device) {
+        if known_interfaces.insert(device.clone()) {
             interfaces.push(device);
         }
     }
@@ -88,9 +97,9 @@ impl NetworkService {
             .get("Devices")
             .ok_or_else(|| anyhow::anyhow!("Devices property missing"))?;
         let device_paths: Vec<OwnedObjectPath> = dbus::clone_owned_value(device_paths_value)?.try_into()?;
-        let unmanaged_devices = unmanaged_hardware_devices();
+        let unmanaged_devices: HashSet<String> = unmanaged_hardware_devices().into_iter().collect();
 
-        let mut interfaces = Vec::new();
+        let mut interfaces = Vec::with_capacity(device_paths.len());
         for device_path in device_paths {
             let device_properties = NetworkManagerService::get_properties(device_path.as_str(), NM_DEVICE_IFACE).await?;
             let state = dbus::property::<i32>(&device_properties, "State").unwrap_or_default();
@@ -105,15 +114,6 @@ impl NetworkService {
                 continue;
             }
 
-            let filtered_state = NetworkManagerService::get_interface_status(&interface_name, false)
-                .await
-                .ok()
-                .and_then(|value| Self::device_state_value(&value))
-                .unwrap_or(i64::from(state));
-            if filtered_state == 10 {
-                continue;
-            }
-
             interfaces.push(interface_name);
         }
 
@@ -122,14 +122,14 @@ impl NetworkService {
         Ok(json!(interfaces))
     }
 
-    fn normalize_interface_detail_key(key: &str) -> String {
-        match key {
+    fn normalize_interface_detail_key(key: String) -> String {
+        match key.as_str() {
             "requestedRfc3442ClasslessStaticRoutes" => {
                 "requestedrfc3442Classlessstaticroutes".to_string()
             }
             "dhcp6ClientId" => "dhcp6Clientid".to_string(),
             "dhcp6NameServers" => "dhcp6Nameservers".to_string(),
-            _ => key.to_string(),
+            _ => key,
         }
     }
 
@@ -138,7 +138,7 @@ impl NetworkService {
             Value::Object(map) => Value::Object(
                 map.into_iter()
                     .map(|(key, value)| {
-                        let normalized_key = Self::normalize_interface_detail_key(&key);
+                        let normalized_key = Self::normalize_interface_detail_key(key);
                         let normalized_value = Self::normalize_interface_detail_value(value);
                         (normalized_key, normalized_value)
                     })
@@ -155,8 +155,9 @@ impl NetworkService {
     }
 
     fn normalize_interface_detail(interface: Value) -> Value {
-        let Value::Object(mut interface) = Self::normalize_interface_detail_value(interface.clone()) else {
-            return interface;
+        let normalized_interface = Self::normalize_interface_detail_value(interface);
+        let Value::Object(mut interface) = normalized_interface else {
+            return normalized_interface;
         };
 
         interface
@@ -187,14 +188,13 @@ impl NetworkService {
     }
 
     fn connection_value_to_json(section: &str, key: &str, value: &OwnedValue) -> Value {
-        if section == "802-11-wireless" && key == "ssid" {
-            if let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value) {
-                if let Ok(ssid) = String::from_utf8(bytes.clone()) {
-                    return json!(ssid);
-                }
-                return json!(bytes);
+        if section == "802-11-wireless" && key == "ssid"
+            && let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value) {
+                return match String::from_utf8(bytes) {
+                    Ok(ssid) => json!(ssid),
+                    Err(error) => json!(error.into_bytes()),
+                };
             }
-        }
 
         if section == "802-1x"
             && [
@@ -206,21 +206,17 @@ impl NetworkService {
                 "phase2-private-key",
             ]
             .contains(&key)
-        {
-            if let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value) {
-                if let Ok(text) = String::from_utf8(bytes) {
+            && let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value)
+                && let Ok(text) = String::from_utf8(bytes) {
                     let text = text.trim_end_matches('\0');
                     let text = text.strip_prefix("file://").unwrap_or(text);
                     return json!(text.strip_prefix(FILEDIR_CERT).unwrap_or(text));
                 }
-            }
-        }
 
-        if section == "802-1x" && key == "pac-file" {
-            if let Some(path) = dbus::try_from_owned_value::<String>(value) {
+        if section == "802-1x" && key == "pac-file"
+            && let Some(path) = dbus::try_from_owned_value::<String>(value) {
                 return json!(path.strip_prefix(FILEDIR_CERT).unwrap_or(&path));
             }
-        }
 
         Self::owned_value_to_json(value)
     }
@@ -230,8 +226,8 @@ impl NetworkService {
             return None;
         }
 
-        if section == "ipv6" && key == "dns" {
-            if let Some(values) = dbus::try_from_owned_value::<Vec<Vec<u8>>>(value) {
+        if section == "ipv6" && key == "dns"
+            && let Some(values) = dbus::try_from_owned_value::<Vec<Vec<u8>>>(value) {
                 let mut parsed = Vec::with_capacity(values.len());
                 for bytes in values {
                     let Ok(bytes) = <[u8; 16]>::try_from(bytes) else {
@@ -241,15 +237,14 @@ impl NetworkService {
                 }
                 return Some(json!(parsed));
             }
-        }
 
         Some(Self::connection_value_to_json(section, key, value))
     }
 
     fn structured_connection_settings(settings: &NmConnectionSettings) -> serde_json::Map<String, Value> {
-        let mut structured = serde_json::Map::new();
+        let mut structured = serde_json::Map::with_capacity(settings.len());
         for (section, values) in settings {
-            let mut section_map = serde_json::Map::new();
+            let mut section_map = serde_json::Map::with_capacity(values.len());
             for (key, value) in values {
                 if let Some(value) = Self::connection_entry_to_json(section, key, value) {
                     section_map.insert(key.to_string(), value);
@@ -271,11 +266,15 @@ impl NetworkService {
         match value {
             Value::Bool(v) => Some(*v),
             Value::Number(v) => Some(v.as_i64().unwrap_or_default() != 0),
-            Value::String(v) => match v.to_lowercase().as_str() {
-                "1" | "true" | "yes" | "on" => Some(true),
-                "0" | "false" | "no" | "off" => Some(false),
-                _ => None,
-            },
+            Value::String(v) if v == "1"
+                || v.eq_ignore_ascii_case("true")
+                || v.eq_ignore_ascii_case("yes")
+                || v.eq_ignore_ascii_case("on") => Some(true),
+            Value::String(v) if v == "0"
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("no")
+                || v.eq_ignore_ascii_case("off") => Some(false),
+            Value::String(_) => None,
             _ => None,
         }
     }
@@ -359,11 +358,10 @@ impl NetworkService {
     async fn get_connection_profile_uuid_from_id(id: &str) -> Result<String> {
         for path in Self::get_connection_paths().await? {
             let settings = NetworkManagerService::get_raw_connection_settings(path.as_str()).await?;
-            if Self::connection_setting_string(&settings, "connection", "id").as_deref() == Some(id) {
-                if let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid") {
+            if Self::connection_setting_string(&settings, "connection", "id").as_deref() == Some(id)
+                && let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid") {
                     return Ok(uuid);
                 }
-            }
         }
         anyhow::bail!("Connection '{}' not found", id)
     }
@@ -431,7 +429,7 @@ impl NetworkService {
 
     pub async fn get_status(is_legacy: bool) -> Result<Value> {
         let mut status = NetworkManagerService::get_status(is_legacy).await?;
-        let unmanaged_devices = unmanaged_hardware_devices();
+        let unmanaged_devices: HashSet<String> = unmanaged_hardware_devices().into_iter().collect();
 
         if let Some(devices) = status.as_object_mut() {
             devices.retain(|name, device| {
@@ -444,13 +442,15 @@ impl NetworkService {
 
             if !is_legacy {
                 for device in devices.values_mut() {
-                    *device = Self::normalize_interface_status_detail(device.clone());
+                    let current = std::mem::take(device);
+                    *device = Self::normalize_interface_status_detail(current);
                 }
             }
 
             let device_count = devices.len();
+            let normalized_devices = std::mem::take(devices);
             return Ok(json!({
-                "status": Value::Object(devices.clone()),
+                "status": Value::Object(normalized_devices),
                 "devices": device_count,
             }));
         }
@@ -511,55 +511,43 @@ impl NetworkService {
             .and_then(Value::as_object)
             .ok_or_else(|| anyhow::anyhow!("network status missing"))?;
 
-        let interfaces = devices
-            .iter()
-            .filter_map(|(name, device)| {
-                device
-                    .as_object()
-                    .map(|device| Self::interface_summary(name, device))
-            })
-            .collect::<Vec<_>>();
+        let mut interfaces = Vec::with_capacity(devices.len());
+        for (name, device) in devices {
+            if let Some(device) = device.as_object() {
+                interfaces.push(Self::interface_summary(name, device));
+            }
+        }
 
         Ok(json!({ "interfaces": interfaces }))
     }
 
     /// Get details for a single interface
-    pub async fn get_interface(name: &str) -> Result<Value> {
-        let interface = NetworkManagerService::get_interface_status(name, false).await?;
-        let interface = interface
-            .as_object()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Interface '{}' not found", name))?;
+    pub async fn get_interface(name: &str) -> std::result::Result<Value, InterfaceError> {
+        let interface = NetworkManagerService::get_interface_status(name, false)
+            .await
+            .map_err(|_| InterfaceError::Internal)?;
+        let Value::Object(interface) = interface else {
+            return Err(InterfaceError::NotFound);
+        };
 
         Ok(Self::normalize_interface_detail(Value::Object(interface)))
-    }
-
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_interface_model(name: &str) -> Result<NetworkInterfaceResponse> {
-        Self::get_interface(name).await.and_then(Self::decode_route_model)
     }
 
     pub async fn get_interface_legacy(name: &str) -> Result<Value> {
         NetworkManagerService::get_interface_status(name, true).await
     }
 
+    async fn active_connection_paths() -> Result<HashSet<OwnedObjectPath>> {
+        NetworkManagerService::get_active_connection_target_paths().await
+    }
+
     /// Get connection profiles
     pub async fn get_connections() -> Result<Value> {
-        let mut active_connections = std::collections::HashSet::new();
-        for active_path in NetworkManagerService::get_active_connection_paths().await? {
-            let props = NetworkManagerService::get_properties(
-                active_path.as_str(),
-                crate::plugins::network_manager::manager::NM_CONNECTION_ACTIVE_IFACE,
-            )
-            .await?;
-            if let Some(connection) = props.get("Connection") {
-                let path: OwnedObjectPath = dbus::clone_owned_value(connection)?.try_into()?;
-                active_connections.insert(path.to_string());
-            }
-        }
+        let active_connections = Self::active_connection_paths().await?;
+        let connection_paths = Self::get_connection_paths().await?;
 
-        let mut connections = Vec::new();
-        for path in Self::get_connection_paths().await? {
+        let mut connections = Vec::with_capacity(connection_paths.len());
+        for path in connection_paths {
             let settings = match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
                 Ok(settings) => settings,
                 Err(_) => continue,
@@ -580,7 +568,7 @@ impl NetworkService {
                 "id": Self::connection_setting_string(&settings, "connection", "id").unwrap_or_default(),
                 "uuid": uuid,
                 "type": connection_type,
-                "activated": active_connections.contains(path.as_str()),
+                "activated": active_connections.contains(&path),
             }));
         }
         Ok(json!(connections))
@@ -594,21 +582,11 @@ impl NetworkService {
     /// Get legacy connection profiles keyed by UUID.
     #[cfg(feature = "api-legacy")]
     pub async fn get_connections_legacy() -> Result<Value> {
-        let mut active_connections = std::collections::HashSet::new();
-        for active_path in NetworkManagerService::get_active_connection_paths().await? {
-            let props = NetworkManagerService::get_properties(
-                active_path.as_str(),
-                crate::plugins::network_manager::manager::NM_CONNECTION_ACTIVE_IFACE,
-            )
-            .await?;
-            if let Some(connection) = props.get("Connection") {
-                let path: OwnedObjectPath = dbus::clone_owned_value(connection)?.try_into()?;
-                active_connections.insert(path.to_string());
-            }
-        }
+        let active_connections = Self::active_connection_paths().await?;
+        let connection_paths = Self::get_connection_paths().await?;
 
-        let mut connections = serde_json::Map::new();
-        for path in Self::get_connection_paths().await? {
+        let mut connections = serde_json::Map::with_capacity(connection_paths.len());
+        for path in connection_paths {
             let settings = match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
                 Ok(settings) => settings,
                 Err(_) => continue,
@@ -620,10 +598,10 @@ impl NetworkService {
             let connection_type = Self::connection_setting_string(&settings, "802-11-wireless", "mode")
                 .map(|mode| if mode == "ap" { "ap".to_string() } else { String::new() });
 
-            let mut connection = serde_json::Map::new();
+            let mut connection = serde_json::Map::with_capacity(3);
             connection.insert(
                 "activated".to_string(),
-                json!(if active_connections.contains(path.as_str()) { 1 } else { 0 }),
+                json!(if active_connections.contains(&path) { 1 } else { 0 }),
             );
             connection.insert(
                 "id".to_string(),
@@ -753,10 +731,9 @@ impl NetworkService {
     }
 
     pub async fn get_wifi_status() -> Result<Value> {
-        let software_enabled = NetworkManagerService::get_wifi_enabled_dbus().await?;
-        let hardware_enabled = NetworkManagerService::get_wifi_hardware_enabled_dbus()
-            .await
-            .unwrap_or(false);
+        let (software_enabled, hardware_enabled) =
+            NetworkManagerService::get_wifi_radio_state_dbus()
+                .await?;
         Ok(json!({
             "wifiRadioSoftwareEnabled": software_enabled,
             "wifiRadioHardwareEnabled": hardware_enabled,
@@ -813,31 +790,27 @@ impl NetworkService {
 
         let mut replaced_existing = false;
         if overwrite_existing {
-            if let Some(id) = existing_id.as_deref() {
-                if let Ok(uuid) = Self::get_connection_profile_uuid_from_id(id).await {
+            if let Some(id) = existing_id.as_deref()
+                && let Ok(uuid) = Self::get_connection_profile_uuid_from_id(id).await {
                     Self::delete_connection_by_uuid(&uuid).await?;
                     replaced_existing = true;
                 }
-            }
 
-            if let Some(uuid) = existing_uuid.as_deref() {
-                if Self::get_connection_by_uuid(uuid).await.is_ok() {
+            if let Some(uuid) = existing_uuid.as_deref()
+                && Self::get_connection_by_uuid(uuid).await.is_ok() {
                     Self::delete_connection_by_uuid(uuid).await?;
                     replaced_existing = true;
                 }
-            }
         } else {
-            if let Some(id) = existing_id.as_deref() {
-                if Self::get_connection_profile_uuid_from_id(id).await.is_ok() {
+            if let Some(id) = existing_id.as_deref()
+                && Self::get_connection_profile_uuid_from_id(id).await.is_ok() {
                     anyhow::bail!("Connection '{}' already exists", id);
                 }
-            }
 
-            if let Some(uuid) = existing_uuid.as_deref() {
-                if Self::get_connection_by_uuid(uuid).await.is_ok() {
+            if let Some(uuid) = existing_uuid.as_deref()
+                && Self::get_connection_by_uuid(uuid).await.is_ok() {
                     anyhow::bail!("Connection '{}' already exists", uuid);
                 }
-            }
         }
 
         let (profile, _) = Self::save_connection_profile_internal(settings, None, None, true).await?;

@@ -4,7 +4,8 @@
 //
 use crate::web::legacy_response::LegacyOperationResponse;
 use crate::web::legacy_response::SdcerrCode;
-use crate::plugins::update::FirmwareUpdateService;
+use crate::plugins::update::{FirmwareUpdateService};
+use crate::plugins::update::firmware_update_service::UpdateStreamError;
 use crate::plugins::update::routes::shared::upload_update_stream;
 use axum::{
     body::Body,
@@ -12,8 +13,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-#[cfg(feature = "api-docs")]
-
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -121,9 +120,9 @@ pub async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacyRespons
 
     match upload_update_stream(req.into_body()).await {
         Ok(_) => legacy_operation_response(SdcerrCode::Success.as_i32(), "").into(),
-        Err(error) if error.to_string().contains("no update in progress") => PutSwupdateLegacyResponses::BadRequest,
+        Err(UpdateStreamError::NoUpdateInProgress) => PutSwupdateLegacyResponses::BadRequest,
         Err(error) => {
-            log::error!("put_swupdate_legacy: {}", error);
+            log::error!("put_swupdate_legacy: {:?}", error);
             PutSwupdateLegacyResponses::InternalError
         }
     }

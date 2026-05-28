@@ -36,11 +36,10 @@ static FORWARDED_PORTS: LazyLock<Mutex<Vec<ForwardedPort>>> = LazyLock::new(|| {
 });
 
 fn load_ports() -> Vec<ForwardedPort> {
-    if let Ok(data) = std::fs::read_to_string(FORWARDED_PORTS_FILE) {
-        if let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data) {
+    if let Ok(data) = std::fs::read_to_string(FORWARDED_PORTS_FILE)
+        && let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data) {
             return v;
         }
-    }
     Vec::new()
 }
 

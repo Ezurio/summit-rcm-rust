@@ -12,25 +12,13 @@ pub(crate) const INVALID_RSSI: f64 = -9999.9999;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 #[cfg(feature = "at-interface")]
-mod at_commands;
+pub(crate) mod at_commands;
 mod extras;
 pub mod manager;
 pub mod service;
 
-fn initialize_network_manager_runtime() {
+pub fn initialize_network_manager_runtime() {
 	manager::NetworkManagerService::initialize_status_cache_in_background();
-}
-
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-fn install_base_api(api: axum::Router) -> axum::Router {
-	initialize_network_manager_runtime();
-	api
-}
-
-#[cfg(feature = "at-interface")]
-fn install_at_commands(cmds: &mut Vec<Box<dyn crate::at_interface::commands::Command>>) {
-	initialize_network_manager_runtime();
-	at_commands::add_at_commands(cmds);
 }
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -245,9 +233,5 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "network-manager",
-	base_api: install_base_api,
-	at_commands: (
-		at_commands::PUBLISHED_COMMANDS,
-		install_at_commands,
-	),
+	at_commands: at_commands::COMMANDS,
 }

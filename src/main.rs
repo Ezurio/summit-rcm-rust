@@ -19,8 +19,8 @@ fn log_level_from_env() -> LevelFilter {
 fn init_logger() {
     let level = log_level_from_env();
 
-    if connected_to_journal() {
-        if let Ok(logger) = JournalLog::new() {
+    if connected_to_journal()
+        && let Ok(logger) = JournalLog::new() {
             let logger = logger
                 .with_syslog_identifier(env!("CARGO_PKG_NAME").to_string())
                 .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))]);
@@ -29,7 +29,6 @@ fn init_logger() {
                 return;
             }
         }
-    }
 
     SimpleLogger::new()
         .with_level(level)
@@ -43,6 +42,7 @@ mod runtime {
     use futures_util::future::try_join_all;
     #[cfg(feature = "at-interface")]
     use summit_rcm::at_interface;
+    use summit_rcm::plugins::network_manager;
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     use summit_rcm::web;
     #[cfg(unix)]
@@ -68,7 +68,6 @@ mod runtime {
                 _ = tokio::signal::ctrl_c() => {}
                 _ = sigterm.recv() => {}
             }
-            return;
         }
 
         #[cfg(not(unix))]
@@ -77,10 +76,13 @@ mod runtime {
         }
     }
 
+    #[allow(clippy::vec_init_then_push)]
     pub async fn run() -> anyhow::Result<()> {
         let local = LocalSet::new();
         local
             .run_until(async move {
+                network_manager::initialize_network_manager_runtime();
+
                 let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
                 let mut tasks: Vec<(&'static str, JoinHandle<anyhow::Result<()>>)> = Vec::new();
 

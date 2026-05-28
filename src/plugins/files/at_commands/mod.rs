@@ -5,11 +5,11 @@
 
 //! File-management AT commands owned by the files plugin.
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::at_files_service::AtFilesService;
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::files::FilesService;
-use crate::publication::PublishedAtCommand;
 use log::error;
 
 enum FilesListType {
@@ -37,142 +37,88 @@ impl FilesListType {
     }
 }
 
-pub struct FilesDelete;
+pub async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let file_type = params.trimmed(0);
+    let name = params.trimmed(1);
 
-impl Command for FilesDelete {
-    fn signature(&self) -> &str { "at+filesdel" }
-    fn name(&self) -> &str { "Files Delete" }
-    fn usage(&self) -> &str { "AT+FILESDEL=<type>,<name>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(2, ',').collect();
-            if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-                return (true, "ERROR".to_string());
-            }
-            let file_type = parts[0].trim();
-            let name = parts[1].trim();
-
-            match FilesService::delete_file(file_type, name) {
-                Ok(_) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("Files delete error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    match FilesService::delete_file(file_type, name) {
+        Ok(_) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("Files delete error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct FilesList;
+pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(file_type) = FilesListType::parse(params.trimmed(0)) else {
+        return CommandOutcome::Error;
+    };
 
-impl Command for FilesList {
-    fn signature(&self) -> &str { "at+fileslist" }
-    fn name(&self) -> &str { "Files List" }
-    fn usage(&self) -> &str { "AT+FILESLIST[=<type>]" }
+    let files = match file_type.list_files() {
+        Ok(files) => files,
+        Err(error) => {
+            error!("Files list error: {}", error);
+            return CommandOutcome::Error;
+        }
+    };
+    let mut out = String::new();
+    for file in &files {
+        out.push_str(&format!("+FILESLIST: {}\r\n", file));
+    }
+    out.push_str("OK");
+    CommandOutcome::WithData(out)
+}
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let Some(file_type) = FilesListType::parse(params) else {
-                return (true, "ERROR".to_string());
-            };
-
-            let files = match file_type.list_files() {
-                Ok(files) => files,
-                Err(error) => {
-                    error!("Files list error: {}", error);
-                    return (true, "ERROR".to_string());
-                }
-            };
-            let mut out = String::new();
-            for file in &files {
-                out.push_str(&format!("+FILESLIST: {}\r\n", file));
-            }
-            out.push_str("OK");
-            (true, out)
-        })
+pub async fn execute_files_export(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    match FilesService::export_config().await {
+        Ok(data) => {
+            let encoded = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &data,
+            );
+            CommandOutcome::WithData(format!("+FILESEXP: {}\r\nOK", encoded))
+        }
+        Err(error) => {
+            error!("Files export error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct FilesExport;
+pub async fn execute_files_upload(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let file_type = params.trimmed(0);
+    let name = params.trimmed(1);
+    let length: usize = match params.parse_value::<usize>(2) {
+        Some(v) => v,
+        None => return CommandOutcome::Error,
+    };
 
-impl Command for FilesExport {
-    fn signature(&self) -> &str { "at+filesexp" }
-    fn name(&self) -> &str { "Files Export" }
-    fn usage(&self) -> &str { "AT+FILESEXP" }
+    if file_type.is_empty() || name.is_empty() {
+        return CommandOutcome::Error;
+    }
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            match FilesService::export_config().await {
-                Ok(data) => {
-                    let encoded = base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        &data,
-                    );
-                    (true, format!("+FILESEXP: {}\r\nOK", encoded))
-                }
-                Err(error) => {
-                    error!("Files export error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    FsmHandle::at_output(b"> ", false, false);
+
+    let (done, data, _len) = AtFilesService::write_upload_body(length, 256).await;
+
+    if !done {
+        return CommandOutcome::PendingInput;
+    }
+
+    match FilesService::upload_file(file_type, name, &data).await {
+        Ok(_) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("Files upload error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct FilesUpload;
-
-impl Command for FilesUpload {
-    fn signature(&self) -> &str { "at+filesup" }
-    fn name(&self) -> &str { "Files Upload" }
-    fn usage(&self) -> &str { "AT+FILESUP=<type>,<name>,<length>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(3, ',').collect();
-            if parts.len() < 3 {
-                return (true, "ERROR".to_string());
-            }
-            let file_type = parts[0].trim();
-            let name = parts[1].trim();
-            let length: usize = match parts[2].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-
-            if file_type.is_empty() || name.is_empty() {
-                return (true, "ERROR".to_string());
-            }
-
-            FsmHandle::at_output(b"> ", false, false);
-
-            let (done, data, _len) = AtFilesService::write_upload_body(length, 256).await;
-
-            if !done {
-                return (false, String::new());
-            }
-
-            match FilesService::upload_file(file_type, name, &data).await {
-                Ok(_) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("Files upload error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
-    }
-}
-
-pub static PUBLISHED_COMMANDS: &[PublishedAtCommand] = &[
-    PublishedAtCommand::new("at+filesdel", "Files Delete"),
-    PublishedAtCommand::new("at+fileslist", "Files List"),
-    PublishedAtCommand::new("at+filesexp", "Files Export"),
-    PublishedAtCommand::new("at+filesup", "Files Upload"),
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at+filesdel", "AT+FILESDEL=<type>,<name>", 2, &[0, 1], execute_files_delete),
+    crate::at_interface::commands::command_spec!("at+fileslist", "AT+FILESLIST[=<type>]", 1, &[], execute_files_list),
+    crate::at_interface::commands::command_spec!("at+filesexp", "AT+FILESEXP", 0, &[], execute_files_export),
+    crate::at_interface::commands::command_spec!("at+filesup", "AT+FILESUP=<type>,<name>,<length>", 3, &[0, 1], execute_files_upload),
 ];
 
-pub fn add_at_commands(cmds: &mut Vec<Box<dyn Command>>) {
-    cmds.push(Box::new(FilesDelete));
-    cmds.push(Box::new(FilesList));
-    cmds.push(Box::new(FilesExport));
-    cmds.push(Box::new(FilesUpload));
-}

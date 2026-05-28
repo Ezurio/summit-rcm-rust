@@ -178,17 +178,15 @@ pub async fn patch_user(
         return PatchUserResponses::Forbidden;
     }
 
-    if let Some(new_password) = body.new_password.as_deref().filter(|value| !value.is_empty()) {
-        if !UserService::update_password(&name, new_password) {
+    if let Some(new_password) = body.new_password.as_deref().filter(|value| !value.is_empty())
+        && !UserService::update_password(&name, new_password) {
             return PatchUserResponses::InternalError;
         }
-    }
 
-    if let Some(permissions) = body.permissions.as_deref() {
-        if !UserService::update_permission(&name, permissions) {
+    if let Some(permissions) = body.permissions.as_deref()
+        && !UserService::update_permission(&name, permissions) {
             return PatchUserResponses::InternalError;
         }
-    }
 
     PatchUserResponses::Ok(UserResponse {
         username: name.clone(),

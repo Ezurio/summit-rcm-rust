@@ -25,7 +25,7 @@ impl UserService {
         };
         let data = [salt.as_bytes(), password.as_bytes()].concat();
         let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-        let attempt = hex::encode(digest.to_vec());
+        let attempt = hex::encode(digest);
         attempt == stored
     }
 
@@ -47,7 +47,7 @@ impl UserService {
             };
             let data = [salt.as_bytes(), password.as_bytes()].concat();
             let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-            let hashed = hex::encode(digest.to_vec());
+            let hashed = hex::encode(digest);
 
             SummitRcmConfigManage::set(username, "salt", &salt);
             SummitRcmConfigManage::set(username, "password", &hashed);
@@ -66,7 +66,7 @@ impl UserService {
             };
             let data = [salt.as_bytes(), password.as_bytes()].concat();
             let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-            let hashed = hex::encode(digest.to_vec());
+            let hashed = hex::encode(digest);
 
             SummitRcmConfigManage::set(username, "salt", &salt);
             SummitRcmConfigManage::set(username, "password", &hashed);

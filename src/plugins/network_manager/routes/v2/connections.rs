@@ -291,11 +291,7 @@ pub async fn patch_connection_by_id(
         Err(error) => {
             let message = error.to_string();
             log::error!("patch_connection_by_id {}: {}", id, message);
-            if message.contains("not found") {
-                UpsertConnectionResponses::InternalError
-            } else {
-                UpsertConnectionResponses::InternalError
-            }
+            UpsertConnectionResponses::InternalError
         }
     }
 }

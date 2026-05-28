@@ -76,6 +76,19 @@ pub(super) struct VspConnectionHandle {
     pub(super) task: JoinHandle<()>,
 }
 
+pub(super) struct StartVspConnectionArgs {
+    device_address: String,
+    service_uuid: String,
+    read_char_path: String,
+    read_char_uuid: String,
+    write_char_path: String,
+    write_char_uuid: String,
+    port: u16,
+    write_size: usize,
+    write_type: String,
+    socket_rx_type: VspSocketRxType,
+}
+
 async fn run_vsp_writer(
     mut writer: OwnedWriteHalf,
     mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
@@ -127,30 +140,21 @@ impl BluetoothService {
 
     pub(super) async fn start_vsp_connection(
         conn: &Connection,
-        device_address: &str,
-        service_uuid: String,
-        read_char_path: String,
-        read_char_uuid: String,
-        write_char_path: String,
-        write_char_uuid: String,
-        port: u16,
-        write_size: usize,
-        write_type: String,
-        socket_rx_type: VspSocketRxType,
+        args: StartVspConnectionArgs,
     ) -> anyhow::Result<()> {
-        let listener = TcpListener::bind((TCP_SOCKET_HOST, port)).await?;
+        let listener = TcpListener::bind((TCP_SOCKET_HOST, args.port)).await?;
 
         let state = Arc::new(VspConnectionState {
             conn: conn.clone(),
-            port,
-            service_uuid,
-            read_char_path: StdMutex::new(read_char_path),
-            read_char_uuid,
-            write_char_path: StdMutex::new(write_char_path),
-            write_char_uuid,
-            write_size,
-            write_type,
-            socket_rx_type,
+            port: args.port,
+            service_uuid: args.service_uuid,
+            read_char_path: StdMutex::new(args.read_char_path),
+            read_char_uuid: args.read_char_uuid,
+            write_char_path: StdMutex::new(args.write_char_path),
+            write_char_uuid: args.write_char_uuid,
+            write_size: args.write_size,
+            write_type: args.write_type,
+            socket_rx_type: args.socket_rx_type,
             writer_tx: StdMutex::new(None),
         });
 
@@ -161,7 +165,7 @@ impl BluetoothService {
 
         let mut guard = VSP_CONNECTIONS.lock().unwrap();
         guard.insert(
-            device_address.to_string(),
+            args.device_address,
             VspConnectionHandle { state, task },
         );
         Ok(())
@@ -219,14 +223,17 @@ impl BluetoothService {
                 pending.extend_from_slice(&buf[..read]);
                 while pending.len() >= state.write_size {
                     let chunk = pending.drain(..state.write_size).collect::<Vec<_>>();
-                    if let Err(error) = Self::send_vsp_chunk(&state, &chunk).await {
-                        if state.is_json() {
+                    if let Err(error) = Self::send_vsp_chunk(&state, &chunk).await
+                        && state.is_json() {
                             Self::send_vsp_json(&state, serde_json::json!({"Error": "Transmit failed"})).await;
-                            if error.to_string().contains("Not connected") {
+                            if matches!(
+                                error,
+                                dbus::DbusCallError::Method(zbus::Error::MethodError(name, _, _))
+                                    if name.as_str() == "org.bluez.Error.NotConnected"
+                            ) {
                                 Self::send_vsp_json(&state, serde_json::json!({"Connected": 0})).await;
                             }
                         }
-                    }
                 }
             }
 
@@ -237,14 +244,14 @@ impl BluetoothService {
     pub(super) async fn send_vsp_chunk(
         state: &Arc<VspConnectionState>,
         chunk: &[u8],
-    ) -> anyhow::Result<()> {
+    ) -> std::result::Result<(), dbus::DbusCallError> {
         let write_char_path = state.write_char_path.lock().unwrap().clone();
         let mut options = HashMap::<String, Value<'static>>::new();
         if !state.write_type.is_empty() {
             options.insert("type".to_string(), Value::from(state.write_type.as_str()));
         }
 
-        dbus::call_method(
+        dbus::call_method_typed(
             &state.conn,
             Some(BLUEZ_SERVICE),
             write_char_path.as_str(),
@@ -298,15 +305,14 @@ impl BluetoothService {
 
 #[cfg(feature = "bluetooth-websocket")]
 pub(super) async fn handle_connect_state_change(device: &DeviceSnapshot) {
-    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await {
-        if state.is_json() {
+    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await
+        && state.is_json() {
             BluetoothService::send_vsp_json(
                 &state,
                 serde_json::json!({"Connected": device.connected}),
             )
             .await;
         }
-    }
 }
 
 #[cfg(feature = "bluetooth-websocket")]
@@ -359,29 +365,28 @@ pub(super) async fn handle_characteristic_value_change(
     }
 
     if state.is_json() {
+        let value_hex = characteristic.value_hex.as_deref().unwrap_or_default();
         BluetoothService::send_vsp_json(
             &state,
-            serde_json::json!({"Received": format!("0x{}", characteristic.value_hex.clone().unwrap_or_default())}),
+            serde_json::json!({"Received": format!("0x{}", value_hex)}),
         )
         .await;
-    } else if let Some(value_hex) = characteristic.value_hex.clone() {
-        if let Ok(bytes) = hex::decode(value_hex) {
+    } else if let Some(value_hex) = characteristic.value_hex.as_deref()
+        && let Ok(bytes) = hex::decode(value_hex) {
             BluetoothService::write_vsp_bytes(&state, &bytes).await;
         }
-    }
 }
 
 #[cfg(feature = "bluetooth-websocket")]
 pub(super) async fn handle_device_removed(device: &DeviceSnapshot) {
-    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await {
-        if state.is_json() {
+    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await
+        && state.is_json() {
             BluetoothService::send_vsp_json(
                 &state,
                 serde_json::json!({"Connected": false}),
             )
             .await;
         }
-    }
 }
 
 pub(super) async fn handle_vsp_command(
@@ -484,16 +489,18 @@ async fn handle_gatt_connect(
 
     BluetoothService::start_vsp_connection(
         conn,
-        dev_addr,
-        vsp_svc_uuid.to_string(),
-        read_char_path,
-        vsp_read_chr_uuid.to_string(),
-        write_char_path,
-        vsp_write_chr_uuid.to_string(),
-        tcp_port as u16,
-        write_size,
-        write_type,
-        socket_rx_type,
+        StartVspConnectionArgs {
+            device_address: dev_addr.to_string(),
+            service_uuid: vsp_svc_uuid.to_string(),
+            read_char_path,
+            read_char_uuid: vsp_read_chr_uuid.to_string(),
+            write_char_path,
+            write_char_uuid: vsp_write_chr_uuid.to_string(),
+            port: tcp_port as u16,
+            write_size,
+            write_type,
+            socket_rx_type,
+        },
     )
     .await?;
 

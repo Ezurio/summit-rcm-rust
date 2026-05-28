@@ -15,11 +15,27 @@ pub const SUMMIT_RCM_SERVER_CONF_FILE: &str = "/etc/summit-rcm.ini";
 pub const SUMMIT_RCM_SETTINGS_FILE: &str = "/etc/summit-rcm/summit-rcm-settings.ini";
 
 fn parse_bool(value: &str) -> Option<bool> {
-    match value.to_lowercase().as_str() {
-        "true" | "1" | "yes" | "on" => Some(true),
-        "false" | "0" | "no" | "off" => Some(false),
-        _ => None,
+    if matches!(value, "1")
+        || value.eq_ignore_ascii_case("true")
+        || value.eq_ignore_ascii_case("yes")
+        || value.eq_ignore_ascii_case("on")
+    {
+        return Some(true);
     }
+
+    if matches!(value, "0")
+        || value.eq_ignore_ascii_case("false")
+        || value.eq_ignore_ascii_case("no")
+        || value.eq_ignore_ascii_case("off")
+    {
+        return Some(false);
+    }
+
+    None
+}
+
+fn has_section(cfg: &Ini, section: &str) -> bool {
+    cfg.sections().iter().any(|existing| existing == section)
 }
 
 static SETTINGS_CONFIG_PATH: LazyLock<String> = LazyLock::new(|| {
@@ -50,12 +66,13 @@ pub struct SummitRcmConfigManage;
 
 impl SummitRcmConfigManage {
     pub fn has_section(section: &str) -> bool {
-        SETTINGS_CONFIG.lock().unwrap().sections().contains(&section.to_string())
+        let cfg = SETTINGS_CONFIG.lock().unwrap();
+        has_section(&cfg, section)
     }
 
     pub fn add_section(section: &str) -> bool {
         let mut cfg = SETTINGS_CONFIG.lock().unwrap();
-        if !cfg.sections().contains(&section.to_string()) {
+        if !has_section(&cfg, section) {
             cfg.set(section, "__init__", None); // ensure section exists
             true
         } else {
@@ -65,7 +82,7 @@ impl SummitRcmConfigManage {
 
     pub fn remove_section(section: &str) -> bool {
         let mut cfg = SETTINGS_CONFIG.lock().unwrap();
-        if cfg.sections().contains(&section.to_string()) {
+        if has_section(&cfg, section) {
             cfg.remove_section(section);
             true
         } else {
@@ -75,7 +92,7 @@ impl SummitRcmConfigManage {
 
     pub fn set(section: &str, key: &str, value: &str) -> bool {
         let mut cfg = SETTINGS_CONFIG.lock().unwrap();
-        if cfg.sections().contains(&section.to_string()) {
+        if has_section(&cfg, section) {
             cfg.set(section, key, Some(value.to_string()));
             true
         } else {
@@ -96,7 +113,7 @@ impl SummitRcmConfigManage {
 
     pub fn get_string(section: &str, key: &str, default: &str) -> String {
         Self::get(section, key)
-            .unwrap_or_else(|| default.to_string())
+            .unwrap_or_else(|| default.to_owned())
             .trim_matches('"')
             .to_string()
     }
@@ -177,7 +194,7 @@ impl ServerConfig {
 
     pub fn get_string(section: &str, key: &str, default: &str) -> String {
         Self::get(section, key)
-            .unwrap_or_else(|| default.to_string())
+            .unwrap_or_else(|| default.to_owned())
             .trim_matches('"')
             .to_string()
     }

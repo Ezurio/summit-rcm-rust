@@ -28,9 +28,6 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "awm",
-	at_commands: (
-		at_commands::PUBLISHED_COMMANDS,
-		at_commands::add_at_commands,
-	),
+	at_commands: at_commands::COMMANDS,
 }
 

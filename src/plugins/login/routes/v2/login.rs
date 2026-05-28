@@ -12,30 +12,12 @@ use crate::definition::USER_PERMISSION_TYPES;
 use crate::plugins::login::LoginService;
 use crate::plugins::login::UserService;
 use axum::Json;
-use serde::Deserialize;
-#[cfg(not(test))]
-use std::sync::atomic::{AtomicBool, Ordering};
 use tower_sessions::Session;
 use log::info;
-
-#[cfg(not(test))]
-static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
-
-pub(crate) fn initialize_sessions_enabled() {
-    #[cfg(not(test))]
-    SESSIONS_ENABLED.store(ServerConfig::get_bool("/", "tools.sessions.on", true), Ordering::Relaxed);
-}
+use serde::Deserialize;
 
 fn sessions_enabled() -> bool {
-    #[cfg(test)]
-    {
-        return ServerConfig::get_bool("/", "tools.sessions.on", true);
-    }
-
-    #[cfg(not(test))]
-    {
-        SESSIONS_ENABLED.load(Ordering::Relaxed)
-    }
+    ServerConfig::get_bool("/", "tools.sessions.on", true)
 }
 
 crate::define_status_response_family! {

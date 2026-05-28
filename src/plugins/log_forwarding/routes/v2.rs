@@ -44,11 +44,10 @@ pub async fn put_log_forwarding(Json(body): Json<StatePut>) -> PutLogForwardingR
     };
     let svc = LogForwardingService::new();
     let result = svc.set_state(&requested).await;
-    if let Err(error) = result {
-        if !is_already_requested_state_error(&error) {
+    if let Err(error) = result
+        && !is_already_requested_state_error(&error) {
             return put_state_error_response(&error);
         }
-    }
     match svc.try_get_active_state().await {
         Ok(state) => state_doc(state).into(),
         Err(error) => put_state_error_response(&error),

@@ -20,24 +20,19 @@ impl AtFilesService {
         let listener_id = FsmHandle::register_listener(tx);
 
         let mut buf = Vec::new();
-        loop {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                rx.recv(),
-            )
-            .await
-            {
-                Ok(Some(data)) => {
-                    if data.contains(&0x1a) {
-                        break;
-                    }
-                    buf.extend_from_slice(&data);
-                    if buf.len() >= length {
-                        buf.truncate(length);
-                        break;
-                    }
-                }
-                Ok(None) | Err(_) => break,
+        while let Ok(Some(data)) = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            rx.recv(),
+        )
+        .await
+        {
+            if data.contains(&0x1a) {
+                break;
+            }
+            buf.extend_from_slice(&data);
+            if buf.len() >= length {
+                buf.truncate(length);
+                break;
             }
         }
 

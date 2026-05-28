@@ -3,14 +3,9 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub use summit_rcm_plugin_api::PublishedAtCommand;
+use super::CapabilityPublication;
 
-use super::{CapabilityPublication, builtin_registry};
-
-pub type AtCommandInstaller =
-    fn(&mut Vec<Box<dyn crate::at_interface::commands::Command>>);
-pub type AtCommandMetadata = &'static [PublishedAtCommand];
-pub type AtCommandPublication = CapabilityPublication<AtCommandMetadata, AtCommandInstaller>;
+pub type AtCommandPublication = CapabilityPublication<(), &'static [crate::at_interface::commands::PublishedCommand]>;
 
 pub struct AtPluginPublication {
     pub name: &'static str,
@@ -27,25 +22,15 @@ impl AtPluginPublication {
         }
     }
 
-    pub const fn with_at_command_routes(
+    pub const fn with_at_commands(
         mut self,
-        commands: AtCommandMetadata,
-        install: AtCommandInstaller,
+        commands: &'static [crate::at_interface::commands::PublishedCommand],
     ) -> Self {
-        self.at_commands = Some(AtCommandPublication::new(commands, install));
+        self.at_commands = Some(AtCommandPublication::install_only(commands));
         self
     }
 }
 
-pub fn builtin_at_publications() -> Vec<&'static AtPluginPublication> {
-    builtin_registry(BUILTIN_AT_PUBLICATIONS)
+pub const fn builtin_at_publications_slice() -> &'static [&'static AtPluginPublication] {
+    BUILTIN_AT_PUBLICATIONS
 }
-
-const _: fn(&'static str, &'static str) -> PublishedAtCommand = PublishedAtCommand::new;
-const _: fn(AtCommandMetadata, AtCommandInstaller) -> AtCommandPublication = |commands, install| {
-    AtCommandPublication::new(commands, install)
-};
-const _: fn(AtCommandInstaller) -> AtCommandPublication = AtCommandPublication::install_only;
-const _: fn(AtPluginPublication, AtCommandMetadata, AtCommandInstaller) -> AtPluginPublication =
-    AtPluginPublication::with_at_command_routes;
-const _: fn(&'static str) -> AtPluginPublication = AtPluginPublication::new;

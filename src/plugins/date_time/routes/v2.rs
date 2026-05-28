@@ -71,8 +71,8 @@ pub async fn get_datetime() -> GetDateTimeResponses {
     responses(SetDateTimeResponses)
 ))]
 pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeResponses {
-    if let Some(tz) = body.zone.or(body.timezone) {
-        if let Err(e) = DateTimeService::set_timezone(&tz).await {
+    if let Some(tz) = body.zone.or(body.timezone)
+        && let Err(e) = DateTimeService::set_timezone(&tz).await {
             error!("set_datetime timezone: {}", e);
             return if dbus::is_timeout_error(&e) {
                 SetDateTimeResponses::Timeout
@@ -80,10 +80,9 @@ pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeRespo
                 SetDateTimeResponses::InternalError
             };
         }
-    }
 
-    if let Some(datetime) = body.datetime {
-        if let Err(e) = DateTimeService::set_time_manual(&datetime).await {
+    if let Some(datetime) = body.datetime
+        && let Err(e) = DateTimeService::set_time_manual(&datetime).await {
             error!("set_datetime manual: {}", e);
             return if dbus::is_timeout_error(&e) {
                 SetDateTimeResponses::Timeout
@@ -91,7 +90,6 @@ pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeRespo
                 SetDateTimeResponses::InternalError
             };
         }
-    }
 
     match DateTimeService::get_datetime().await {
         Ok(v) => SetDateTimeResponses::Ok(DateTimeInfo {

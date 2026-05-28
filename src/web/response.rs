@@ -61,6 +61,7 @@ macro_rules! define_json_response_family {
         from $from_ty:ty => $from_variant:ident;
     ) => {
         $(#[$meta])*
+        #[allow(clippy::large_enum_variant)]
         #[cfg_attr(feature = "api-docs", derive(utoipa::IntoResponses))]
         $vis enum $name {
             $(

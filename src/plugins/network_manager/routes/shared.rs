@@ -6,6 +6,7 @@
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
+use crate::utils::parse_model;
 use crate::web::legacy_response::LegacyOperationResponse;
 
 pub fn parse_route_model<T, U>(value: U) -> Result<T, serde_json::Error>
@@ -13,7 +14,7 @@ where
     T: DeserializeOwned,
     U: Serialize,
 {
-    serde_json::from_value(serde_json::to_value(value)?)
+    parse_model(value)
 }
 
 fn deserialize_i64ish<'de, D>(deserializer: D) -> Result<i64, D::Error>

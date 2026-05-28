@@ -13,8 +13,8 @@ async fn usage_query_emits_response() {
         inner.write_tx = Some(tx);
     }
 
-    let commands = commands::build_commands();
-    process_input(&commands, b"ATE1?\r").await;
+    let registry = commands::build_command_registry();
+    process_input_with_queue(&registry, None, b"ATE1?\r").await;
 
     let output = rx.recv().await.expect("expected usage response");
     assert_eq!(String::from_utf8(output).unwrap(), "\r\nATE1\r\n");
@@ -23,10 +23,10 @@ async fn usage_query_emits_response() {
 #[tokio::test]
 async fn read_loop_exits_when_shutdown_is_signaled() {
     let (_writer, mut reader) = tokio::io::duplex(16);
-    let commands = commands::build_commands();
+    let registry = commands::build_command_registry();
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let read_loop = run_read_loop(&mut reader, &commands, &mut shutdown_rx);
+    let read_loop = run_read_loop_with_queue(&mut reader, &registry, None, &mut shutdown_rx);
 
     shutdown_tx
         .send(true)

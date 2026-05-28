@@ -7,7 +7,7 @@ mod nl80211;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 #[cfg(feature = "at-interface")]
-mod at_commands;
+pub(crate) mod at_commands;
 #[path = "service_raw.rs"]
 pub mod service;
 pub mod types;
@@ -70,9 +70,6 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "network",
-	at_commands: (
-		at_commands::PUBLISHED_COMMANDS,
-		at_commands::add_at_commands,
-	),
+	at_commands: at_commands::COMMANDS,
 }
 

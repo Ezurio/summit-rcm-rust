@@ -9,7 +9,7 @@ use crate::plugins::bluetooth::routes::common::{
 };
 #[cfg(feature = "bluetooth-websocket")]
 use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
-use crate::plugins::bluetooth::service::BluetoothService;
+use crate::plugins::bluetooth::service::{BluetoothDeviceStateError, BluetoothService};
 use axum::{extract::{Path, Query}, Json};
 #[cfg(feature = "bluetooth-websocket")]
 use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
@@ -49,17 +49,6 @@ fn get_error_response(error: &anyhow::Error) -> GetBluetoothResponses {
         GetBluetoothResponses::BadRequest,
         GetBluetoothResponses::InternalError,
     )
-}
-
-fn get_device_error_response(error: &anyhow::Error) -> GetBluetoothDeviceResponses {
-    let message = error.to_string();
-    if message.contains("controller not found") || message.contains("device not found") {
-        GetBluetoothDeviceResponses::NotFound
-    } else if message.contains("filters") {
-        GetBluetoothDeviceResponses::BadRequest
-    } else {
-        GetBluetoothDeviceResponses::InternalError
-    }
 }
 
 fn put_error_response(message: &str) -> PutBluetoothResponses {
@@ -171,9 +160,12 @@ pub async fn put_bluetooth_controller(
 pub async fn get_bluetooth_device(
     Path((controller, device)): Path<(String, String)>,
 ) -> GetBluetoothDeviceResponses {
-    match BluetoothService::get_device_state(&controller, &device).await {
+    match BluetoothService::get_device_state_typed(&controller, &device).await {
         Ok(value) => value.into(),
-        Err(error) => get_device_error_response(&error),
+        Err(BluetoothDeviceStateError::ControllerNotFound | BluetoothDeviceStateError::DeviceNotFound) => {
+            GetBluetoothDeviceResponses::NotFound
+        }
+        Err(BluetoothDeviceStateError::Internal) => GetBluetoothDeviceResponses::InternalError,
     }
 }
 

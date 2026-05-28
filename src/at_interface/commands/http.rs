@@ -5,160 +5,123 @@
 
 //! HTTP AT commands
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use crate::at_interface::http_service::HttpService;
 use crate::at_interface::ssl::AtSslConfig;
 use log::error;
 
-pub struct HTTPConfigureTransaction;
+pub async fn execute_http_configure_transaction(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let host = params.trimmed(0);
+    let Some(port) = params.parse_value::<u16>(1) else {
+        return CommandOutcome::Error;
+    };
+    let method = params.trimmed(2);
+    let url = params.trimmed(3);
+    let timeout = params.parse_or(4, 30u64);
 
-impl Command for HTTPConfigureTransaction {
-    fn signature(&self) -> &str { "at+httpconf" }
-    fn name(&self) -> &str { "HTTP Configure Transaction" }
-    fn usage(&self) -> &str { "AT+HTTPCONF=<host>,<port>,<method>,<url>,<timeout>" }
+    let mut svc = HttpService::instance().lock().unwrap();
+    svc.configure_transaction(host, port, method, url, timeout);
+    CommandOutcome::Ok
+}
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(5, ',').collect();
-            if parts.len() < 5 {
-                return (true, "ERROR".to_string());
-            }
-            let host = parts[0].trim();
-            let port: u16 = match parts[1].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let method = parts[2].trim();
-            let url = parts[3].trim();
-            let timeout: u64 = parts[4].trim().parse().unwrap_or(30);
+pub async fn execute_http_execute_transaction(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(length) = params.parse_value::<usize>(0) else {
+        return CommandOutcome::Error;
+    };
 
-            let mut svc = HttpService::instance().lock().unwrap();
-            svc.configure_transaction(host, port, method, url, timeout);
-            (true, "OK".to_string())
-        })
+    FsmHandle::at_output(b"> ", false, false);
+
+    match HttpService::execute_transaction(length).await {
+        Ok((resp, _sent)) => CommandOutcome::WithData(format!("{}\r\nOK", resp)),
+        Err(error) => {
+            error!("HTTP execute error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct HTTPExecuteTransaction;
+pub async fn execute_http_add_header(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let mut parts = params.iter_parameters();
+    let Some(key_raw) = parts.next() else {
+        return CommandOutcome::Error;
+    };
+    let key = key_raw;
 
-impl Command for HTTPExecuteTransaction {
-    fn signature(&self) -> &str { "at+httpexe" }
-    fn name(&self) -> &str { "HTTP Execute Transaction" }
-    fn usage(&self) -> &str { "AT+HTTPEXE=<length>" }
+    let mut value_parts = Vec::with_capacity(params.parameter_count().saturating_sub(1));
+    for part in parts {
+        value_parts.push(part);
+    }
+    let value = value_parts.join(",");
+    let value = value.as_str();
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let length: usize = match params.trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
+    let mut svc = HttpService::instance().lock().unwrap();
+    svc.add_header(key, value);
+    CommandOutcome::Ok
+}
 
-            FsmHandle::at_output(b"> ", false, false);
+pub async fn execute_http_enable_response_header(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(flag) = params.parse_value::<i32>(0) else {
+        return CommandOutcome::Error;
+    };
+    let enabled = flag != 0;
 
-            match HttpService::execute_transaction(length).await {
-                Ok((resp, _sent)) => (true, format!("{}\r\nOK", resp)),
-                Err(error) => {
-                    error!("HTTP execute error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    let mut svc = HttpService::instance().lock().unwrap();
+    svc.enable_response_headers(enabled);
+    CommandOutcome::Ok
+}
+
+pub async fn execute_http_clear_configuration(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    let mut svc = HttpService::instance().lock().unwrap();
+    svc.clear_configuration();
+    CommandOutcome::Ok
+}
+
+pub async fn execute_http_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(auth_mode) = params.parse_value::<i32>(0) else {
+        error!("HTTP SSL parse error: invalid auth mode");
+        return CommandOutcome::Error;
+    };
+    let check_hostname = match AtSslConfig::parse_hostname_flag(params.trimmed(1)) {
+        Ok(check_hostname) => check_hostname,
+        Err(error) => {
+            error!("HTTP SSL parse error: {}", error);
+            return CommandOutcome::Error;
+        }
+    };
+    let key = params.trimmed(2);
+    let cert = params.trimmed(3);
+    let ca = params.trimmed(4);
+
+    let mut svc = HttpService::instance().lock().unwrap();
+    match svc.configure_ssl(auth_mode, check_hostname, key, cert, ca) {
+        Ok(()) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("HTTP SSL configure error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
 
-pub struct HTTPAddHeader;
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!(
+        "at+httpconf",
+        "AT+HTTPCONF=<host>,<port>,<method>,<url>,<timeout>",
+        5,
+        &[],
+        execute_http_configure_transaction
+    ),
+    crate::at_interface::commands::command_spec!("at+httpexe", "AT+HTTPEXE=<length>", 1, &[], execute_http_execute_transaction),
+    crate::at_interface::commands::command_spec!("at+httpaddhdr", "AT+HTTPADDHDR=<key>,<value>", 2, &[0], execute_http_add_header),
+    crate::at_interface::commands::command_spec!("at+httprshdr", "AT+HTTPRSHDR=<0|1>", 1, &[], execute_http_enable_response_header),
+    crate::at_interface::commands::command_spec!("at+httpclr", "AT+HTTPCLR", 0, &[], execute_http_clear_configuration),
+    crate::at_interface::commands::command_spec!(
+        "at+httpssl",
+        "AT+HTTPSSL=<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
+        5,
+        &[],
+        execute_http_configure_ssl
+    ),
+];
 
-impl Command for HTTPAddHeader {
-    fn signature(&self) -> &str { "at+httpaddhdr" }
-    fn name(&self) -> &str { "HTTP Add Header" }
-    fn usage(&self) -> &str { "AT+HTTPADDHDR=<key>,<value>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(2, ',').collect();
-            if parts.len() < 2 || parts[0].is_empty() {
-                return (true, "ERROR".to_string());
-            }
-            let mut svc = HttpService::instance().lock().unwrap();
-            svc.add_header(parts[0].trim(), parts[1].trim());
-            (true, "OK".to_string())
-        })
-    }
-}
-
-pub struct HTTPEnableResponseHeader;
-
-impl Command for HTTPEnableResponseHeader {
-    fn signature(&self) -> &str { "at+httprshdr" }
-    fn name(&self) -> &str { "HTTP Enable Response Header" }
-    fn usage(&self) -> &str { "AT+HTTPRSHDR=<0|1>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let enabled: bool = match params.trim().parse::<i32>() {
-                Ok(v) => v != 0,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let mut svc = HttpService::instance().lock().unwrap();
-            svc.enable_response_headers(enabled);
-            (true, "OK".to_string())
-        })
-    }
-}
-
-pub struct HTTPClearConfiguration;
-
-impl Command for HTTPClearConfiguration {
-    fn signature(&self) -> &str { "at+httpclr" }
-    fn name(&self) -> &str { "HTTP Clear Configuration" }
-    fn usage(&self) -> &str { "AT+HTTPCLR" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, _params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let mut svc = HttpService::instance().lock().unwrap();
-            svc.clear_configuration();
-            (true, "OK".to_string())
-        })
-    }
-}
-
-pub struct HTTPConfigureSSL;
-
-impl Command for HTTPConfigureSSL {
-    fn signature(&self) -> &str { "at+httpssl" }
-    fn name(&self) -> &str { "HTTP Configure SSL" }
-    fn usage(&self) -> &str { "AT+HTTPSSL=<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(5, ',').collect();
-            if parts.len() < 5 {
-                return (true, "ERROR".to_string());
-            }
-            let auth_mode: i32 = match parts[0].trim().parse() {
-                Ok(value) => value,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let check_hostname = match AtSslConfig::parse_hostname_flag(parts[1]) {
-                Ok(value) => value,
-                Err(error) => {
-                    error!("HTTP SSL hostname parse error: {}", error);
-                    return (true, "ERROR".to_string());
-                }
-            };
-            let key = parts[2].trim();
-            let cert = parts[3].trim();
-            let ca = parts[4].trim();
-
-            let mut svc = HttpService::instance().lock().unwrap();
-            match svc.configure_ssl(auth_mode, check_hostname, key, cert, ca) {
-                Ok(()) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("HTTP SSL configure error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
-    }
-}

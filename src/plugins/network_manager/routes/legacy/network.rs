@@ -13,7 +13,7 @@ use crate::plugins::network_manager::routes::shared::{
     parse_route_model, DhcpLeasesResponse, LegacyDhcpLeasesResponse, LegacyDhcpLeasesResponses,
     LegacyNetworkInterfaceResponse,
 };
-use crate::plugins::network_manager::service::NetworkService;
+use crate::plugins::network_manager::service::{InterfaceError, NetworkService};
 use axum::{extract::{Path, Query}, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -251,6 +251,16 @@ fn legacy_dhcp_leases_response(
     }
 }
 
+fn legacy_empty_dhcp_leases_response(operation: LegacyOperationResponse) -> LegacyDhcpLeasesResponse {
+    legacy_dhcp_leases_response(
+        operation,
+        DhcpLeasesResponse {
+            ipv4: Vec::new(),
+            ipv6: Vec::new(),
+        },
+    )
+}
+
 #[derive(Deserialize)]
 pub struct UuidQuery {
     pub uuid: Option<String>,
@@ -408,9 +418,6 @@ pub async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegac
     } else {
         match NetworkService::deactivate_connection(&body.uuid).await {
             Ok(()) => ok_response("Connection Deactivated").into(),
-            Err(error) if error.to_string().contains("already inactive") => {
-                ok_response("Already inactive. No action taken").into()
-            }
             Err(_) => fail_response("Unable to deactivate connection").into(),
         }
     }
@@ -572,36 +579,23 @@ pub async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
 ))]
 pub async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -> LegacyDhcpLeasesResponses {
     let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
-        return legacy_dhcp_leases_response(
-            fail_response("Invalid interface name"),
-            DhcpLeasesResponse {
-                ipv4: Vec::new(),
-                ipv6: Vec::new(),
-            },
-        )
-        .into();
+        return legacy_empty_dhcp_leases_response(fail_response("Invalid interface name")).into();
     };
 
-    match NetworkService::get_dhcp_leases_model(name) {
-        Ok(leases) => legacy_dhcp_leases_response(ok_response(""), leases).into(),
-        Err(error) if error.to_string().contains("Invalid interface name") => legacy_dhcp_leases_response(
-            fail_response("Invalid interface name"),
-            DhcpLeasesResponse {
-                ipv4: Vec::new(),
-                ipv6: Vec::new(),
-            },
-        )
-        .into(),
+    match NetworkService::get_dhcp_leases(name) {
+        Ok(value) => match parse_route_model::<DhcpLeasesResponse, _>(value) {
+            Ok(leases) => legacy_dhcp_leases_response(ok_response(""), leases).into(),
+            Err(error) => {
+                error!("Error parsing DHCP leases for {}: {}", name, error);
+                legacy_empty_dhcp_leases_response(fail_response("Could not read current DHCP leases")).into()
+            }
+        },
+        Err(InterfaceError::InvalidName) => {
+            legacy_empty_dhcp_leases_response(fail_response("Invalid interface name")).into()
+        }
         Err(error) => {
-            error!("Error getting DHCP leases for {}: {}", name, error);
-            legacy_dhcp_leases_response(
-                fail_response(format!("Could not read current DHCP leases - {}", error)),
-                DhcpLeasesResponse {
-                    ipv4: Vec::new(),
-                    ipv6: Vec::new(),
-                },
-            )
-            .into()
+            error!("Error getting DHCP leases for {}: {:?}", name, error);
+            legacy_empty_dhcp_leases_response(fail_response("Could not read current DHCP leases")).into()
         }
     }
 }

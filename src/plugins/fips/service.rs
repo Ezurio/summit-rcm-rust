@@ -11,10 +11,12 @@ use std::process::Output;
 use log::error;
 
 const FIPS_SCRIPT: &str = "/usr/bin/fips-set";
+const FIPS_ENABLED_PATH: &str = "/proc/sys/crypto/fips_enabled";
+const FIPS_WIFI_ENABLED_PATH: &str = "/proc/sys/crypto/fips_wifi_enabled";
 const VALID_STATES: &[&str] = &["fips", "fips_wifi", "unset"];
 
 enum FipsScriptResult {
-	Success(Output),
+	Success,
 	Missing,
 	Failure(String),
 }
@@ -22,6 +24,13 @@ enum FipsScriptResult {
 pub struct FipsService;
 
 impl FipsService {
+	async fn read_fips_flag(path: &str) -> Option<bool> {
+		match tokio::fs::read_to_string(path).await {
+			Ok(value) => Some(value.trim() == "1"),
+			Err(_) => None,
+		}
+	}
+
 	fn command_error_message(output: &Output) -> String {
 		let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
 		let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -37,13 +46,12 @@ impl FipsService {
 
 	async fn run_fips_script(args: &[&str]) -> FipsScriptResult {
 		match command_output(FIPS_SCRIPT, args).await {
-			Ok(output) if output.status.success() => FipsScriptResult::Success(output),
+			Ok(output) if output.status.success() => FipsScriptResult::Success,
 			Ok(output) => FipsScriptResult::Failure(Self::command_error_message(&output)),
 			Err(error)
 				if error
 					.downcast_ref::<std::io::Error>()
-					.is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
-			{
+					.is_some_and(|io_error| io_error.kind() == std::io::ErrorKind::NotFound) => {
 				FipsScriptResult::Missing
 			}
 			Err(error) => FipsScriptResult::Failure(error.to_string()),
@@ -51,17 +59,18 @@ impl FipsService {
 	}
 
 	pub async fn get_fips_state() -> String {
-		match Self::run_fips_script(&["status"]).await {
-			FipsScriptResult::Success(output) => {
-				let state = String::from_utf8_lossy(&output.stdout).trim().to_string();
-				if VALID_STATES.contains(&state.as_str()) {
-					state
-				} else {
-					"unknown".to_string()
-				}
+		let fips_enabled = match Self::read_fips_flag(FIPS_ENABLED_PATH).await {
+			Some(enabled) => enabled,
+			None => return "unsupported".to_string(),
+		};
+
+		if !fips_enabled {
+			"unset".to_string()
+		} else {
+			match Self::read_fips_flag(FIPS_WIFI_ENABLED_PATH).await {
+				Some(true) => "fips_wifi".to_string(),
+				Some(false) | None => "fips".to_string(),
 			}
-			FipsScriptResult::Missing => "unsupported".to_string(),
-			FipsScriptResult::Failure(_) => "unknown".to_string(),
 		}
 	}
 
@@ -69,8 +78,12 @@ impl FipsService {
 		if !VALID_STATES.contains(&value) {
 			return Err(anyhow::anyhow!("invalid input parameter {}", value));
 		}
+		match Self::read_fips_flag(FIPS_ENABLED_PATH).await {
+			Some(_) => {}
+			None => return Ok(false),
+		}
 		match Self::run_fips_script(&[value]).await {
-			FipsScriptResult::Success(_) => Ok(true),
+			FipsScriptResult::Success => Ok(true),
 			FipsScriptResult::Missing => Ok(false),
 			FipsScriptResult::Failure(message) => {
 				error!("set_fips_state: {}", message);

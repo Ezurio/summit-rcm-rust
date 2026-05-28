@@ -266,6 +266,7 @@ def filter_cases_for_python_runtime(
         "legacy_network_interface_wlo1_summit_status",
         "legacy_ntp_override_sources",
         "legacy_provisioning_get_state",
+        "legacy_radio_siso_invalid",
     }
 
     return [

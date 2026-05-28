@@ -104,14 +104,13 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
             ));
         }
     } else if body.method.as_deref() == Some("manual") {
-        if let Some(datetime) = body.datetime.as_deref().filter(|datetime| !datetime.is_empty()) {
-            if let Err(e) = DateTimeService::set_time_manual(datetime).await {
+        if let Some(datetime) = body.datetime.as_deref().filter(|datetime| !datetime.is_empty())
+            && let Err(e) = DateTimeService::set_time_manual(datetime).await {
                 return PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
                     fail_response(format!("Could not set datetime: {}", e)),
                     "",
                 ));
             }
-        }
     } else {
         match DateTimeService::get_datetime().await {
             Ok(dt) => {

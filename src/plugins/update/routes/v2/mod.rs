@@ -9,6 +9,7 @@
 //! POST /api/v2/system/update/updateFile – upload the update image
 
 use crate::plugins::update::{FirmwareUpdateService, SummitRcmUpdateStatus};
+use crate::plugins::update::firmware_update_service::UpdateStreamError;
 use crate::plugins::update::routes::shared::upload_update_stream;
 use axum::{
     body::Body,
@@ -16,8 +17,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "api-docs")]
-
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(
@@ -140,9 +139,9 @@ pub async fn upload_update_file(req: Request<Body>) -> UploadUpdateResponses {
 
     match upload_update_stream(req.into_body()).await {
         Ok(_) => UploadUpdateResponses::Ok,
-        Err(error) if error.to_string().contains("no update in progress") => UploadUpdateResponses::BadRequest,
+        Err(UpdateStreamError::NoUpdateInProgress) => UploadUpdateResponses::BadRequest,
         Err(error) => {
-            log::error!("upload_update_file: {}", error);
+            log::error!("upload_update_file: {:?}", error);
             UploadUpdateResponses::InternalError
         }
     }

@@ -13,6 +13,7 @@ use crate::plugins::bluetooth::routes::common::{
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use std::{
     collections::{BTreeMap, HashMap},
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use log::error;
@@ -50,6 +51,14 @@ const ADAPTER_FILTER_NAMES: &[&str] = &[
 
 type ManagedObjects =
     HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BluetoothDeviceStateError {
+    ControllerNotFound = 1,
+    DeviceNotFound = 2,
+    Internal = 255,
+}
 
 fn legacy_operation_fields(operation: LegacyOperationResponse) -> serde_json::Map<String, serde_json::Value> {
     match serde_json::to_value(operation) {
@@ -147,17 +156,14 @@ impl DeviceSnapshot {
             .services
             .iter()
             .map(|(service_uuid, service)| {
-                let characteristics: Vec<_> = service
-                    .characteristics
-                    .iter()
-                    .map(|(char_uuid, flags)| {
-                        serde_json::json!({
-                            char_uuid: {
-                                "Flags": flags,
-                            }
-                        })
-                    })
-                    .collect();
+                let mut characteristics = Vec::with_capacity(service.characteristics.len());
+                for (char_uuid, flags) in &service.characteristics {
+                    characteristics.push(serde_json::json!({
+                        char_uuid: {
+                            "Flags": flags,
+                        }
+                    }));
+                }
 
                 (
                     service_uuid.clone(),
@@ -175,7 +181,7 @@ impl DeviceSnapshot {
 #[cfg(feature = "bluetooth-websocket")]
 pub use websocket::format_notification;
 #[cfg(feature = "bluetooth-websocket")]
-pub use websocket::BLE_NOTIFICATION_POLL_INTERVAL;
+pub use websocket::BLE_NOTIFICATION_RESYNC_INTERVAL;
 
 pub struct BluetoothService;
 
@@ -187,22 +193,23 @@ impl BluetoothService {
     fn matched_filters(filters: &[String]) -> Vec<String> {
         ADAPTER_FILTER_NAMES
             .iter()
-            .map(|name| (*name).to_string())
-            .filter(|candidate| filters.iter().any(|filter| filter == candidate))
+            .copied()
+            .filter(|name| filters.iter().any(|filter| filter == name))
+            .map(str::to_string)
             .collect()
     }
 
+    fn include_filter(filters: Option<&[String]>, name: &str) -> bool {
+        filters.is_none_or(|items| items.iter().any(|item| item == name))
+    }
+
     fn adapter_paths(objects: &ManagedObjects) -> Vec<String> {
-        let mut paths: Vec<String> = objects
-            .iter()
-            .filter_map(|(path, ifaces)| {
-                if ifaces.contains_key(ADAPTER_IFACE) {
-                    Some(path.as_str().to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut paths: Vec<String> = Vec::with_capacity(objects.len());
+        for (path, ifaces) in objects {
+            if ifaces.contains_key(ADAPTER_IFACE) {
+                paths.push(path.as_str().to_string());
+            }
+        }
         paths.sort();
         paths
     }
@@ -216,20 +223,18 @@ impl BluetoothService {
     }
 
     fn bluetooth_devices_json(snapshot: &BluetoothSnapshot) -> Vec<serde_json::Value> {
-        snapshot
-            .devices
-            .values()
-            .map(|device| {
-                serde_json::json!({
-                    "Address": device.address,
-                    "Name": device.name,
-                    "Alias": device.alias,
-                    "Connected": device.connected,
-                    "Paired": device.paired,
-                    "RSSI": device.rssi,
-                })
-            })
-            .collect()
+        let mut devices = Vec::with_capacity(snapshot.devices.len());
+        for device in snapshot.devices.values() {
+            devices.push(serde_json::json!({
+                "Address": device.address,
+                "Name": device.name,
+                "Alias": device.alias,
+                "Connected": device.connected,
+                "Paired": device.paired,
+                "RSSI": device.rssi,
+            }));
+        }
+        devices
     }
 
     fn controller_payload(
@@ -239,34 +244,32 @@ impl BluetoothService {
         discoverable: bool,
         filters: Option<&[String]>,
     ) -> serde_json::Value {
-        let include = |name: &str| filters.is_none_or(|filters| filters.iter().any(|filter| filter == name));
-
-        let mut controller = serde_json::Map::new();
-        if include("Pattern") {
+        let mut controller = serde_json::Map::with_capacity(7);
+        if Self::include_filter(filters, "Pattern") {
             controller.insert("Pattern".to_string(), serde_json::Value::Null);
         }
-        if include("RSSI") {
+        if Self::include_filter(filters, "RSSI") {
             controller.insert("RSSI".to_string(), serde_json::Value::Null);
         }
-        if include("Transport") {
+        if Self::include_filter(filters, "Transport") {
             controller.insert("Transport".to_string(), serde_json::Value::Null);
         }
-        if include("powered") {
+        if Self::include_filter(filters, "powered") {
             controller.insert("powered".to_string(), serde_json::json!(if powered { 1 } else { 0 }));
         }
-        if include("discovering") {
+        if Self::include_filter(filters, "discovering") {
             controller.insert(
                 "discovering".to_string(),
                 serde_json::json!(if snapshot.discovering { 1 } else { 0 }),
             );
         }
-        if include("discoverable") {
+        if Self::include_filter(filters, "discoverable") {
             controller.insert(
                 "discoverable".to_string(),
                 serde_json::json!(if discoverable { 1 } else { 0 }),
             );
         }
-        if include("bluetoothDevices") {
+        if Self::include_filter(filters, "bluetoothDevices") {
             controller.insert(
                 "bluetoothDevices".to_string(),
                 serde_json::json!(Self::bluetooth_devices_json(snapshot)),
@@ -285,31 +288,29 @@ impl BluetoothService {
         discoverable: bool,
         filters: Option<&[String]>,
     ) -> serde_json::Value {
-        let include = |name: &str| filters.is_none_or(|filters| filters.iter().any(|filter| filter == name));
-
-        let mut controller = serde_json::Map::new();
-        if include("powered") {
+        let mut controller = serde_json::Map::with_capacity(4);
+        if Self::include_filter(filters, "powered") {
             controller.insert("powered".to_string(), serde_json::json!(if powered { 1 } else { 0 }));
         }
-        if include("discovering") {
+        if Self::include_filter(filters, "discovering") {
             controller.insert(
                 "discovering".to_string(),
                 serde_json::json!(if snapshot.discovering { 1 } else { 0 }),
             );
         }
-        if include("discoverable") {
+        if Self::include_filter(filters, "discoverable") {
             controller.insert(
                 "discoverable".to_string(),
                 serde_json::json!(if discoverable { 1 } else { 0 }),
             );
         }
-        if include("bluetoothDevices") {
+        if Self::include_filter(filters, "bluetoothDevices") {
             controller.insert(
                 "bluetoothDevices".to_string(),
                 serde_json::json!(Self::bluetooth_devices_json(snapshot)),
             );
         }
-        if include("transportFilter") {
+        if Self::include_filter(filters, "transportFilter") {
             controller.insert("transportFilter".to_string(), serde_json::Value::Null);
         }
 
@@ -491,8 +492,8 @@ impl BluetoothService {
         })
     }
 
-    async fn get_conn() -> anyhow::Result<Connection> {
-        Ok(dbus::system_bus().await?.as_ref().clone())
+    async fn get_conn() -> anyhow::Result<Arc<Connection>> {
+        dbus::system_bus().await
     }
 
     fn snapshot_from_objects(
@@ -560,11 +561,10 @@ impl BluetoothService {
         let adapter_paths = Self::adapter_paths(objects);
 
         if let Some(ctrl) = controller {
-            if let Some(index) = ctrl.strip_prefix("controller").and_then(|value| value.parse::<usize>().ok()) {
-                if let Some(path) = adapter_paths.get(index) {
+            if let Some(index) = ctrl.strip_prefix("controller").and_then(|value| value.parse::<usize>().ok())
+                && let Some(path) = adapter_paths.get(index) {
                     return Some(path.clone());
                 }
-            }
 
             let want = format!("/org/bluez/{}", ctrl);
             if adapter_paths.iter().any(|path| path == &want) {
@@ -601,7 +601,7 @@ impl BluetoothService {
         objects: &ManagedObjects,
         device_path: &str,
     ) -> (BTreeMap<String, ServiceSnapshot>, BTreeMap<String, CharacteristicSnapshot>) {
-        let mut service_paths = BTreeMap::new();
+        let mut service_paths: Vec<(String, String, String)> = Vec::with_capacity(objects.len());
         let mut services = BTreeMap::new();
 
         for (path, ifaces) in objects {
@@ -618,12 +618,16 @@ impl BluetoothService {
                 continue;
             }
 
-            service_paths.insert(path.as_str().to_string(), service_uuid.clone());
+            let service_path = path.as_str().to_string();
+            let service_uuid_lower = service_uuid.to_ascii_lowercase();
+            service_paths.push((service_path, service_uuid.clone(), service_uuid_lower));
             services.entry(service_uuid).or_insert_with(ServiceSnapshot::default);
         }
 
+        service_paths.sort_by(|left, right| left.0.cmp(&right.0));
+
         let mut characteristics = BTreeMap::new();
-        for (service_path, service_uuid) in &service_paths {
+        for (service_path, service_uuid, service_uuid_lower) in &service_paths {
             for (path, ifaces) in objects {
                 if !path.as_str().starts_with(service_path) {
                     continue;
@@ -645,7 +649,7 @@ impl BluetoothService {
                     .characteristics
                     .insert(char_uuid.clone(), flags);
 
-                let key = format!("{}::{}", service_uuid.to_ascii_lowercase(), char_uuid.to_ascii_lowercase());
+                let key = format!("{}::{}", service_uuid_lower, char_uuid.to_ascii_lowercase());
                 characteristics.insert(
                     key,
                     CharacteristicSnapshot {
@@ -768,7 +772,7 @@ impl BluetoothService {
         controller: &str,
         device: &str,
     ) -> anyhow::Result<serde_json::Value> {
-        let objects = Self::get_managed_objects(&conn).await?;
+        let objects = Self::get_managed_objects(conn).await?;
 
         let adapter_path = Self::get_adapter_path(&objects, Some(controller))
             .ok_or_else(|| anyhow::anyhow!("Bluetooth controller not found"))?;
@@ -799,6 +803,46 @@ impl BluetoothService {
         Self::get_device_state_v2(controller, device)
             .await
             .and_then(|value| parse_bluetooth_device_response(value).map_err(Into::into))
+    }
+
+    pub async fn get_device_state_typed(
+        controller: &str,
+        device: &str,
+    ) -> std::result::Result<BluetoothDeviceModel, BluetoothDeviceStateError> {
+        let conn = Self::get_conn().await.map_err(|_| BluetoothDeviceStateError::Internal)?;
+        let value = Self::get_device_state_v2_with_conn_typed(&conn, controller, device).await?;
+        parse_bluetooth_device_response(value).map_err(|_| BluetoothDeviceStateError::Internal)
+    }
+
+    async fn get_device_state_v2_with_conn_typed(
+        conn: &Connection,
+        controller: &str,
+        device: &str,
+    ) -> std::result::Result<serde_json::Value, BluetoothDeviceStateError> {
+        let objects = Self::get_managed_objects(conn)
+            .await
+            .map_err(|_| BluetoothDeviceStateError::Internal)?;
+
+        let adapter_path = Self::get_adapter_path(&objects, Some(controller))
+            .ok_or(BluetoothDeviceStateError::ControllerNotFound)?;
+
+        let device_props = objects
+            .iter()
+            .filter(|(path, ifaces)| {
+                path.as_str().starts_with(&adapter_path) && ifaces.contains_key(DEVICE_IFACE)
+            })
+            .find_map(|(_, ifaces)| {
+                let props = ifaces.get(DEVICE_IFACE)?;
+                let address: String = dbus::property_or_default(props, "Address");
+                if address.eq_ignore_ascii_case(device) {
+                    Some(props)
+                } else {
+                    None
+                }
+            })
+            .ok_or(BluetoothDeviceStateError::DeviceNotFound)?;
+
+        Ok(Self::device_payload(device_props, &adapter_path))
     }
 
     async fn get_state_inner(
@@ -926,7 +970,7 @@ impl BluetoothService {
             "" => {
                 if let Some(powered) = body.get("powered").and_then(|v| v.as_i64()) {
                     Self::set_bluez_bool_property(
-                        &conn,
+                        conn,
                         adapter_path.as_str(),
                         ADAPTER_IFACE,
                         "Powered",
@@ -936,7 +980,7 @@ impl BluetoothService {
                 }
                 if let Some(disc) = body.get("discoverable").and_then(|v| v.as_i64()) {
                     Self::set_bluez_bool_property(
-                        &conn,
+                        conn,
                         adapter_path.as_str(),
                         ADAPTER_IFACE,
                         "Discoverable",
@@ -947,12 +991,12 @@ impl BluetoothService {
                 Ok(legacy_ok_value())
             }
             "bleStartDiscovery" => {
-                Self::call_bluez_noargs(&conn, adapter_path.as_str(), ADAPTER_IFACE, "StartDiscovery")
+                Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StartDiscovery")
                     .await?;
                 Ok(legacy_ok_value())
             }
             "bleStopDiscovery" => {
-                Self::call_bluez_noargs(&conn, adapter_path.as_str(), ADAPTER_IFACE, "StopDiscovery")
+                Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StopDiscovery")
                     .await?;
                 Ok(legacy_ok_value())
             }
@@ -1030,7 +1074,7 @@ impl BluetoothService {
                                     -1,
                                     Some(error.to_string()),
                                 );
-                                return Err(error.into());
+                                return Err(error);
                             }
                         }
                     }
@@ -1040,7 +1084,7 @@ impl BluetoothService {
                             .and_then(|v| v.as_bool())
                             .ok_or_else(|| anyhow::anyhow!("enable param not specified"))?;
                         let method = if enable { "StartNotify" } else { "StopNotify" };
-                        Self::call_bluez_noargs(&conn, char_path.as_str(), GATT_CHR_IFACE, method)
+                        Self::call_bluez_noargs(conn, char_path.as_str(), GATT_CHR_IFACE, method)
                             .await?;
                     }
                     _ => {
@@ -1052,7 +1096,7 @@ impl BluetoothService {
             "bleConnect" => {
                 if let Some(dev_addr) = device {
                     let dev_path = Self::device_path(&adapter_path, dev_addr);
-                    Self::call_bluez_noargs(&conn, dev_path.as_str(), DEVICE_IFACE, "Connect")
+                    Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Connect")
                         .await?;
                 }
                 Ok(legacy_ok_value())
@@ -1060,7 +1104,7 @@ impl BluetoothService {
             "bleDisconnect" => {
                 if let Some(dev_addr) = device {
                     let dev_path = Self::device_path(&adapter_path, dev_addr);
-                    Self::call_bluez_noargs(&conn, dev_path.as_str(), DEVICE_IFACE, "Disconnect")
+                    Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Disconnect")
                         .await?;
                 }
                 Ok(legacy_ok_value())
@@ -1068,7 +1112,7 @@ impl BluetoothService {
             "blePair" => {
                 if let Some(dev_addr) = device {
                     let dev_path = Self::device_path(&adapter_path, dev_addr);
-                    Self::call_bluez_noargs(&conn, dev_path.as_str(), DEVICE_IFACE, "Pair")
+                    Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Pair")
                         .await?;
                 }
                 Ok(legacy_ok_value())

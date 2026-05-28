@@ -5,164 +5,116 @@
 
 //! CIP (TCP/UDP/SSL connection) AT commands
 
-use crate::at_interface::commands::Command;
+use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
+use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use crate::at_interface::connection_service::ConnectionService;
 use crate::at_interface::ssl::AtSslConfig;
 use log::error;
 
-pub struct CIPStart;
+pub async fn execute_cip_start(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(id) = params.parse_value::<usize>(0) else {
+        return CommandOutcome::Error;
+    };
+    let type_str = match params.parse_value::<i32>(1) {
+        Some(0) => "tcp",
+        Some(1) => "udp",
+        Some(2) => "ssl",
+        _ => return CommandOutcome::Error,
+    };
+    let addr = params.trimmed(2);
+    let port = params.trimmed(3);
+    let keepalive = params.parse_or(4, 0u32);
 
-impl Command for CIPStart {
-    fn signature(&self) -> &str { "at+cipstart" }
-    fn name(&self) -> &str { "CIP Start" }
-    fn usage(&self) -> &str { "AT+CIPSTART=<id>,<type>,<addr>,<port>,<keepalive>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(5, ',').collect();
-            if parts.len() < 5 {
-                return (true, "ERROR".to_string());
-            }
-            let id: usize = match parts[0].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let conn_type: i32 = match parts[1].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let type_str = match conn_type {
-                0 => "tcp",
-                1 => "udp",
-                2 => "ssl",
-                _ => return (true, "ERROR".to_string()),
-            };
-            let addr = parts[2].trim();
-            let port = parts[3].trim();
-            let keepalive: u32 = parts[4].trim().parse().unwrap_or(0);
-
-            if addr.is_empty() || port.is_empty() {
-                return (true, "ERROR".to_string());
-            }
-
-            if ConnectionService::start_connection(id, type_str, addr, port, keepalive).await {
-                (true, "OK".to_string())
-            } else {
-                (true, "ERROR".to_string())
-            }
-        })
+    if ConnectionService::start_connection(id, type_str, addr, port, keepalive).await {
+        CommandOutcome::Ok
+    } else {
+        CommandOutcome::Error
     }
 }
 
-pub struct CIPClose;
+pub async fn execute_cip_close(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(id) = params.parse_value::<usize>(0) else {
+        return CommandOutcome::Error;
+    };
 
-impl Command for CIPClose {
-    fn signature(&self) -> &str { "at+cipclose" }
-    fn name(&self) -> &str { "CIP Close" }
-    fn usage(&self) -> &str { "AT+CIPCLOSE=<id>" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let id: usize = match params.trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            if ConnectionService::close_connection(id) {
-                (true, "OK".to_string())
-            } else {
-                (true, "ERROR".to_string())
-            }
-        })
+    if ConnectionService::close_connection(id) {
+        CommandOutcome::Ok
+    } else {
+        CommandOutcome::Error
     }
 }
 
-pub struct CIPSend;
+pub async fn execute_cip_send(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(id) = params.parse_value::<usize>(0) else {
+        return CommandOutcome::Error;
+    };
+    let Some(length) = params.parse_value::<usize>(1) else {
+        return CommandOutcome::Error;
+    };
 
-impl Command for CIPSend {
-    fn signature(&self) -> &str { "at+cipsend" }
-    fn name(&self) -> &str { "CIP Send" }
-    fn usage(&self) -> &str { "AT+CIPSEND=<id>,<length>" }
+    if !ConnectionService::has_connection(id) {
+        return CommandOutcome::Error;
+    }
 
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(2, ',').collect();
-            if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-                return (true, "ERROR".to_string());
-            }
-            let id: usize = match parts[0].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let length: usize = match parts[1].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
+    FsmHandle::at_output(b"> ", false, false);
 
-            if !ConnectionService::has_connection(id) {
-                return (true, "ERROR".to_string());
-            }
+    let (done, sent) = ConnectionService::send_data(id, length).await;
 
-            FsmHandle::at_output(b"> ", false, false);
+    if !done {
+        return CommandOutcome::PendingInput;
+    }
 
-            let (done, sent) = ConnectionService::send_data(id, length).await;
-
-            if !done {
-                return (false, String::new());
-            }
-
-            if length == sent as usize {
-                (true, "OK".to_string())
-            } else if sent == -1 {
-                error!("CIP send: escaping data mode");
-                FsmHandle::at_output(b"\r\n", false, false);
-                (true, String::new())
-            } else {
-                (true, "ERROR".to_string())
-            }
-        })
+    if length == sent as usize {
+        CommandOutcome::Ok
+    } else if sent == -1 {
+        error!("CIP send: escaping data mode");
+        FsmHandle::at_output(b"\r\n", false, false);
+        CommandOutcome::Ok
+    } else {
+        CommandOutcome::Error
     }
 }
 
-pub struct CIPConfigureSSL;
+pub async fn execute_cip_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    let Some(id) = params.parse_value::<usize>(0) else {
+        error!("CIP SSL parse error: invalid connection id");
+        return CommandOutcome::Error;
+    };
+    let Some(auth_mode) = params.parse_value::<i32>(1) else {
+        error!("CIP SSL parse error: invalid auth mode");
+        return CommandOutcome::Error;
+    };
+    let check_hostname = match AtSslConfig::parse_hostname_flag(params.trimmed(2)) {
+        Ok(check_hostname) => check_hostname,
+        Err(error) => {
+            error!("CIP SSL parse error: {}", error);
+            return CommandOutcome::Error;
+        }
+    };
+    let key = params.trimmed(3);
+    let cert = params.trimmed(4);
+    let ca = params.trimmed(5);
 
-impl Command for CIPConfigureSSL {
-    fn signature(&self) -> &str { "at+cipssl" }
-    fn name(&self) -> &str { "CIP Configure SSL" }
-    fn usage(&self) -> &str { "AT+CIPSSL=<connection_id>,<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]" }
-
-    fn execute<'a>(&'a self, _fsm: &'a FsmHandle, params: &'a str) -> futures_util::future::BoxFuture<'a, (bool, String)> {
-        Box::pin(async move {
-            let parts: Vec<&str> = params.splitn(6, ',').collect();
-            if parts.len() < 6 {
-                return (true, "ERROR".to_string());
-            }
-            let id: usize = match parts[0].trim().parse() {
-                Ok(v) => v,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let auth_mode: i32 = match parts[1].trim().parse() {
-                Ok(value) => value,
-                Err(_) => return (true, "ERROR".to_string()),
-            };
-            let check_hostname = match AtSslConfig::parse_hostname_flag(parts[2]) {
-                Ok(value) => value,
-                Err(error) => {
-                    error!("CIP SSL hostname parse error: {}", error);
-                    return (true, "ERROR".to_string());
-                }
-            };
-            let key = parts[3].trim();
-            let cert = parts[4].trim();
-            let ca = parts[5].trim();
-
-            match ConnectionService::configure_ssl(id, auth_mode, check_hostname, key, cert, ca).await {
-                Ok(()) => (true, "OK".to_string()),
-                Err(error) => {
-                    error!("CIP SSL configure error: {}", error);
-                    (true, "ERROR".to_string())
-                }
-            }
-        })
+    match ConnectionService::configure_ssl(id, auth_mode, check_hostname, key, cert, ca).await {
+        Ok(()) => CommandOutcome::Ok,
+        Err(error) => {
+            error!("CIP SSL configure error: {}", error);
+            CommandOutcome::Error
+        }
     }
 }
+
+pub(crate) const COMMANDS: &[PublishedCommand] = &[
+    crate::at_interface::commands::command_spec!("at+cipstart", "AT+CIPSTART=<id>,<type>,<addr>,<port>,<keepalive>", 5, &[2, 3], execute_cip_start),
+    crate::at_interface::commands::command_spec!("at+cipclose", "AT+CIPCLOSE=<id>", 1, &[], execute_cip_close),
+    crate::at_interface::commands::command_spec!("at+cipsend", "AT+CIPSEND=<id>,<length>", 2, &[], execute_cip_send),
+    crate::at_interface::commands::command_spec!(
+        "at+cipssl",
+        "AT+CIPSSL=<connection_id>,<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
+        6,
+        &[],
+        execute_cip_configure_ssl
+    ),
+];
+

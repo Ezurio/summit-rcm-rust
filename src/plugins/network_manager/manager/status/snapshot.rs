@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 use log::error;
 use std::sync::atomic::Ordering;
+use zbus::Connection;
 use zbus::zvariant::OwnedObjectPath;
 
 use super::super::{
@@ -31,7 +32,7 @@ impl NetworkManagerService {
             return json!({});
         };
 
-        let mut legacy = serde_json::Map::new();
+        let mut legacy = serde_json::Map::with_capacity(if include_details { 8 } else { 6 });
         for key in ["id", "interface-name", "permissions", "type", "uuid", "zone"] {
             if let Some(value) = connection.get(key) {
                 let normalized = if key == "zone" && value.is_null() {
@@ -65,12 +66,12 @@ impl NetworkManagerService {
             return json!([]);
         };
 
-        Value::Array(
-            connections
-                .iter()
-                .map(|value| Self::legacy_connection_active(value, true))
-                .collect(),
-        )
+        let mut legacy_connections = Vec::with_capacity(connections.len());
+        for value in connections {
+            legacy_connections.push(Self::legacy_connection_active(value, true));
+        }
+
+        Value::Array(legacy_connections)
     }
 
     fn metered_text(metered: u32) -> &'static str {
@@ -92,7 +93,7 @@ impl NetworkManagerService {
         device_path: &str,
         raw_device: &serde_json::Map<String, Value>,
     ) -> serde_json::Map<String, Value> {
-        let mut details = serde_json::Map::new();
+        let mut details = serde_json::Map::with_capacity(19);
 
         let Some(status_props) = Self::value_as_object(raw_device.get("status")) else {
             return details;
@@ -273,7 +274,8 @@ impl NetworkManagerService {
     }
 
     fn get_wired_properties(wired_properties: &serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
-        let mut properties = serde_json::Map::from_iter([
+        let mut properties = serde_json::Map::with_capacity(5);
+        properties.extend([
             ("HwAddress".to_string(), json!(Self::map_string(wired_properties, "HwAddress", ""))),
             (
                 "PermHwAddress".to_string(),
@@ -300,11 +302,12 @@ impl NetworkManagerService {
             return serde_json::Map::new();
         }
 
-        let mut ipconfig_properties = serde_json::Map::new();
+        let mut ipconfig_properties = serde_json::Map::with_capacity(if is_legacy { 6 } else { 5 });
 
-        let mut addresses = serde_json::Map::new();
-        let mut address_data = Vec::new();
-        for (index, address) in Self::map_array(props, "AddressData").iter().enumerate() {
+        let address_entries = Self::map_array(props, "AddressData");
+        let mut addresses = serde_json::Map::with_capacity(address_entries.len());
+        let mut address_data = Vec::with_capacity(address_entries.len());
+        for (index, address) in address_entries.iter().enumerate() {
             let Some(address) = address.as_object() else {
                 continue;
             };
@@ -329,9 +332,10 @@ impl NetworkManagerService {
         }
         ipconfig_properties.insert("AddressData".to_string(), Value::Array(address_data));
 
-        let mut routes = serde_json::Map::new();
-        let mut route_data = Vec::new();
-        for (index, route) in Self::map_array(props, "RouteData").iter().enumerate() {
+        let route_entries = Self::map_array(props, "RouteData");
+        let mut routes = serde_json::Map::with_capacity(route_entries.len());
+        let mut route_data = Vec::with_capacity(route_entries.len());
+        for (index, route) in route_entries.iter().enumerate() {
             let Some(route) = route.as_object() else {
                 continue;
             };
@@ -376,58 +380,32 @@ impl NetworkManagerService {
                 .cloned()
                 .unwrap_or(Value::Null),
         );
+        let domains = Self::map_array(props, "Domains");
         ipconfig_properties.insert(
             "Domains".to_string(),
-            json!(Self::map_array(props, "Domains")
+            json!(domains
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>()),
         );
+        let nameserver_data = Self::map_array(props, "NameserverData");
         ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(Self::map_array(props, "NameserverData")
+            json!(nameserver_data
                 .iter()
                 .filter_map(Value::as_object)
                 .filter_map(|value| value.get("address"))
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>()),
         );
+        let wins_server_data = Self::map_array(props, "WinsServerData");
         ipconfig_properties.insert(
             "WinsServerData".to_string(),
-            json!(Self::map_array(props, "WinsServerData")
+            json!(wins_server_data
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>()),
         );
-
-        if is_legacy {
-            let is_empty = ipconfig_properties
-                .get("AddressData")
-                .and_then(Value::as_array)
-                .is_none_or(|values| values.is_empty())
-                && ipconfig_properties
-                    .get("RouteData")
-                    .and_then(Value::as_array)
-                    .is_none_or(|values| values.is_empty())
-                && ipconfig_properties
-                    .get("Gateway")
-                    .is_none_or(|value| value.is_null())
-                && ipconfig_properties
-                    .get("Domains")
-                    .and_then(Value::as_array)
-                    .is_none_or(|values| values.is_empty())
-                && ipconfig_properties
-                    .get("NameserverData")
-                    .and_then(Value::as_array)
-                    .is_none_or(|values| values.is_empty())
-                && ipconfig_properties
-                    .get("WinsServerData")
-                    .and_then(Value::as_array)
-                    .is_none_or(|values| values.is_empty());
-            if is_empty {
-                return serde_json::Map::new();
-            }
-        }
 
         if is_legacy {
             let is_empty = ipconfig_properties
@@ -469,11 +447,12 @@ impl NetworkManagerService {
             return serde_json::Map::new();
         }
 
-        let mut ipconfig_properties = serde_json::Map::new();
+        let mut ipconfig_properties = serde_json::Map::with_capacity(if is_legacy { 6 } else { 5 });
 
-        let mut addresses = serde_json::Map::new();
-        let mut address_data = Vec::new();
-        for (index, address) in Self::map_array(props, "AddressData").iter().enumerate() {
+        let address_entries = Self::map_array(props, "AddressData");
+        let mut addresses = serde_json::Map::with_capacity(address_entries.len());
+        let mut address_data = Vec::with_capacity(address_entries.len());
+        for (index, address) in address_entries.iter().enumerate() {
             let Some(address) = address.as_object() else {
                 continue;
             };
@@ -498,9 +477,10 @@ impl NetworkManagerService {
         }
         ipconfig_properties.insert("AddressData".to_string(), Value::Array(address_data));
 
-        let mut routes = serde_json::Map::new();
-        let mut route_data = Vec::new();
-        for (index, route) in Self::map_array(props, "RouteData").iter().enumerate() {
+        let route_entries = Self::map_array(props, "RouteData");
+        let mut routes = serde_json::Map::with_capacity(route_entries.len());
+        let mut route_data = Vec::with_capacity(route_entries.len());
+        for (index, route) in route_entries.iter().enumerate() {
             let Some(route) = route.as_object() else {
                 continue;
             };
@@ -545,16 +525,18 @@ impl NetworkManagerService {
                 .cloned()
                 .unwrap_or(Value::Null),
         );
+        let domains = Self::map_array(props, "Domains");
         ipconfig_properties.insert(
             "Domains".to_string(),
-            json!(Self::map_array(props, "Domains")
+            json!(domains
                 .iter()
                 .filter_map(Value::as_str)
                 .collect::<Vec<_>>()),
         );
+        let nameservers = Self::map_array(props, "Nameservers");
         ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(Self::map_array(props, "Nameservers")
+            json!(nameservers
                 .iter()
                 .filter_map(Self::ipv6_string_from_json)
                 .collect::<Vec<_>>()),
@@ -570,10 +552,11 @@ impl NetworkManagerService {
         props: &serde_json::Map<String, Value>,
         is_legacy: bool,
     ) -> serde_json::Map<String, Value> {
-        let mut dhcpconfig_properties = serde_json::Map::new();
         let Some(options) = Self::value_as_object(props.get("Options")) else {
-            return dhcpconfig_properties;
+            return serde_json::Map::new();
         };
+
+        let mut dhcpconfig_properties = serde_json::Map::with_capacity(if is_legacy { options.len() } else { 1 });
 
         if is_legacy {
             for (key, value) in options {
@@ -595,7 +578,7 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
             return snapshot;
         };
 
-        let mut formatted = serde_json::Map::new();
+        let mut formatted = serde_json::Map::with_capacity(devices.len());
         for (interface_name, raw_device) in devices {
             let Some(raw_device) = raw_device.as_object() else {
                 continue;
@@ -623,7 +606,7 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
 
         let state = Self::map_i32(status_props, "State", 0);
         let device_type = Self::map_i32(status_props, "DeviceType", 0);
-        let mut device = serde_json::Map::new();
+    let mut device = serde_json::Map::with_capacity(if include_details { 31 } else { 8 });
         device.insert("status".to_string(), Value::Object(Self::get_dev_status(status_props)));
 
         if include_details {
@@ -638,58 +621,61 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
                 })
                 .unwrap_or_else(|| json!({}));
             device.insert("connection_active".to_string(), connection_active);
-        } else if state == 100 {
-            if let Some(connection_active) = raw_device.get("connection_active") {
-                let connection_active = if is_legacy {
-                    Self::legacy_connection_active(connection_active, false)
-                } else {
-                    Self::legacy_connection_active(connection_active, false)
-                };
-                device.insert("connection_active".to_string(), connection_active);
-            }
+        } else if state == 100
+            && let Some(connection_active) = raw_device.get("connection_active") {
+            let connection_active = Self::legacy_connection_active(connection_active, false);
+            device.insert("connection_active".to_string(), connection_active);
         }
 
-        let ip4 = Self::get_ip4config_properties(
-            Self::value_as_object(raw_device.get("Ip4Config")).unwrap_or(&serde_json::Map::new()),
-            is_legacy,
-        );
+        let ip4_raw = Self::value_as_object(raw_device.get("Ip4Config"));
+        let ip4 = if is_legacy && !include_details && state != 100 && ip4_raw.is_none_or(serde_json::Map::is_empty) {
+            serde_json::Map::new()
+        } else {
+            Self::get_ip4config_properties(ip4_raw.unwrap_or(&serde_json::Map::new()), is_legacy)
+        };
         if include_details || !is_legacy || !ip4.is_empty() || state == 100 {
             device.insert("Ip4Config".to_string(), Value::Object(ip4));
         }
-        let ip6 = Self::get_ip6config_properties(
-            Self::value_as_object(raw_device.get("Ip6Config")).unwrap_or(&serde_json::Map::new()),
-            is_legacy,
-        );
+        let ip6_raw = Self::value_as_object(raw_device.get("Ip6Config"));
+        let ip6 = if is_legacy && !include_details && state != 100 && ip6_raw.is_none_or(serde_json::Map::is_empty) {
+            serde_json::Map::new()
+        } else {
+            Self::get_ip6config_properties(ip6_raw.unwrap_or(&serde_json::Map::new()), is_legacy)
+        };
         if include_details || !is_legacy || !ip6.is_empty() || state == 100 {
             device.insert("Ip6Config".to_string(), Value::Object(ip6));
         }
-        let dhcp4 = Self::get_dhcp_config_properties(
-            Self::value_as_object(raw_device.get("Dhcp4Config")).unwrap_or(&serde_json::Map::new()),
-            is_legacy,
-        );
+        let dhcp4_raw = Self::value_as_object(raw_device.get("Dhcp4Config"));
+        let dhcp4 = if is_legacy && !include_details && state != 100 && dhcp4_raw.is_none_or(serde_json::Map::is_empty) {
+            serde_json::Map::new()
+        } else {
+            Self::get_dhcp_config_properties(dhcp4_raw.unwrap_or(&serde_json::Map::new()), is_legacy)
+        };
         if include_details || !is_legacy || !dhcp4.is_empty() || state == 100 {
             device.insert("Dhcp4Config".to_string(), Value::Object(dhcp4));
         }
-        let dhcp6 = Self::get_dhcp_config_properties(
-            Self::value_as_object(raw_device.get("Dhcp6Config")).unwrap_or(&serde_json::Map::new()),
-            is_legacy,
-        );
+        let dhcp6_raw = Self::value_as_object(raw_device.get("Dhcp6Config"));
+        let dhcp6 = if is_legacy && !include_details && state != 100 && dhcp6_raw.is_none_or(serde_json::Map::is_empty) {
+            serde_json::Map::new()
+        } else {
+            Self::get_dhcp_config_properties(dhcp6_raw.unwrap_or(&serde_json::Map::new()), is_legacy)
+        };
         if include_details || !is_legacy || !dhcp6.is_empty() || state == 100 {
             device.insert("Dhcp6Config".to_string(), Value::Object(dhcp6));
         }
 
-        if device_type == 1 {
-            if let Some(wired) = Self::value_as_object(raw_device.get("wired")) {
+        if device_type == 1
+            && let Some(wired) = Self::value_as_object(raw_device.get("wired")) {
                 device.insert("wired".to_string(), Value::Object(Self::get_wired_properties(wired)));
             }
-        }
 
-        if device_type == 2 {
-            if let Some(wireless) = Self::value_as_object(raw_device.get("wireless")) {
+        if device_type == 2
+            && let Some(wireless) = Self::value_as_object(raw_device.get("wireless")) {
                 device.insert("wireless".to_string(), Value::Object(Self::get_wifi_properties(wireless).await));
-                if state == 100 {
-                    if let Some(access_point) = Self::value_as_object(raw_device.get("ActiveAccessPoint")) {
-                        let mut access_point = Self::get_ap_properties(wireless, access_point, interface_name).await;
+                if state == 100
+                    && let Some(access_point) = Self::value_as_object(raw_device.get("ActiveAccessPoint")) {
+                        let mode = Self::map_i32(wireless, "Mode", 0);
+                        let mut access_point = Self::get_ap_properties(mode, access_point, interface_name).await;
                         if is_legacy {
                             access_point.remove("Bandwidth");
                             access_point.remove("Channel");
@@ -699,9 +685,7 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
                             Value::Object(access_point),
                         );
                     }
-                }
             }
-        }
 
         if include_details {
             for key in [
@@ -760,9 +744,8 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
         }
 
         Some(if is_legacy {
-            let legacy_device = device
-                .into_iter()
-                .map(|(key, value)| {
+            let mut legacy_device = serde_json::Map::with_capacity(device.len());
+            for (key, value) in device {
                     let value = match key.as_str() {
                         "Dhcp4Config" | "Dhcp6Config" => value,
                         _ => Self::convert_property_names(value, true),
@@ -771,126 +754,122 @@ async fn format_status_snapshot(snapshot: Value, is_legacy: bool) -> Value {
                         "Ip4Config" | "Ip6Config" | "Dhcp4Config" | "Dhcp6Config" | "ActiveAccessPoint" => {
                             Self::legacy_device_key(&key).to_string()
                         }
-                        _ => Self::convert_property_names(json!({ key.clone(): null }), true)
-                            .as_object()
-                            .and_then(|value| value.keys().next().cloned())
-                            .unwrap_or(key),
+                        _ => Self::convert_nm_property_name(&key, true),
                     };
-                    (key, value)
-                })
-                .collect();
+                    legacy_device.insert(key, value);
+                }
             Value::Object(legacy_device)
         } else {
             Self::convert_property_names(Value::Object(device), false)
         })
     }
 
-async fn connection_active_json(active_connection_path: &str) -> Result<Option<Value>> {
-        let active_connection = Self::get_properties(active_connection_path, NM_CONNECTION_ACTIVE_IFACE).await?;
+async fn connection_active_json_with_conn(conn: &Connection, active_connection_path: &str) -> Result<Option<Value>> {
+        let active_connection = Self::get_properties_with_conn(conn, active_connection_path, NM_CONNECTION_ACTIVE_IFACE).await?;
         let Some(connection_path) = dbus::property::<OwnedObjectPath>(&active_connection, "Connection") else {
             return Ok(None);
         };
-        let settings = Self::get_raw_connection_settings(connection_path.as_str()).await?;
+        let settings = Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await?;
         let Some(connection) = settings.get("connection") else {
             return Ok(None);
         };
 
-        Ok(Some(Value::Object(
-            connection
-                .iter()
-                .map(|(key, value)| (key.clone(), dbus::owned_value_to_json(value)))
-                .collect(),
-        )))
+        let mut connection_json = serde_json::Map::with_capacity(connection.len());
+        for (key, value) in connection {
+            connection_json.insert(key.clone(), dbus::owned_value_to_json(value));
+        }
+
+        Ok(Some(Value::Object(connection_json)))
     }
 
-async fn available_connections_json(connection_paths: &[OwnedObjectPath]) -> Value {
-        let mut connections = Vec::new();
+async fn available_connections_json_with_conn(conn: &Connection, connection_paths: &[OwnedObjectPath]) -> Value {
+        let mut connections = Vec::with_capacity(connection_paths.len());
 
         for connection_path in connection_paths {
-            let Ok(settings) = Self::get_raw_connection_settings(connection_path.as_str()).await else {
+            let Ok(settings) = Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await else {
                 continue;
             };
             let Some(connection) = settings.get("connection") else {
                 continue;
             };
-            connections.push(Value::Object(
-                connection
-                    .iter()
-                    .map(|(key, value)| (key.clone(), dbus::owned_value_to_json(value)))
-                    .collect(),
-            ));
+            let mut connection_json = serde_json::Map::with_capacity(connection.len());
+            for (key, value) in connection {
+                connection_json.insert(key.clone(), dbus::owned_value_to_json(value));
+            }
+            connections.push(Value::Object(connection_json));
         }
 
         Value::Array(connections)
     }
 
-async fn optional_properties_json(path: Option<OwnedObjectPath>, interface: &str) -> Value {
+async fn optional_properties_json_with_conn(
+        conn: &Connection,
+        path: Option<OwnedObjectPath>,
+        interface: &str,
+    ) -> Value {
         let Some(path) = path else {
             return json!({});
         };
         if path.as_str() == "/" {
             return json!({});
         }
-        match Self::get_properties(path.as_str(), interface).await {
+        match Self::get_properties_with_conn(conn, path.as_str(), interface).await {
             Ok(properties) => Value::Object(Self::properties_to_json(&properties)),
             Err(_) => json!({}),
         }
     }
 
-async fn build_device_status(device_path: &str) -> Result<Option<(String, Value)>> {
-        let device_properties = Self::get_properties(device_path, NM_DEVICE_IFACE).await?;
+async fn build_device_status_with_conn(conn: &Connection, device_path: &str) -> Result<Option<(String, Value)>> {
+        let device_properties = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_IFACE).await?;
         let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface") else {
             return Ok(None);
         };
 
-        let mut device_status = serde_json::Map::new();
+        let mut device_status = serde_json::Map::with_capacity(9);
         device_status.insert(
             "status".to_string(),
             Value::Object(Self::properties_to_json(&device_properties)),
         );
 
-        if let Some(active_connection_path) = dbus::property::<OwnedObjectPath>(&device_properties, "ActiveConnection") {
-            if active_connection_path.as_str() != "/" {
-                if let Ok(Some(connection_active)) = Self::connection_active_json(active_connection_path.as_str()).await {
+        if let Some(active_connection_path) = dbus::property::<OwnedObjectPath>(&device_properties, "ActiveConnection")
+            && active_connection_path.as_str() != "/"
+                && let Ok(Some(connection_active)) = Self::connection_active_json_with_conn(conn, active_connection_path.as_str()).await {
                     device_status.insert("connection_active".to_string(), connection_active);
                 }
-            }
-        }
 
         device_status.insert(
             "Ip4Config".to_string(),
-            Self::optional_properties_json(dbus::property::<OwnedObjectPath>(&device_properties, "Ip4Config"), NM_IP4_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Ip4Config"), NM_IP4_CONFIG_IFACE).await,
         );
         device_status.insert(
             "Ip6Config".to_string(),
-            Self::optional_properties_json(dbus::property::<OwnedObjectPath>(&device_properties, "Ip6Config"), NM_IP6_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Ip6Config"), NM_IP6_CONFIG_IFACE).await,
         );
         device_status.insert(
             "Dhcp4Config".to_string(),
-            Self::optional_properties_json(dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp4Config"), NM_DHCP4_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp4Config"), NM_DHCP4_CONFIG_IFACE).await,
         );
         device_status.insert(
             "Dhcp6Config".to_string(),
-            Self::optional_properties_json(dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp6Config"), NM_DHCP6_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp6Config"), NM_DHCP6_CONFIG_IFACE).await,
         );
 
-        if let Ok(properties) = Self::get_properties(device_path, NM_DEVICE_WIRED_IFACE).await {
+        if let Ok(properties) = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRED_IFACE).await {
             device_status.insert("wired".to_string(), Value::Object(Self::properties_to_json(&properties)));
         }
-        if let Ok(properties) = Self::get_properties(device_path, NM_DEVICE_WIRELESS_IFACE).await {
-            if let Some(access_point_path) = dbus::property::<OwnedObjectPath>(&properties, "ActiveAccessPoint") {
-                if access_point_path.as_str() != "/" {
-                    let access_point = Self::optional_properties_json(Some(access_point_path), NM_ACCESS_POINT_IFACE).await;
+        if let Ok(properties) = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRELESS_IFACE).await {
+            if let Some(access_point_path) = dbus::property::<OwnedObjectPath>(&properties, "ActiveAccessPoint")
+                && access_point_path.as_str() != "/" {
+                    let access_point = Self::optional_properties_json_with_conn(conn, Some(access_point_path), NM_ACCESS_POINT_IFACE).await;
                     device_status.insert("ActiveAccessPoint".to_string(), access_point);
                 }
-            }
             device_status.insert("wireless".to_string(), Value::Object(Self::properties_to_json(&properties)));
         }
 
         if let Some(connection_paths) = dbus::property::<Vec<OwnedObjectPath>>(&device_properties, "AvailableConnections") {
             device_status.insert(
                 "available_connections".to_string(),
-                Self::available_connections_json(&connection_paths).await,
+                Self::available_connections_json_with_conn(conn, &connection_paths).await,
             );
         }
 
@@ -901,12 +880,13 @@ async fn build_device_status(device_path: &str) -> Result<Option<(String, Value)
     }
 
 async fn build_status_snapshot() -> Result<Value> {
-        let manager_properties = Self::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
+        let conn = Self::system_bus().await?;
+        let manager_properties = Self::get_properties_with_conn(conn.as_ref(), NM_MAIN_OBJ, NM_IFACE).await?;
         let device_paths = dbus::property::<Vec<OwnedObjectPath>>(&manager_properties, "Devices").unwrap_or_default();
-        let mut status = serde_json::Map::new();
+    let mut status = serde_json::Map::with_capacity(device_paths.len());
 
         for device_path in device_paths {
-            match Self::build_device_status(device_path.as_str()).await {
+            match Self::build_device_status_with_conn(conn.as_ref(), device_path.as_str()).await {
                 Ok(Some((interface_name, device_status))) => {
                     status.insert(interface_name, device_status);
                 }

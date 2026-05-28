@@ -12,6 +12,7 @@
 //! Helper macros are provided for common boilerplate:
 //!   - [`declare_plugin_api!`] to define route declarations.
 //!   - [`declare_plugin!`] to export `summit_rcm_plugin_create`.
+//!
 //! Memory ownership:
 //!   - The plugin allocates `PluginHandle` and all strings it owns.
 //!   - `response_body` and `response_bytes` returned by `dispatch` are
@@ -54,18 +55,6 @@ pub struct RouteDocPolicy {
 impl RouteDocPolicy {
     pub const fn new(path: &'static str, auth: RouteAuthPolicy) -> Self {
         Self { path, auth }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PublishedAtCommand {
-    pub signature: &'static str,
-    pub name: &'static str,
-}
-
-impl PublishedAtCommand {
-    pub const fn new(signature: &'static str, name: &'static str) -> Self {
-        Self { signature, name }
     }
 }
 
@@ -243,7 +232,6 @@ macro_rules! declare_plugin_api {
 const _: fn(&'static str, &'static str) -> PublishedRoute = PublishedRoute::new;
 const _: fn(String, String) -> PublishedRoute = PublishedRoute::leak;
 const _: fn(&'static str, RouteAuthPolicy) -> RouteDocPolicy = RouteDocPolicy::new;
-const _: fn(&'static str, &'static str) -> PublishedAtCommand = PublishedAtCommand::new;
 
 /// Declare a plugin.
 ///
@@ -361,6 +349,12 @@ macro_rules! declare_openapi_json_callbacks {
 
 /// Allocate a CString and return a raw pointer.
 /// The caller is responsible for freeing via `free_cstring`.
+///
+/// # Safety
+///
+/// The returned pointer must be released exactly once with `free_cstring`.
+/// It must not be passed to allocators other than libc `free`, and must not
+/// be used after being freed.
 pub unsafe fn alloc_cstring(s: &str) -> *mut c_char {
     let bytes = s.as_bytes();
     let ptr = unsafe { libc::malloc(bytes.len() + 1) } as *mut c_char;
@@ -375,6 +369,11 @@ pub unsafe fn alloc_cstring(s: &str) -> *mut c_char {
 }
 
 /// Free a CString allocated by `alloc_cstring`.
+///
+/// # Safety
+///
+/// `ptr` must be either null or a pointer returned by `alloc_cstring` that
+/// has not already been freed. Passing any other pointer is undefined behavior.
 pub unsafe fn free_cstring(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe { libc::free(ptr as *mut c_void) };
@@ -382,6 +381,11 @@ pub unsafe fn free_cstring(ptr: *mut c_char) {
 }
 
 /// Allocate a byte buffer and return a raw pointer.
+///
+/// # Safety
+///
+/// The returned pointer must be released exactly once with `free_bytes`.
+/// The caller is responsible for tracking the associated length.
 pub unsafe fn alloc_bytes(data: &[u8]) -> *mut u8 {
     let ptr = unsafe { libc::malloc(data.len()) } as *mut u8;
     if !ptr.is_null() {
@@ -391,6 +395,11 @@ pub unsafe fn alloc_bytes(data: &[u8]) -> *mut u8 {
 }
 
 /// Free bytes allocated by `alloc_bytes`.
+///
+/// # Safety
+///
+/// `ptr` must be either null or a pointer returned by `alloc_bytes` that
+/// has not already been freed. Passing any other pointer is undefined behavior.
 pub unsafe fn free_bytes(ptr: *mut u8) {
     if !ptr.is_null() {
         unsafe { libc::free(ptr as *mut c_void) };
@@ -398,6 +407,11 @@ pub unsafe fn free_bytes(ptr: *mut u8) {
 }
 
 /// Helper: read a C string into a Rust String (returns empty string if null).
+///
+/// # Safety
+///
+/// When non-null, `ptr` must point to a valid NUL-terminated C string that
+/// is readable for the duration of this call.
 pub unsafe fn cstr_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();

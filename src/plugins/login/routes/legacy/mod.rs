@@ -12,11 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-#[cfg(not(test))]
-use std::sync::atomic::{AtomicBool, Ordering};
 use tower_sessions::Session;
-#[cfg(feature = "api-docs")]
-
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -131,27 +127,8 @@ fn permission_string_value(permission: impl Into<String>) -> Value {
     Value::String(permission.into())
 }
 
-#[cfg(not(test))]
-static SESSIONS_ENABLED: AtomicBool = AtomicBool::new(true);
-
-pub(crate) fn initialize_sessions_enabled() {
-    #[cfg(not(test))]
-    SESSIONS_ENABLED.store(
-        crate::config::ServerConfig::get_bool("/", "tools.sessions.on", true),
-        Ordering::Relaxed,
-    );
-}
-
 fn sessions_enabled() -> bool {
-    #[cfg(test)]
-    {
-        return crate::config::ServerConfig::get_bool("/", "tools.sessions.on", true);
-    }
-
-    #[cfg(not(test))]
-    {
-        SESSIONS_ENABLED.load(Ordering::Relaxed)
-    }
+    crate::config::ServerConfig::get_bool("/", "tools.sessions.on", true)
 }
 
 fn default_username() -> String {

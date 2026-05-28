@@ -64,7 +64,7 @@ impl NetworkManagerService {
         result
     }
 
-    fn convert_nm_property_name(property_name: &str, is_legacy: bool) -> String {
+    pub(crate) fn convert_nm_property_name(property_name: &str, is_legacy: bool) -> String {
         let mapped = match property_name {
             "Ssid" => Some(("Ssid", "ssid")),
             "HwAddress" => Some(("HwAddress", "hwAddress")),

@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::plugins::files::FilesService;
+use crate::plugins::files::files_service::{FileDeleteError, FilesService};
 use crate::plugins::network_manager::service::NetworkService;
 use axum::{
     extract::{Multipart, Query},
@@ -13,8 +13,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-#[cfg(feature = "api-docs")]
-
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -155,7 +153,7 @@ async fn parse_import_connections_request(
     let mut archive = Vec::new();
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("archive") {
-            archive = field.bytes().await.unwrap_or_default().to_vec();
+            archive = field.bytes().await.unwrap_or_default().into_iter().collect();
             break;
         }
     }
@@ -180,18 +178,18 @@ async fn parse_upload_legacy_file_request(
     let mut file_data: Vec<u8> = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
-        let field_name = field.name().unwrap_or("").to_string();
+        let field_name = field.name().map(str::to_owned).unwrap_or_default();
         let fname = field.file_name().unwrap_or("upload").to_string();
         let data = field.bytes().await.unwrap_or_default();
         match field_name.as_str() {
             "type" => file_type = String::from_utf8_lossy(&data).trim().to_string(),
             "password" => {
-                let value = String::from_utf8_lossy(&data).trim().to_string();
+                let value = String::from_utf8_lossy(&data).trim().to_owned();
                 password = Some(value);
             }
             "file" => {
                 file_name = fname;
-                file_data = data.to_vec();
+                file_data = data.into_iter().collect();
             }
             _ => {}
         }
@@ -223,7 +221,8 @@ fn validate_legacy_upload_request(
     if !["cert", "pac", "config", "timezone"].contains(&file_type) {
         return Some(fail_response(format!("file POST type {} unknown", file_type)));
     }
-    if file_type == "config" && !file_name.ends_with(".zip") {
+
+    if ["config", "timezone"].contains(&file_type) && !file_name.ends_with(".zip") {
         return Some(fail_response("file POST type not .zip file"));
     }
     None
@@ -380,7 +379,7 @@ pub async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacyRespons
         Err(response) => return UploadFileLegacyResponses::Ok(response),
     };
 
-    if request.file_type == "config" {
+    if ["config", "timezone"].contains(&request.file_type.as_str()) {
         let password = request.password.as_deref().unwrap_or("");
         return match crate::archive::zip_extract(&request.file_data, password, "/").await {
             Ok(()) => UploadFileLegacyResponses::Ok(ok_response("")),
@@ -389,12 +388,6 @@ pub async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacyRespons
                 error
             ))),
         };
-    }
-
-    if request.file_type == "timezone" {
-        return UploadFileLegacyResponses::Ok(fail_response(
-            "file POST - timezone data upload not supported",
-        ));
     }
 
     legacy_operation_result(FilesService::upload_file(&request.file_type, &request.file_name, &request.file_data).await)
@@ -439,11 +432,11 @@ pub async fn delete_single_file_legacy(
         return DeleteSingleFileLegacyResponses::Ok(fail_response(format!("type not one of {:?}", ["cert", "pac"])));
     }
 
-    match FilesService::delete_file(&file_type, &file) {
+    match FilesService::delete_file_typed(&file_type, &file) {
         Ok(()) => DeleteSingleFileLegacyResponses::Ok(ok_response(format!("file {} deleted", file))),
-        Err(error) if error.to_string().contains("No such file") => {
+        Err(FileDeleteError::NotFound) => {
             DeleteSingleFileLegacyResponses::Ok(fail_response(format!("File: {} not present", file)))
         }
-        Err(error) => DeleteSingleFileLegacyResponses::Ok(fail_response(error.to_string())),
+        Err(error) => DeleteSingleFileLegacyResponses::Ok(fail_response(format!("{:?}", error))),
     }
 }

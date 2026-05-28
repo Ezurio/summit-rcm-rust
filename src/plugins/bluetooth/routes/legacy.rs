@@ -10,7 +10,8 @@ use crate::plugins::bluetooth::routes::common::{
 };
 #[cfg(feature = "bluetooth-websocket")]
 use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
-use crate::plugins::bluetooth::service::BluetoothService;
+use crate::plugins::bluetooth::service::{BluetoothDeviceStateError, BluetoothService};
+use crate::utils::parse_model;
 use axum::{extract::{Path, Query}, Json};
 #[cfg(feature = "bluetooth-websocket")]
 use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
@@ -102,7 +103,7 @@ where
     T: DeserializeOwned,
     U: Serialize,
 {
-    serde_json::from_value(serde_json::to_value(value)?)
+    parse_model(value)
 }
 
 fn parse_legacy_route_response<T, U, R, F>(
@@ -269,13 +270,13 @@ pub async fn put_bluetooth_controller_legacy(
 pub async fn get_bluetooth_device_legacy(
     Path((controller, device)): Path<(String, String)>,
 ) -> GetBluetoothDeviceLegacyResponses {
-    match BluetoothService::get_device_state(&controller, &device).await {
+    match BluetoothService::get_device_state_typed(&controller, &device).await {
         Ok(device) => legacy_bluetooth_device_response(ok_response(""), device).into(),
-        Err(error) if error.to_string().contains("not found") => {
+        Err(BluetoothDeviceStateError::ControllerNotFound | BluetoothDeviceStateError::DeviceNotFound) => {
             legacy_bluetooth_device_response(fail_response("Device not found"), empty_bluetooth_device()).into()
         }
         Err(error) => {
-            log::error!("get_bluetooth_device_legacy {} {}: {}", controller, device, error);
+            log::error!("get_bluetooth_device_legacy {} {}: {:?}", controller, device, error);
             GetBluetoothDeviceLegacyResponses::BadRequest
         }
     }
@@ -296,7 +297,7 @@ pub async fn put_bluetooth_device_legacy(
     Path((controller, device)): Path<(String, String)>,
     Json(body): Json<BluetoothCommandRequest>,
 ) -> PutBluetoothDeviceLegacyResponses {
-    if BluetoothService::get_device_state(&controller, &device).await.is_err() {
+    if BluetoothService::get_device_state_typed(&controller, &device).await.is_err() {
         return legacy_bluetooth_control_response(
             fail_response("Device not found"),
             empty_bluetooth_control(),
