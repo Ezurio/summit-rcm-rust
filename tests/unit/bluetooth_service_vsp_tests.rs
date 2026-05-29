@@ -1,6 +1,6 @@
 use super::test_support::{
     MockBluezHarness, TEST_DEVICE_ADDRESS, TEST_VSP_READ_UUID, TEST_VSP_SERVICE_UUID,
-    TEST_VSP_WRITE_UUID, reserve_tcp_port, success_code,
+    TEST_VSP_WRITE_UUID, reserve_tcp_port,
 };
 use super::*;
 use serde_json::json;
@@ -30,7 +30,7 @@ async fn simulated_vsp_connect_forwards_socket_bytes_and_disconnects() {
     )
     .await
     .expect("gattConnect should succeed");
-    assert_eq!(connected["SDCERR"].as_i64(), Some(success_code()));
+    assert!(connected.succeeded, "{}", connected.info_msg);
     assert!(harness.state.vsp_notify_enabled.load(Ordering::SeqCst));
 
     let listed = BluetoothService::handle_command_inner_with_conn(
@@ -41,9 +41,15 @@ async fn simulated_vsp_connect_forwards_socket_bytes_and_disconnects() {
     )
     .await
     .expect("gattList should succeed");
-    assert_eq!(listed["GattConnections"].as_array().map(Vec::len), Some(1));
-    assert_eq!(listed["GattConnections"][0]["device"].as_str(), Some(TEST_DEVICE_ADDRESS));
-    assert_eq!(listed["GattConnections"][0]["port"].as_u64(), Some(u64::from(tcp_port)));
+    assert!(listed.succeeded, "{}", listed.info_msg);
+    let connections = listed
+        .response
+        .vsp
+        .gatt_connections
+        .expect("gattList should return connections");
+    assert_eq!(connections.len(), 1);
+    assert_eq!(connections[0].device, TEST_DEVICE_ADDRESS);
+    assert_eq!(connections[0].port, i32::from(tcp_port));
 
     let mut socket = TcpStream::connect(("127.0.0.1", tcp_port))
         .await
@@ -72,7 +78,7 @@ async fn simulated_vsp_connect_forwards_socket_bytes_and_disconnects() {
     )
     .await
     .expect("gattDisconnect should succeed");
-    assert_eq!(disconnected["SDCERR"].as_i64(), Some(success_code()));
+    assert!(disconnected.succeeded, "{}", disconnected.info_msg);
     assert!(!harness.state.vsp_notify_enabled.load(Ordering::SeqCst));
 
     let listed_after = BluetoothService::handle_command_inner_with_conn(
@@ -83,5 +89,11 @@ async fn simulated_vsp_connect_forwards_socket_bytes_and_disconnects() {
     )
     .await
     .expect("gattList after disconnect should succeed");
-    assert_eq!(listed_after["GattConnections"].as_array().map(Vec::len), Some(0));
+    assert!(listed_after.succeeded, "{}", listed_after.info_msg);
+    let remaining = listed_after
+        .response
+        .vsp
+        .gatt_connections
+        .unwrap_or_default();
+    assert_eq!(remaining.len(), 0);
 }

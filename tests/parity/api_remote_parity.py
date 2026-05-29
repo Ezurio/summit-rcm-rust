@@ -25,9 +25,10 @@ from api_parity import (
     USER_PERMISSIONS,
     ParityError,
     create_parity_ssl_context,
-     detect_wireless_interface,
+    detect_wireless_interface,
     find_readback_case,
     filter_cases_for_python_runtime,
+    maybe_prime_datetime_for_case,
     path_uses_wireless_interface_placeholder,
     parse_plugin_names,
     python_wrapper_command,
@@ -1473,6 +1474,23 @@ def run_remote_response_cases(
                 rust_readback_before = None
                 python_readback_before = None
 
+                datetime_prime_error = maybe_prime_datetime_for_case(
+                    case,
+                    rust_base_url=rust_base_url,
+                    python_base_url=python_base_url,
+                    rust_case_path=rust_case_path,
+                    python_case_path=python_case_path,
+                    rust_cookie=rust_cookies.get(cookie_key) if cookie_key else None,
+                    python_cookie=python_cookies.get(cookie_key) if cookie_key else None,
+                    ca_cert_path=DIRECT_HTTPS_CA,
+                    timeout_seconds=case_timeout_seconds,
+                    rust_connect_host=ssh_target_host(rust_target),
+                    python_connect_host=ssh_target_host(python_target),
+                )
+                if datetime_prime_error is not None:
+                    failures.append(datetime_prime_error)
+                    continue
+
                 if should_verify_readback(case):
                     readback_case = find_readback_case(case, shared_cases)
                     if readback_case is not None:
@@ -1779,6 +1797,23 @@ def run_direct_response_cases(
         readback_case = None
         rust_readback_before = None
         python_readback_before = None
+
+        datetime_prime_error = maybe_prime_datetime_for_case(
+            case,
+            rust_base_url=rust_base_url,
+            python_base_url=python_base_url,
+            rust_case_path=rust_case_path,
+            python_case_path=python_case_path,
+            rust_cookie=request_cookie_value(rust_cookies, case),
+            python_cookie=request_cookie_value(python_cookies, case),
+            ca_cert_path=DIRECT_HTTPS_CA,
+            timeout_seconds=case_timeout_seconds,
+            rust_connect_host=rust_ip,
+            python_connect_host=python_ip,
+        )
+        if datetime_prime_error is not None:
+            failures.append(datetime_prime_error)
+            continue
 
         if should_verify_readback(case):
             readback_case = find_readback_case(case, cases)

@@ -4,6 +4,7 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
+use crate::plugins::network_manager::routes::legacy::types::LegacyNetworkInterfaceResponse;
 use crate::plugins::network_manager::service::NetworkService;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub struct LegacyNetworkStatusResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
-    pub status: Option<std::collections::BTreeMap<String, crate::plugins::network_manager::routes::shared::LegacyNetworkInterfaceResponse>>,
+    pub status: Option<std::collections::BTreeMap<String, LegacyNetworkInterfaceResponse>>,
     pub devices: i64,
 }
 

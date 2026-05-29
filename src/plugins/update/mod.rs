@@ -5,17 +5,19 @@
 
 #[cfg(feature = "at-interface")]
 pub mod at_commands;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub mod firmware_update_service;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub use self::firmware_update_service::FirmwareUpdateService;
 #[cfg(feature = "api-v2")]
 pub use self::firmware_update_service::SummitRcmUpdateStatus;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/system/update" => {
 				GET => routes::v2::get_update_status,

@@ -4,11 +4,11 @@
 //
 //! iptables-based firewall port forwarding service
 
-use crate::utils::command_output;
+use crate::utils::{command_output, read_text_sync};
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::sync::{LazyLock, Mutex as StdMutex};
-use tokio::sync::Mutex as AsyncMutex;
+use std::sync::LazyLock;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";
@@ -21,7 +21,7 @@ pub const IPV4: &str = "ipv4";
 pub const IPV6: &str = "ipv6";
 pub const IP_VERSIONS: &[&str] = &[IPV4, IPV6];
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ForwardedPort {
@@ -32,17 +32,22 @@ pub struct ForwardedPort {
     pub ip_version: String,
 }
 
-static FORWARDED_PORTS: LazyLock<StdMutex<Vec<ForwardedPort>>> =
-    LazyLock::new(|| StdMutex::new(load_ports()));
+static FORWARDED_PORTS: LazyLock<RwLock<Vec<ForwardedPort>>> =
+    LazyLock::new(|| RwLock::new(load_ports()));
 static PORTS_INTERLOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
 
-fn with_ports<R>(f: impl FnOnce(&mut Vec<ForwardedPort>) -> R) -> R {
-    let mut ports = FORWARDED_PORTS.lock().unwrap();
+async fn with_ports_read<R>(f: impl FnOnce(&Vec<ForwardedPort>) -> R) -> R {
+    let ports = FORWARDED_PORTS.read().await;
+    f(&ports)
+}
+
+async fn with_ports<R>(f: impl FnOnce(&mut Vec<ForwardedPort>) -> R) -> R {
+    let mut ports = FORWARDED_PORTS.write().await;
     f(&mut ports)
 }
 
 fn load_ports() -> Vec<ForwardedPort> {
-    if let Ok(data) = std::fs::read_to_string(FORWARDED_PORTS_FILE)
+    if let Ok(data) = read_text_sync(FORWARDED_PORTS_FILE)
         && let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data)
     {
         return v;
@@ -50,26 +55,20 @@ fn load_ports() -> Vec<ForwardedPort> {
     Vec::new()
 }
 
-fn save_ports(ports: &[ForwardedPort]) {
-    if let Ok(data) = serde_json::to_string(ports) {
-        let _ = std::fs::write(FORWARDED_PORTS_FILE, data);
-    }
-}
-
 pub struct FirewallService;
 
 impl FirewallService {
     pub async fn get_forwarded_ports() -> Vec<ForwardedPort> {
-        with_ports(|ports| ports.clone())
+        with_ports_read(|ports| ports.clone()).await
     }
 
     pub async fn port_is_present(port: &ForwardedPort) -> bool {
-        with_ports(|ports| ports.contains(port))
+        with_ports_read(|ports| ports.contains(port)).await
     }
 
     pub async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
         let _interlock = PORTS_INTERLOCK.lock().await;
-        let present = with_ports(|ports| ports.contains(&fp));
+        let present = with_ports_read(|ports| ports.contains(&fp)).await;
 
         if command == ADD_PORT && present {
             return (true, "Forwarded port already exists".into());
@@ -150,14 +149,17 @@ impl FirewallService {
             Err(e) => { return (false, e.to_string()); }
         }
 
-        with_ports(|ports| {
+        let snapshot = with_ports(|ports| {
             if command == ADD_PORT {
                 ports.push(fp);
             } else {
                 ports.retain(|p| p != &fp);
             }
-            save_ports(ports);
-        });
+            serde_json::to_string(ports.as_slice()).ok()
+        }).await;
+        if let Some(data) = snapshot {
+            let _ = tokio::fs::write(FORWARDED_PORTS_FILE, data).await;
+        }
         (true, String::new())
     }
 

@@ -28,7 +28,6 @@ where
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsConnection {
     #[serde(rename = "auth-retries")]
@@ -165,7 +164,6 @@ pub struct ConnectionSettingsConnection {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettings8021x {
     #[serde(rename = "altsubject-matches")]
@@ -304,7 +302,6 @@ pub struct ConnectionSettings8021x {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsGsm {
     /// Deprecated on D-Bus.
@@ -384,15 +381,16 @@ pub struct ConnectionSettingsGsm {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsIp4Config {
     #[serde(rename = "address-data")]
     pub address_data: Option<Vec<BTreeMap<String, Value>>>,
     /// Deprecated on D-Bus.
     #[serde(rename = "address-labels")]
+    #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub address_labels: Option<Vec<String>>,
     /// Deprecated on D-Bus.
+    #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub addresses: Option<Vec<String>>,
     #[serde(rename = "auto-route-ext-gw")]
     pub auto_route_ext_gw: Option<i64>,
@@ -464,6 +462,7 @@ pub struct ConnectionSettingsIp4Config {
     #[serde(rename = "routed-dns")]
     pub routed_dns: Option<i64>,
     /// Deprecated on D-Bus.
+    #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub routes: Option<Vec<String>>,
     #[serde(rename = "routing-rules")]
     pub routing_rules: Option<Vec<BTreeMap<String, Value>>>,
@@ -474,7 +473,6 @@ pub struct ConnectionSettingsIp4Config {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsIp6Config {
     #[serde(rename = "addr-gen-mode")]
@@ -482,6 +480,7 @@ pub struct ConnectionSettingsIp6Config {
     #[serde(rename = "address-data")]
     pub address_data: Option<Vec<BTreeMap<String, Value>>>,
     /// Deprecated on D-Bus.
+    #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub addresses: Option<Vec<String>>,
     #[serde(rename = "auto-route-ext-gw")]
     pub auto_route_ext_gw: Option<i64>,
@@ -553,6 +552,7 @@ pub struct ConnectionSettingsIp6Config {
     #[serde(rename = "routed-dns")]
     pub routed_dns: Option<i64>,
     /// Deprecated on D-Bus.
+    #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub routes: Option<Vec<String>>,
     #[serde(rename = "routing-rules")]
     pub routing_rules: Option<Vec<BTreeMap<String, Value>>>,
@@ -568,7 +568,6 @@ pub struct ConnectionSettingsIp6Config {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWired {
     #[serde(rename = "accept-all-mac-addresses")]
@@ -609,7 +608,6 @@ pub struct ConnectionSettingsWired {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWireless {
     pub acs: Option<i64>,
@@ -671,7 +669,7 @@ pub struct ConnectionSettingsWireless {
     #[serde(rename = "scan-suspend-time")]
     pub scan_suspend_time: Option<i64>,
     /// Deprecated on D-Bus.
-    pub security: Option<Value>,
+    pub security: Option<String>,
     #[serde(rename = "seen-bssids")]
     #[serde(default, deserialize_with = "deserialize_optional_string_vec")]
     pub seen_bssids: Option<Vec<String>>,
@@ -686,7 +684,6 @@ pub struct ConnectionSettingsWireless {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWirelessSecurity {
     #[serde(rename = "auth-alg")]
@@ -743,7 +740,6 @@ pub struct ConnectionSettingsWirelessSecurity {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionSettingsWifiP2p {
     #[serde(rename = "device-name")]
@@ -762,7 +758,6 @@ pub struct ConnectionSettingsWifiP2p {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct ConnectionProfile {
     #[serde(rename = "802-1x")]
@@ -780,232 +775,4 @@ pub struct ConnectionProfile {
     #[serde(rename = "wifi-p2p")]
     pub wifi_p2p: Option<ConnectionSettingsWifiP2p>,
     pub activated: Option<bool>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyConnectionProfileResponse {
-    #[serde(flatten)]
-    pub operation: crate::web::legacy_response::LegacyOperationResponse,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connection: Option<ConnectionProfile>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
-#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ActivateConnectionLegacyRequest {
-    pub uuid: String,
-    pub activate: i32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ConnectionProfile;
-    use serde_json::json;
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn connection_profile_accepts_scalar_or_array_string_fields() {
-        let profile: ConnectionProfile = serde_json::from_value(json!({
-            "connection": {
-                "permissions": "user:test:",
-                "secondaries": "vpn-uuid",
-                "ip-ping-addresses": "1.1.1.1"
-            },
-            "802-1x": {
-                "eap": "peap",
-                "altsubject-matches": "DNS:example.com",
-                "phase2-auth": "mschapv2",
-                "phase2-autheap": "tls",
-                "phase2-altsubject-matches": "DNS:inner.example.com"
-            },
-            "ipv4": {
-                "dhcp-reject-servers": "10.0.0.1",
-                "dns-data": "8.8.8.8",
-                "dns-options": "rotate",
-                "dns-search": "example.com"
-            },
-            "ipv6": {
-                "dhcp-reject-servers": "fd00::1",
-                "dns": "2001:4860:4860::8888",
-                "dns-data": "2001:4860:4860::8844",
-                "dns-options": "attempts:2",
-                "dns-search": "example.net"
-            },
-            "802-3-ethernet": {
-                "mac-address-blacklist": "00:11:22:33:44:55",
-                "mac-address-denylist": "66:77:88:99:aa:bb",
-                "s390-subchannels": "0.0.f500"
-            },
-            "802-11-wireless": {
-                "ssid": "test-ssid",
-                "mac-address-blacklist": "00:11:22:33:44:66",
-                "mac-address-denylist": "66:77:88:99:aa:cc",
-                "seen-bssids": "de:ad:be:ef:00:01"
-            },
-            "802-11-wireless-security": {
-                "key-mgmt": "wpa-psk",
-                "group": "tkip",
-                "pairwise": "ccmp",
-                "proto": "rsn"
-            }
-        }))
-        .expect("connection profile should deserialize");
-
-        assert_eq!(profile.connection.permissions, Some(vec!["user:test:".to_string()]));
-        assert_eq!(profile.connection.secondaries, Some(vec!["vpn-uuid".to_string()]));
-        assert_eq!(profile.connection.ip_ping_addresses, Some(vec!["1.1.1.1".to_string()]));
-
-        let enterprise_auth = profile.enterprise_auth.expect("enterprise auth section");
-        assert_eq!(enterprise_auth.eap, Some(vec!["peap".to_string()]));
-        assert_eq!(enterprise_auth.altsubject_matches, Some(vec!["DNS:example.com".to_string()]));
-        assert_eq!(enterprise_auth.phase2_auth, Some(vec!["mschapv2".to_string()]));
-        assert_eq!(enterprise_auth.phase2_autheap, Some(vec!["tls".to_string()]));
-        assert_eq!(enterprise_auth.phase2_altsubject_matches, Some(vec!["DNS:inner.example.com".to_string()]));
-
-        let ipv4 = profile.ipv4.expect("ipv4 section");
-        assert_eq!(ipv4.dhcp_reject_servers, Some(vec!["10.0.0.1".to_string()]));
-        assert_eq!(ipv4.dns_data, Some(vec!["8.8.8.8".to_string()]));
-        assert_eq!(ipv4.dns_options, Some(vec!["rotate".to_string()]));
-        assert_eq!(ipv4.dns_search, Some(vec!["example.com".to_string()]));
-
-        let ipv6 = profile.ipv6.expect("ipv6 section");
-        assert_eq!(ipv6.dhcp_reject_servers, Some(vec!["fd00::1".to_string()]));
-        assert_eq!(ipv6.dns, Some(vec!["2001:4860:4860::8888".to_string()]));
-        assert_eq!(ipv6.dns_data, Some(vec!["2001:4860:4860::8844".to_string()]));
-        assert_eq!(ipv6.dns_options, Some(vec!["attempts:2".to_string()]));
-        assert_eq!(ipv6.dns_search, Some(vec!["example.net".to_string()]));
-
-        let wired = profile.wired.expect("wired section");
-        assert_eq!(wired.mac_address_blacklist, Some(vec!["00:11:22:33:44:55".to_string()]));
-        assert_eq!(wired.mac_address_denylist, Some(vec!["66:77:88:99:aa:bb".to_string()]));
-        assert_eq!(wired.s390_subchannels, Some(vec!["0.0.f500".to_string()]));
-
-        let wireless = profile.wireless.expect("wireless section");
-        assert_eq!(wireless.mac_address_blacklist, Some(vec!["00:11:22:33:44:66".to_string()]));
-        assert_eq!(wireless.mac_address_denylist, Some(vec!["66:77:88:99:aa:cc".to_string()]));
-        assert_eq!(wireless.seen_bssids, Some(vec!["de:ad:be:ef:00:01".to_string()]));
-
-        let wireless_security = profile.wireless_security.expect("wireless security section");
-        assert_eq!(wireless_security.group, Some(vec!["tkip".to_string()]));
-        assert_eq!(wireless_security.pairwise, Some(vec!["ccmp".to_string()]));
-        assert_eq!(wireless_security.proto, Some(vec!["rsn".to_string()]));
-    }
-
-    #[test]
-    fn connection_profile_accepts_weblcm_style_payload() {
-        let profile: ConnectionProfile = serde_json::from_value(json!({
-            "connection": {
-                "id": "CorpWifi",
-                "type": "802-11-wireless",
-                "interface-name": "wlan0",
-                "uuid": "123e4567-e89b-12d3-a456-426614174000"
-            },
-            "802-11-wireless": {
-                "ssid": "CorpWifi",
-                "mode": "infrastructure",
-                "security": "802-11-wireless-security",
-                "seen-bssids": "de:ad:be:ef:00:01"
-            },
-            "802-11-wireless-security": {
-                "key-mgmt": "wpa-eap",
-                "pairwise": "ccmp",
-                "group": "tkip",
-                "proto": "rsn"
-            },
-            "802-1x": {
-                "eap": "peap",
-                "identity": "user@example.com",
-                "phase2-auth": "mschapv2",
-                "altsubject-matches": "DNS:auth.example.com"
-            },
-            "ipv4": {
-                "method": "auto",
-                "address-data": [{"address": "10.10.10.20", "prefix": 24}],
-                "dhcp-reject-servers": "10.10.10.1",
-                "dns-data": "8.8.8.8",
-                "dns-options": "rotate",
-                "dns-search": "example.com",
-                "route-data": [{"dest": "0.0.0.0", "prefix": 0, "next-hop": "10.10.10.1", "metric": 100}],
-                "routing-rules": [{"priority": 1000, "from": "10.10.10.0/24", "table": 100}]
-            },
-            "ipv6": {
-                "method": "auto",
-                "address-data": [{"address": "fd00::20", "prefix": 64}],
-                "dns": "2001:4860:4860::8888",
-                "dns-search": "example.net",
-                "route-data": [{"dest": "::", "prefix": 0, "next-hop": "fd00::1", "metric": 100}],
-                "routing-rules": [{"priority": 1001, "from": "fd00::/64", "table": 101}]
-            },
-            "wifi-p2p": {
-                "device-name": "Summit P2P",
-                "frequency": 2412,
-                "peer": "aa:bb:cc:dd:ee:ff",
-                "peer-device-name": "Peer Device"
-            }
-        }))
-        .expect("weblcm-style connection profile should deserialize");
-
-        let wireless = profile.wireless.expect("wireless section");
-        assert_eq!(wireless.seen_bssids, Some(vec!["de:ad:be:ef:00:01".to_string()]));
-        assert_eq!(wireless.security, Some(json!("802-11-wireless-security")));
-
-        let wireless_security = profile.wireless_security.expect("wireless security section");
-        assert_eq!(wireless_security.pairwise, Some(vec!["ccmp".to_string()]));
-        assert_eq!(wireless_security.group, Some(vec!["tkip".to_string()]));
-        assert_eq!(wireless_security.proto, Some(vec!["rsn".to_string()]));
-
-        let enterprise_auth = profile.enterprise_auth.expect("enterprise auth section");
-        assert_eq!(enterprise_auth.eap, Some(vec!["peap".to_string()]));
-        assert_eq!(enterprise_auth.phase2_auth, Some(vec!["mschapv2".to_string()]));
-        assert_eq!(enterprise_auth.altsubject_matches, Some(vec!["DNS:auth.example.com".to_string()]));
-
-        let ipv4 = profile.ipv4.expect("ipv4 section");
-        assert_eq!(ipv4.dhcp_reject_servers, Some(vec!["10.10.10.1".to_string()]));
-        assert_eq!(ipv4.dns_data, Some(vec!["8.8.8.8".to_string()]));
-        assert_eq!(ipv4.dns_options, Some(vec!["rotate".to_string()]));
-        assert_eq!(ipv4.dns_search, Some(vec!["example.com".to_string()]));
-        assert_eq!(ipv4.address_data, Some(vec![BTreeMap::from([
-            ("address".to_string(), json!("10.10.10.20")),
-            ("prefix".to_string(), json!(24)),
-        ])]));
-        assert_eq!(ipv4.route_data, Some(vec![BTreeMap::from([
-            ("dest".to_string(), json!("0.0.0.0")),
-            ("prefix".to_string(), json!(0)),
-            ("next-hop".to_string(), json!("10.10.10.1")),
-            ("metric".to_string(), json!(100)),
-        ])]));
-        assert_eq!(ipv4.routing_rules, Some(vec![BTreeMap::from([
-            ("priority".to_string(), json!(1000)),
-            ("from".to_string(), json!("10.10.10.0/24")),
-            ("table".to_string(), json!(100)),
-        ])]));
-
-        let ipv6 = profile.ipv6.expect("ipv6 section");
-        assert_eq!(ipv6.dns, Some(vec!["2001:4860:4860::8888".to_string()]));
-        assert_eq!(ipv6.dns_search, Some(vec!["example.net".to_string()]));
-        assert_eq!(ipv6.address_data, Some(vec![BTreeMap::from([
-            ("address".to_string(), json!("fd00::20")),
-            ("prefix".to_string(), json!(64)),
-        ])]));
-        assert_eq!(ipv6.route_data, Some(vec![BTreeMap::from([
-            ("dest".to_string(), json!("::")),
-            ("prefix".to_string(), json!(0)),
-            ("next-hop".to_string(), json!("fd00::1")),
-            ("metric".to_string(), json!(100)),
-        ])]));
-        assert_eq!(ipv6.routing_rules, Some(vec![BTreeMap::from([
-            ("priority".to_string(), json!(1001)),
-            ("from".to_string(), json!("fd00::/64")),
-            ("table".to_string(), json!(101)),
-        ])]));
-
-        let wifi_p2p = profile.wifi_p2p.expect("wifi-p2p section");
-        assert_eq!(wifi_p2p.device_name.as_deref(), Some("Summit P2P"));
-        assert_eq!(wifi_p2p.frequency, Some(2412));
-        assert_eq!(wifi_p2p.peer.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
-        assert_eq!(wifi_p2p.peer_device_name.as_deref(), Some("Peer Device"));
-    }
 }

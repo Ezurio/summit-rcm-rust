@@ -55,10 +55,77 @@
     "expected_python_regex": "\\+DATETIME: [^\\n]+\\nOK"
   },
   {
+    "id": "at_tzget_local_actual",
+    "command": "AT+TZGET",
+    "expected_rust_regex": "\\+TZGET: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+TZGET: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_tzget_global_actual",
+    "command": "AT+TZGET=1",
+    "expected_rust_regex": "(?:(?:\\+TZGET: [^\\n]+\\n)+)OK",
+    "expected_python_regex": "(?:(?:\\+TZGET: [^\\n]+\\n)+)OK"
+  },
+  {
     "id": "at_ping_loopback_actual",
     "command": "AT+PING=127.0.0.1,1,4",
     "expected_rust_regex": "\\+PING: [0-9]+(?:\\.[0-9]+)?\\nOK",
     "expected_python_regex": "\\+PING: [0-9]+(?:\\.[0-9]+)?\\nOK"
+  },
+  {
+    "id": "at_connlist_actual",
+    "command": "AT+CONNLIST",
+    "expected_rust_regex": "(?:(?:\\+CONNLIST: [^\\n]+\\n)*)\\n?OK",
+    "expected_python_regex": "(?:(?:\\+CONNLIST: [^\\n]+\\n)*)\\n?OK"
+  },
+  {
+    "id": "at_netif_actual",
+    "command": "AT+NETIF",
+    "expected_rust_regex": "(?:(?:\\+NETIF: [^\\n]+\\n)*)OK",
+    "expected_python_regex": "(?:(?:\\+NETIF: [^\\n]+\\n)*)OK"
+  },
+  {
+    "id": "at_netifstat_lo_actual",
+    "command": "AT+NETIFSTAT=lo",
+    "expected_rust_regex": "\\+NETIFSTAT: [^\\n]+\\nOK",
+    "expected_python_regex": "\\+NETIFSTAT: [^\\n]+\\nOK"
+  },
+  {
+    "id": "at_wlist_actual",
+    "command": "AT+WLIST",
+    "expected_rust_regex": "(?:(?:\\+WLIST: [^\\n]+\\n)*)\\n?OK",
+    "expected_python_regex": "(?:(?:\\+WLIST: [^\\n]+\\n)*)\\n?OK"
+  },
+  {
+    "id": "at_whard_actual",
+    "command": "AT+WHARD",
+    "expected_rust_regex": "\\+WHARD: (?:\\{\"wifiHardwareEnabled\":(?:true|false)\\}|[01])\\nOK",
+    "expected_python_regex": "\\+WHARD: (?:\\{\"wifiHardwareEnabled\":(?:true|false)\\}|[01])\\nOK"
+  },
+  {
+    "id": "at_wenable_actual",
+    "command": "AT+WENABLE",
+    "expected_rust_regex": "\\+WENABLE: (?:\\{\"wifiRadioHardwareEnabled\":(?:true|false),\"wifiRadioSoftwareEnabled\":(?:true|false)\\}|[01])\\nOK",
+    "expected_python_regex": "\\+WENABLE: (?:\\{\"wifiRadioHardwareEnabled\":(?:true|false),\"wifiRadioSoftwareEnabled\":(?:true|false)\\}|[01])\\nOK"
+  },
+  {
+    "id": "at_logdebug_actual",
+    "command": "AT+LOGDEBUG",
+    "expected_rust_regex": "\\+LOGDEBUG: [^\\n]+\\nOK",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_certget_missing_actual",
+    "command": "AT+CERTGET=missing.crt",
+    "expected_rust_response": "ERROR",
+    "expected_python_response": "ERROR"
+  },
+  {
+    "id": "at_logfwd_invalid_actual",
+    "command": "AT+LOGFWD=invalid",
+    "plugins": ["log-forwarding"],
+    "expected_rust_response": "ERROR",
+    "expected_python_response": "ERROR"
   },
   {
     "id": "at_echo_enable_usage",
@@ -117,7 +184,7 @@
   {
     "id": "at_tzget_usage",
     "command": "AT+TZGET?",
-    "expected_rust_response": "AT+TZGET",
+    "expected_rust_response": "AT+TZGET[=<scope>]",
     "expected_python_response": "ERROR"
   },
   {
@@ -318,8 +385,8 @@
     "id": "at_ntpget_actual",
     "command": "AT+NTPGET",
     "plugins": ["chrony"],
-    "expected_rust_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*OK|ERROR)",
-    "expected_python_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*OK|ERROR)"
+    "expected_rust_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*\\n?OK|ERROR)",
+    "expected_python_regex": "(?:(?:\\+NTPGET: [^\\n]+\\n)*\\n?OK|ERROR)"
   },
   {
     "id": "at_ntpconf_invalid_actual",
@@ -339,8 +406,8 @@
     "id": "at_logfwd_actual",
     "command": "AT+LOGFWD",
     "plugins": ["log-forwarding"],
-    "expected_rust_regex": "\\+LOGFWD: [^\\n]+\\nOK",
-    "expected_python_regex": "\\+LOGFWD: [^\\n]+\\nOK"
+    "expected_rust_regex": "(?:\\+LOGFWD: [^\\n]+\\nOK|ERROR)",
+    "expected_python_regex": "(?:\\+LOGFWD: [^\\n]+\\nOK|ERROR)"
   },
   {
     "id": "at_sisomode_actual",

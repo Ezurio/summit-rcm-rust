@@ -5,11 +5,11 @@
 
 //! Firmware update AT commands owned by the update plugin.
 
+use axum::body::Bytes;
 use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
 use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::at_files_service::AtFilesService;
 use crate::at_interface::fsm::FsmHandle;
-use crate::plugins::files::FilesService;
 use crate::plugins::update::FirmwareUpdateService;
 use log::error;
 
@@ -19,15 +19,12 @@ pub async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> 
         return CommandOutcome::Ok;
     }
 
-    let Some(url_raw) = params.raw_parameter(0) else {
-        return CommandOutcome::Error;
-    };
     let image_raw = params
         .iter_raw_parameters()
         .skip(1)
         .collect::<Vec<_>>()
         .join(",");
-    let url = url_raw.trim();
+    let url = params.trimmed(0);
     let image = image_raw.trim();
 
     match FirmwareUpdateService::start_update(url, image).await {
@@ -53,18 +50,20 @@ pub async fn execute_fw_update_send(_fsm: &FsmHandle, params: &CsvParams<'_>) ->
         return CommandOutcome::PendingInput;
     }
 
-    match FilesService::upload_fwupdate(&data).await {
-        Ok(_path) => CommandOutcome::Ok,
+    match FirmwareUpdateService::handle_update_stream(Bytes::from(data)).await
+        .and(FirmwareUpdateService::finish_update_stream().await)
+    {
+        Ok(_) => CommandOutcome::Ok,
         Err(error) => {
-            error!("FW update send error: {}", error);
+            error!("FW update send error: {:?}", error);
             CommandOutcome::Error
         }
     }
 }
 
 pub async fn execute_fw_update_status(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
-    let (status, msg) = FirmwareUpdateService::instance().lock().unwrap().get_update_status();
-    CommandOutcome::WithData(format!("+FWSTATUS: {},{}\r\nOK", status, msg))
+    let (status, msg) = FirmwareUpdateService::get_update_status();
+    CommandOutcome::WithData(format!("+FWSTATUS: {},{}", status, msg))
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[

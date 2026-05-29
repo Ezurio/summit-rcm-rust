@@ -101,15 +101,16 @@ async fn run_vsp_writer(
 }
 
 impl BluetoothService {
-    pub(super) async fn list_vsp_connections() -> Vec<serde_json::Value> {
+    pub(super) async fn list_vsp_connections(
+    ) -> Vec<crate::plugins::bluetooth::routes::common::BluetoothConnectionModel> {
         let guard = VSP_CONNECTIONS.lock().unwrap();
         guard
             .iter()
             .map(|(device, handle)| {
-                serde_json::json!({
-                    "device": device,
-                    "port": handle.state.port,
-                })
+                crate::plugins::bluetooth::routes::common::BluetoothConnectionModel {
+                    device: device.clone(),
+                    port: i32::from(handle.state.port),
+                }
             })
             .collect()
     }
@@ -396,16 +397,15 @@ pub(super) async fn handle_vsp_command(
     _device: Option<&str>,
     _body: &serde_json::Value,
     command: &str,
-) -> Option<anyhow::Result<serde_json::Value>> {
+) -> Option<anyhow::Result<BluetoothCommandOutcome>> {
     match command {
-        "gattList" => Some(Ok(legacy_value_with_fields(
-            ok_response(""),
-            [(
-                "GattConnections",
-                serde_json::to_value(BluetoothService::list_vsp_connections().await)
-                    .unwrap_or_default(),
-            )],
-        ))),
+        "gattList" => {
+            let mut response = BluetoothService::empty_control_response();
+            response.vsp = crate::plugins::bluetooth::routes::vsp::gatt_connections_response(
+                BluetoothService::list_vsp_connections().await,
+            );
+            Some(Ok(BluetoothCommandOutcome::success(response)))
+        }
         "gattConnect" => Some(handle_gatt_connect(_conn, _objects, _adapter_path, _device, _body).await),
         "gattDisconnect" => Some(handle_gatt_disconnect(_device).await),
         _ => None,
@@ -418,7 +418,7 @@ async fn handle_gatt_connect(
     adapter_path: &str,
     device: Option<&str>,
     body: &serde_json::Value,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<BluetoothCommandOutcome> {
     let dev_addr = device.ok_or_else(|| anyhow::anyhow!("device address not specified"))?;
     let vsp_svc_uuid = body
         .get("vspSvcUuid")
@@ -462,7 +462,7 @@ async fn handle_gatt_connect(
 
     if BluetoothService::active_vsp_state(dev_addr).await.is_some() {
         let current = BluetoothService::active_vsp_state(dev_addr).await.unwrap();
-        return Ok(legacy_fail_value(format!(
+        return Ok(BluetoothCommandOutcome::failure(format!(
             "device {} already has vsp connection on port {}",
             dev_addr, current.port
         )));
@@ -504,17 +504,17 @@ async fn handle_gatt_connect(
     )
     .await?;
 
-    Ok(legacy_ok_value())
+    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
 }
 
-async fn handle_gatt_disconnect(device: Option<&str>) -> anyhow::Result<serde_json::Value> {
+async fn handle_gatt_disconnect(device: Option<&str>) -> anyhow::Result<BluetoothCommandOutcome> {
     let dev_addr = device.ok_or_else(|| anyhow::anyhow!("device address not specified"))?;
     if !BluetoothService::stop_vsp_connection(dev_addr).await? {
-        return Ok(legacy_fail_value(format!(
+        return Ok(BluetoothCommandOutcome::failure(format!(
             "device {} has no vsp connection",
             dev_addr
         )));
     }
 
-    Ok(legacy_ok_value())
+    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
 }

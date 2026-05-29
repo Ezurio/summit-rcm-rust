@@ -10,6 +10,7 @@ use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
     utils::command_output_checked,
 };
+use crate::utils::path_exists;
 #[cfg(feature = "at-interface")]
 use crate::definition::{
     relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
@@ -27,11 +28,6 @@ pub const SUMMIT_RCM_DIR: &str = "/etc/summit-rcm/";
 pub const PERSISTENT_LOG_PATH: &str = "/var/log/journal/";
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const VOLATILE_LOG_PATH: &str = "/run/log/journal/";
-#[cfg(feature = "at-interface")]
-pub const SECURED_FWUPDATE_FILE_PATH: &str = "/data/summit-rcm-update.swu";
-#[cfg(feature = "at-interface")]
-pub const UNSECURED_FWUPDATE_FILE_PATH: &str = "/usr/share/summit-rcm-update.swu";
-
 pub struct FilesService;
 
 #[repr(u8)]
@@ -44,18 +40,8 @@ pub enum FileDeleteError {
 
 impl FilesService {
     // -------------------------------------------------------------------------
-    // Firmware update paths
+    // Config archive export / import (below) / file management
     // -------------------------------------------------------------------------
-
-    /// Return the path where an uploaded firmware (.swu) file should be stored.
-    #[cfg(feature = "at-interface")]
-    pub fn get_fwupdate_file_path() -> String {
-        if Path::new("/data").exists() {
-            SECURED_FWUPDATE_FILE_PATH.to_string()
-        } else {
-            UNSECURED_FWUPDATE_FILE_PATH.to_string()
-        }
-    }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_log_path() -> &'static str {
@@ -65,11 +51,7 @@ impl FilesService {
             false
         };
 
-        if !tokio::fs::try_exists(PERSISTENT_LOG_PATH)
-            .await
-            .unwrap_or(false)
-            || volatile_has_entries
-        {
+        if !path_exists(PERSISTENT_LOG_PATH).await || volatile_has_entries {
             VOLATILE_LOG_PATH
         } else {
             PERSISTENT_LOG_PATH
@@ -202,16 +184,6 @@ impl FilesService {
         tokio::fs::write(&dest, data)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to upload '{}': {}", safe_name, e))
-    }
-
-    /// Write a firmware update file to the appropriate path.
-    #[cfg(feature = "at-interface")]
-    pub async fn upload_fwupdate(data: &[u8]) -> Result<String> {
-        let path = Self::get_fwupdate_file_path();
-        tokio::fs::write(&path, data)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to write firmware file: {}", e))?;
-        Ok(path)
     }
 
     // -------------------------------------------------------------------------

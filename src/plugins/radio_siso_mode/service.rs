@@ -4,6 +4,7 @@
 //
 use anyhow::{bail, Context, Result};
 use crate::utils::command_status_ok;
+use crate::utils::read_sysfs;
 
 const SISO_MODE_PARAMETER_PATH: &str = "/sys/module/lrdmwl/parameters/SISO_mode";
 const LRDMWL_HOLDERS_PATH: &str = "/sys/module/lrdmwl/holders";
@@ -45,7 +46,11 @@ impl RadioSISOModeService {
             .context("Failed to read lrdmwl holders")?;
         match entries.next_entry().await {
             Ok(Some(entry)) => {
-                return Ok(entry.file_name().to_string_lossy().into_owned());
+                let file_name = entry.file_name();
+                return Ok(match file_name.into_string() {
+                    Ok(name) => name,
+                    Err(name) => name.to_string_lossy().into_owned(),
+                });
             }
             Ok(None) => {}
             Err(error) => {
@@ -56,7 +61,7 @@ impl RadioSISOModeService {
     }
 
     pub async fn get_current_siso_mode() -> Result<RadioSISOMode> {
-        let raw = tokio::fs::read_to_string(SISO_MODE_PARAMETER_PATH)
+        let raw = read_sysfs(SISO_MODE_PARAMETER_PATH)
             .await
             .context("Failed to read SISO_mode parameter")?;
         let val: i32 = raw.trim().parse().context("invalid SISO_mode value")?;
@@ -65,6 +70,14 @@ impl RadioSISOModeService {
 
     pub async fn set_siso_mode(mode: RadioSISOMode) -> Result<()> {
         let current = Self::get_current_siso_mode().await?;
+        Self::set_siso_mode_with_current(mode, current).await
+    }
+
+    pub(crate) async fn set_siso_mode_with_current(
+        mode: RadioSISOMode,
+        current: RadioSISOMode,
+    ) -> Result<()> {
+        // Hard stop before any disruptive module operations when mode is unchanged.
         if current == mode { return Ok(()); }
 
         let iface = Self::get_running_driver_interface().await?;
@@ -75,11 +88,21 @@ impl RadioSISOModeService {
         }
 
         // Reload lrdmwl
-        let mut args = vec!["lrdmwl".to_string()];
-        if mode != RadioSISOMode::SystemDefault {
-            args.push(format!("SISO_mode={}", i32::from(mode)));
-        }
-        if !command_status_ok(MODPROBE_PATH, &args).await? {
+        let reload_ok = match mode {
+            RadioSISOMode::SystemDefault => {
+                command_status_ok(MODPROBE_PATH, &["lrdmwl"]).await?
+            }
+            RadioSISOMode::Mimo => {
+                command_status_ok(MODPROBE_PATH, &["lrdmwl", "SISO_mode=0"]).await?
+            }
+            RadioSISOMode::Ant0 => {
+                command_status_ok(MODPROBE_PATH, &["lrdmwl", "SISO_mode=1"]).await?
+            }
+            RadioSISOMode::Ant1 => {
+                command_status_ok(MODPROBE_PATH, &["lrdmwl", "SISO_mode=2"]).await?
+            }
+        };
+        if !reload_ok {
             bail!("unable to reload lrdmwl driver module");
         }
 

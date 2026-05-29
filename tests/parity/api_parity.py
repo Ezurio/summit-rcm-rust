@@ -2002,6 +2002,102 @@ def resolve_wireless_interface_path(path: str, wireless_interface: str | None) -
     return urllib.parse.urlunsplit(("", "", resolved_path, resolved_query, split.fragment))
 
 
+def datetime_prime_request_for_path(path: str) -> tuple[str, dict[str, str]] | None:
+    normalized_path = urllib.parse.urlsplit(path).path
+    timestamp_microseconds = str(int(time.time() * 1_000_000))
+
+    if normalized_path == "/datetime":
+        return "/datetime", {"method": "manual", "datetime": timestamp_microseconds}
+    if normalized_path == "/api/v2/system/datetime":
+        return "/api/v2/system/datetime", {"datetime": timestamp_microseconds}
+    return None
+
+
+def maybe_prime_datetime_for_case(
+    case: dict[str, Any],
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_case_path: str,
+    python_case_path: str,
+    rust_cookie: str | None,
+    python_cookie: str | None,
+    ca_cert_path: Path | None,
+    timeout_seconds: float,
+    rust_connect_host: str | None = None,
+    python_connect_host: str | None = None,
+) -> str | None:
+    if str(case.get("method", "")).upper() != "GET":
+        return None
+
+    rust_prime = datetime_prime_request_for_path(rust_case_path)
+    python_prime = datetime_prime_request_for_path(python_case_path)
+    if rust_prime is None and python_prime is None:
+        return None
+    if rust_prime is None or python_prime is None:
+        return (
+            f"{case['id']}: datetime prime path mismatch, "
+            f"rust_path={rust_case_path!r}, python_path={python_case_path!r}"
+        )
+
+    rust_prime_path, rust_prime_body = rust_prime
+    python_prime_path, python_prime_body = python_prime
+
+    rust_response, rust_error = request_or_error(
+        f"{rust_base_url}{rust_prime_path}",
+        "PUT",
+        body=rust_prime_body,
+        cookie=rust_cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=rust_connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    python_response, python_error = request_or_error(
+        f"{python_base_url}{python_prime_path}",
+        "PUT",
+        body=python_prime_body,
+        cookie=python_cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=python_connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+
+    if rust_error or python_error:
+        return (
+            f"{case['id']}: datetime prime failed, "
+            f"rust={rust_error or 'ok'}, python={python_error or 'ok'}"
+        )
+    if rust_response is None or python_response is None:
+        return f"{case['id']}: datetime prime failed: missing response"
+
+    if rust_response.status != 200 or python_response.status != 200:
+        return (
+            f"{case['id']}: datetime prime status mismatch, "
+            f"rust={rust_response.status}, python={python_response.status}"
+        )
+
+    if rust_prime_path == "/datetime":
+        try:
+            rust_payload = json.loads(rust_response.body)
+            python_payload = json.loads(python_response.body)
+        except json.JSONDecodeError as error:
+            return f"{case['id']}: datetime prime parse error: {error}"
+
+        rust_sdcerr = rust_payload.get("SDCERR") if isinstance(rust_payload, dict) else None
+        python_sdcerr = python_payload.get("SDCERR") if isinstance(python_payload, dict) else None
+        if rust_sdcerr not in {0, "0"} or python_sdcerr not in {0, "0"}:
+            return (
+                f"{case['id']}: datetime prime failed, "
+                f"rust_SDCERR={rust_sdcerr!r}, python_SDCERR={python_sdcerr!r}, "
+                f"rust_body={body_preview(rust_response.body)!r}, "
+                f"python_body={body_preview(python_response.body)!r}"
+            )
+
+    return None
+
+
 def detect_wireless_interface(
     base_url: str,
     *,
@@ -2104,14 +2200,15 @@ def compare_responses(
             sessions_on=sessions_on,
             enabled_plugins=enabled_plugins,
         )
-        compare_runtime_docs_ui(
-            run_repo,
-            python_runtime=run_runtime,
-            startup_timeout_seconds=startup_timeout_seconds,
-            request_timeout_seconds=request_timeout_seconds,
-            sessions_on=sessions_on,
-            enabled_plugins=enabled_plugins,
-        )
+        if cases_path.resolve() == DEFAULT_CASES.resolve():
+            compare_runtime_docs_ui(
+                run_repo,
+                python_runtime=run_runtime,
+                startup_timeout_seconds=startup_timeout_seconds,
+                request_timeout_seconds=request_timeout_seconds,
+                sessions_on=sessions_on,
+                enabled_plugins=enabled_plugins,
+            )
 
     if python_runtime != "weblcm":
         run_provisioning_tls_parity(
@@ -2274,6 +2371,21 @@ def run_response_cases(
                 readback_case = None
                 rust_readback_before: HttpResponse | None = None
                 python_readback_before: HttpResponse | None = None
+
+                datetime_prime_error = maybe_prime_datetime_for_case(
+                    case,
+                    rust_base_url=rust_base_url,
+                    python_base_url=python_base_url,
+                    rust_case_path=rust_case_path,
+                    python_case_path=python_case_path,
+                    rust_cookie=rust_cookies.get(cookie_key) if cookie_key else None,
+                    python_cookie=python_cookies.get(cookie_key) if cookie_key else None,
+                    ca_cert_path=cert_path,
+                    timeout_seconds=case_timeout_seconds,
+                )
+                if datetime_prime_error is not None:
+                    failures.append(datetime_prime_error)
+                    continue
 
                 if should_verify_readback(case):
                     readback_case = find_readback_case(case, cases)

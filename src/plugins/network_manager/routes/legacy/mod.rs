@@ -5,6 +5,7 @@
 pub mod certificates;
 pub mod network;
 pub mod network_status;
+pub mod types;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]

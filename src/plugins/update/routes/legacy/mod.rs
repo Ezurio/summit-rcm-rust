@@ -59,9 +59,7 @@ pub struct LegacySwupdateRequest {
     responses(GetSwupdateLegacyResponses)
 ))]
 pub async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
-    let svc = FirmwareUpdateService::instance().lock().unwrap();
-    let (code, msg) = svc.get_update_status();
-    drop(svc);
+    let (code, msg) = FirmwareUpdateService::get_update_status();
     LegacyOperationResponse {
         sdcerr: code,
         info_msg: msg,
@@ -77,7 +75,7 @@ pub async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
     responses(PostSwupdateLegacyResponses)
 ))]
 pub async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> PostSwupdateLegacyResponses {
-    if FirmwareUpdateService::instance().lock().unwrap().update_in_progress {
+    if FirmwareUpdateService::is_update_in_progress() {
         return legacy_operation_response(
             SdcerrCode::Fail.as_i32(),
             "Device is busy updating.",

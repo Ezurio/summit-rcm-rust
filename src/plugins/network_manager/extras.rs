@@ -11,6 +11,7 @@ use anyhow::Result;
 use crate::definition::{
     relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
 };
+use crate::utils::{path_exists, read_text};
 use serde_json::{json, Value};
 
 use super::service::{InterfaceError, NetworkService};
@@ -30,13 +31,10 @@ impl NetworkService {
             return Err(InterfaceError::InvalidName);
         }
         let lease_path = format!("/var/lib/NetworkManager/dnsmasq-{}.leases", name);
-        if !tokio::fs::try_exists(&lease_path)
-            .await
-            .map_err(|_| InterfaceError::Internal)?
-        {
+        if !path_exists(&lease_path).await {
             return Err(InterfaceError::InvalidName);
         }
-        let content = tokio::fs::read_to_string(&lease_path)
+        let content = read_text(&lease_path)
             .await
             .map_err(|_| InterfaceError::Internal)?;
         let lease_count = content.lines().count();

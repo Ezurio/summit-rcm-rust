@@ -8,6 +8,7 @@
 use anyhow::{Result, anyhow};
 use super::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
 use crate::dbus;
+use crate::utils::{path_exists, path_exists_sync, read_sysfs};
 use crate::plugins::network::types::{
     AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
 };
@@ -15,7 +16,6 @@ use crate::plugins::network::types::{
 use std::collections::BTreeMap;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::HashMap;
-use std::path::Path;
 use zbus::zvariant::{OwnedObjectPath, Value as DbusValue};
 
 pub struct NetworkService;
@@ -47,7 +47,7 @@ fn parse_country_codes(info: &str) -> Option<InterfaceDriverInfo> {
 }
 
 pub(crate) fn wifi_driver_debug_param() -> &'static str {
-    if Path::new("/sys/module/lrdmwl/parameters/lrd_debug").exists() {
+    if path_exists_sync("/sys/module/lrdmwl/parameters/lrd_debug") {
         "/sys/module/lrdmwl/parameters/lrd_debug"
     } else {
         "/sys/module/ath6kl_core/parameters/debug_mask"
@@ -105,9 +105,7 @@ impl NetworkService {
             return false;
         }
 
-        tokio::fs::try_exists(format!("/sys/class/net/{name}"))
-            .await
-            .unwrap_or(false)
+        path_exists(format!("/sys/class/net/{name}")).await
     }
 
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
@@ -172,7 +170,7 @@ impl NetworkService {
 
     pub async fn get_wifi_driver_debug_level() -> Result<u8> {
         let path = wifi_driver_debug_param();
-        let value = tokio::fs::read_to_string(path).await?;
+        let value = read_sysfs(path).await?;
         let parsed = value.trim().parse::<u8>()?;
         Ok(if parsed == 0 { 0 } else { 1 })
     }
@@ -191,7 +189,7 @@ impl NetworkService {
 
     async fn read_interface_stat(base: &str, file_name: &str) -> i64 {
         let path = format!("{}/{}", base, file_name);
-        tokio::fs::read_to_string(&path)
+        read_sysfs(&path)
             .await
             .ok()
             .and_then(|content| content.trim().parse().ok())
@@ -201,16 +199,38 @@ impl NetworkService {
     pub async fn get_interface_statistics(name: &str) -> Result<InterfaceStats> {
         let base = format!("/sys/class/net/{}/statistics", name);
 
+        let (
+            rx_bytes,
+            rx_packets,
+            rx_errors,
+            rx_dropped,
+            multicast,
+            tx_bytes,
+            tx_packets,
+            tx_errors,
+            tx_dropped,
+        ) = tokio::join!(
+            Self::read_interface_stat(&base, "rx_bytes"),
+            Self::read_interface_stat(&base, "rx_packets"),
+            Self::read_interface_stat(&base, "rx_errors"),
+            Self::read_interface_stat(&base, "rx_dropped"),
+            Self::read_interface_stat(&base, "multicast"),
+            Self::read_interface_stat(&base, "tx_bytes"),
+            Self::read_interface_stat(&base, "tx_packets"),
+            Self::read_interface_stat(&base, "tx_errors"),
+            Self::read_interface_stat(&base, "tx_dropped"),
+        );
+
         Ok(InterfaceStats {
-            rx_bytes: Self::read_interface_stat(&base, "rx_bytes").await,
-            rx_packets: Self::read_interface_stat(&base, "rx_packets").await,
-            rx_errors: Self::read_interface_stat(&base, "rx_errors").await,
-            rx_dropped: Self::read_interface_stat(&base, "rx_dropped").await,
-            multicast: Self::read_interface_stat(&base, "multicast").await,
-            tx_bytes: Self::read_interface_stat(&base, "tx_bytes").await,
-            tx_packets: Self::read_interface_stat(&base, "tx_packets").await,
-            tx_errors: Self::read_interface_stat(&base, "tx_errors").await,
-            tx_dropped: Self::read_interface_stat(&base, "tx_dropped").await,
+            rx_bytes,
+            rx_packets,
+            rx_errors,
+            rx_dropped,
+            multicast,
+            tx_bytes,
+            tx_packets,
+            tx_errors,
+            tx_dropped,
         })
     }
 
@@ -222,8 +242,8 @@ impl NetworkService {
         }
 
         let info_file = format!("/sys/class/net/{}/phy80211/device/lrd/info", name);
-        if tokio::fs::try_exists(&info_file).await.unwrap_or(false) {
-            let info = tokio::fs::read_to_string(&info_file)
+        if path_exists(&info_file).await {
+            let info = read_sysfs(&info_file)
                 .await
                 .map_err(|_| RawNetworkError::Internal)?;
             if let Some(driver_info) = parse_country_codes(&info) {
@@ -233,8 +253,8 @@ impl NetworkService {
         }
 
         let cc_file = format!("/sys/class/net/{}/phy80211/device/lrd/cc", name);
-        if tokio::fs::try_exists(&cc_file).await.unwrap_or(false) {
-            let code = tokio::fs::read_to_string(&cc_file)
+        if path_exists(&cc_file).await {
+            let code = read_sysfs(&cc_file)
                 .await
                 .map_err(|_| RawNetworkError::Internal)?
                 .trim()

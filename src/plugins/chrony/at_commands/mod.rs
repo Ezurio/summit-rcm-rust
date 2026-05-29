@@ -28,7 +28,11 @@ pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
 }
 
 pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let scope = params.trimmed(0);
+    let scope = match params.parameter_count() {
+        0 => "-1",
+        1 => params.trimmed(0),
+        _ => return CommandOutcome::Error,
+    };
     let mut out = String::new();
 
     match scope {
@@ -66,12 +70,11 @@ pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
         _ => return CommandOutcome::Error,
     }
 
-    out.push_str("OK");
     CommandOutcome::WithData(out)
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::at_interface::commands::command_spec!("at+ntpconf", "AT+NTPCONF=<command>,<source1>[,<source2>...]", 2, &[0], execute_ntp_conf),
-    crate::at_interface::commands::command_spec!("at+ntpget", "AT+NTPGET[=<scope>]", 1, &[], execute_ntp_get),
+    crate::at_interface::commands::command_spec!("at+ntpget", "AT+NTPGET[=<scope>]", 0, &[], execute_ntp_get),
 ];
 

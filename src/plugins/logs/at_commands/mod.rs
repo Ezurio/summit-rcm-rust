@@ -18,7 +18,7 @@ pub async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
 
     match crate::plugins::logs::LogsService::get_journal_log_data(log_type, priority, days).await {
         Ok(v) => match serde_json::to_string(&v) {
-            Ok(payload) => CommandOutcome::WithData(format!("+LOGGET: {}\r\nOK", payload)),
+            Ok(payload) => CommandOutcome::WithData(format!("+LOGGET: {}", payload)),
             Err(error) => {
                 error!("Log get serialization error: {}", error);
                 CommandOutcome::Error
@@ -44,39 +44,43 @@ fn supplicant_level_str(level: SupplicantLogLevel) -> &'static str {
 }
 
 pub async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    if params.trimmed(0).is_empty() {
-        let sup = crate::plugins::logs::LogsService::get_supplicant_debug_level().await;
-        let wifi = crate::plugins::logs::LogsService::get_wifi_driver_debug_level().await;
-        let web = crate::plugins::logs::LogsService::get_webserver_log_level();
-        let wifi_val = match wifi {
-            DriverLogLevel::Disabled => 0,
-            DriverLogLevel::Enabled => 1,
-        };
-        return CommandOutcome::WithData(format!("+LOGDEBUG: {},{},{}\r\nOK", supplicant_level_str(sup), wifi_val, web));
+    match params.parameter_count() {
+        0 => {
+            let sup = crate::plugins::logs::LogsService::get_supplicant_debug_level().await;
+            let wifi = crate::plugins::logs::LogsService::get_wifi_driver_debug_level().await;
+            let web = crate::plugins::logs::LogsService::get_webserver_log_level();
+            let wifi_val = match wifi {
+                DriverLogLevel::Disabled => 0,
+                DriverLogLevel::Enabled => 1,
+            };
+            CommandOutcome::WithData(format!("+LOGDEBUG: {},{},{}", supplicant_level_str(sup), wifi_val, web))
+        }
+        3 => {
+            let sup_level = match SupplicantLogLevel::from_str(params.trimmed(0)) {
+                Ok(v) => v,
+                Err(_) => return CommandOutcome::Error,
+            };
+            let wifi_level = match params.parse_value::<i32>(1) {
+                Some(0) => DriverLogLevel::Disabled,
+                Some(_) => DriverLogLevel::Enabled,
+                None => return CommandOutcome::Error,
+            };
+            let web_level = params.trimmed(2);
+
+            if let Err(e) = crate::plugins::logs::LogsService::set_supplicant_debug_level(sup_level).await {
+                error!("Set supplicant log level error: {}", e);
+                return CommandOutcome::Error;
+            }
+            crate::plugins::logs::LogsService::set_wifi_driver_debug_level(wifi_level).await;
+            crate::plugins::logs::LogsService::set_webserver_log_level(web_level);
+
+            CommandOutcome::Ok
+        }
+        _ => CommandOutcome::Error,
     }
-
-    let sup_level = match SupplicantLogLevel::from_str(params.trimmed(0)) {
-        Ok(v) => v,
-        Err(_) => return CommandOutcome::Error,
-    };
-    let wifi_level = match params.parse_value::<i32>(1) {
-        Some(0) => DriverLogLevel::Disabled,
-        Some(_) => DriverLogLevel::Enabled,
-        None => return CommandOutcome::Error,
-    };
-    let web_level = params.trimmed(2);
-
-    if let Err(e) = crate::plugins::logs::LogsService::set_supplicant_debug_level(sup_level).await {
-        error!("Set supplicant log level error: {}", e);
-        return CommandOutcome::Error;
-    }
-    crate::plugins::logs::LogsService::set_wifi_driver_debug_level(wifi_level).await;
-    crate::plugins::logs::LogsService::set_webserver_log_level(web_level);
-
-    CommandOutcome::Ok
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::at_interface::commands::command_spec!("at+logget", "AT+LOGGET=<type>,<priority>,<days>", 3, &[], execute_log_get),
-    crate::at_interface::commands::command_spec!("at+logdebug", "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]", 3, &[], execute_log_debug_level),
+    crate::at_interface::commands::command_spec!("at+logdebug", "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]", 0, &[], execute_log_debug_level),
 ];

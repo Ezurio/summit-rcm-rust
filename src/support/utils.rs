@@ -6,7 +6,6 @@
 
 use anyhow::{anyhow, bail, Result};
 use openssl::x509::X509VerifyResult;
-use serde::{de::DeserializeOwned, Serialize};
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
@@ -15,14 +14,6 @@ use std::process::Output;
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use std::time::Duration;
 use tokio::process::Command;
-
-pub fn parse_model<T, U>(value: U) -> Result<T, serde_json::Error>
-where
-    T: DeserializeOwned,
-    U: Serialize,
-{
-    serde_json::from_value(serde_json::to_value(value)?)
-}
 
 /// Return the current CLOCK_BOOTTIME timestamp.
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
@@ -97,18 +88,21 @@ where
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+fn command_failure_message(output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 pub async fn command_output_checked<S>(program: &str, args: &[S]) -> Result<Output>
 where
     S: AsRef<OsStr>,
 {
     let output = command_output(program, args).await?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let message = if stderr.is_empty() {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        } else {
-            stderr
-        };
+        let message = command_failure_message(&output);
         bail!(
             "{} failed: {}",
             program,
@@ -125,12 +119,7 @@ where
 {
     let output = command_output_in_dir(program, args, cwd).await?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let message = if stderr.is_empty() {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        } else {
-            stderr
-        };
+        let message = command_failure_message(&output);
         bail!(
             "{} failed: {}",
             program,
@@ -145,6 +134,26 @@ where
     S: AsRef<OsStr>,
 {
     Ok(command_output(program, args).await?.status.success())
+}
+
+pub async fn read_text(path: impl AsRef<Path>) -> Result<String> {
+    Ok(tokio::fs::read_to_string(path.as_ref()).await?)
+}
+
+pub fn read_text_sync(path: impl AsRef<Path>) -> Result<String> {
+    Ok(std::fs::read_to_string(path.as_ref())?)
+}
+
+pub async fn read_sysfs(path: impl AsRef<Path>) -> Result<String> {
+    read_text(path).await
+}
+
+pub async fn path_exists(path: impl AsRef<Path>) -> bool {
+    tokio::fs::try_exists(path.as_ref()).await.unwrap_or(false)
+}
+
+pub fn path_exists_sync(path: impl AsRef<Path>) -> bool {
+    path.as_ref().exists()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

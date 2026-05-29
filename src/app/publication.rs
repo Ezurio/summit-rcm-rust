@@ -22,7 +22,5 @@ mod macros;
 pub use self::core::*;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub use self::http::*;
-#[cfg(feature = "at-interface")]
-pub use self::at::*;
 #[cfg(feature = "api-docs")]
 pub use self::docs::*;

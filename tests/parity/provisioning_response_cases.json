@@ -1,0 +1,72 @@
+[
+  {
+    "id": "v2_certificate_provisioning",
+    "method": "GET",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "legacy_certificate_provisioning",
+    "method": "GET",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "compare": "json_exact"
+  },
+  {
+    "id": "v2_certificate_provisioning_post_invalid_upload",
+    "method": "POST",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "v2_certificate_provisioning_put_invalid_upload",
+    "method": "PUT",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_certificate_provisioning_post_invalid_upload",
+    "method": "POST",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "ignore_content_type": true,
+    "ignore_body": true,
+    "compare": "exact",
+    "expected_status": 400
+  },
+  {
+    "id": "legacy_certificate_provisioning_put_invalid_upload",
+    "method": "PUT",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "body": {"dummy": true},
+    "compare": "exact",
+    "expected_status": 200
+  },
+  {
+    "id": "v2_provisioning_get_state",
+    "method": "GET",
+    "path": "/api/v2/system/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Provisioning: Response should include provisioning state (0/1/2), client cert hash, CA validity"
+  },
+  {
+    "id": "legacy_provisioning_get_state",
+    "method": "GET",
+    "path": "/certificateProvisioning",
+    "plugins": ["provisioning"],
+    "expected_status": 200,
+    "compare": "json_exact",
+    "description": "Provisioning: Legacy endpoint response logic should include SDCERR, provisioning state, cert hashes"
+  }
+]

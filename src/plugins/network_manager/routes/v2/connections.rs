@@ -82,7 +82,7 @@ crate::define_json_response_family! {
 ))]
 pub async fn list_connections() -> ListConnectionsResponses {
     match NetworkService::get_connections().await {
-        Ok(value) => match parse_route_model::<Vec<ConnectionSummary>, _>(value) {
+        Ok(value) => match parse_route_model::<Vec<ConnectionSummary>>(value) {
             Ok(value) => value.into(),
             Err(error) => {
                 log::error!("list_connections invalid shape: {}", error);

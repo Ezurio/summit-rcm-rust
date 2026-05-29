@@ -14,7 +14,7 @@ pub use self::login_service::LoginService;
 pub use self::user_service::UserService;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			public "/api/v2/login" => {
 				POST => routes::v2::login::login,
@@ -43,14 +43,6 @@ crate::declare_plugin_api! {
 			protected "/users/{username}" => {
 				DELETE => routes::legacy::delete_user_legacy
 			},
-		],
-	},
-	openapi {
-		v2 => [
-	<routes::v2::ApiDoc as utoipa::OpenApi>::openapi,
-		],
-		legacy => [
-	<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi,
 		],
 	},
 }

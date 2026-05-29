@@ -13,8 +13,10 @@ pub mod params;
 pub use params::CsvParams;
 
 use crate::at_interface::fsm::FsmHandle;
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::LazyLock;
 
 pub type CommandExecFuture<'a> = Pin<Box<dyn Future<Output = CommandOutcome> + Send + 'a>>;
 pub type CommandExecutor = for<'a> fn(&'a FsmHandle, &'a params::CsvParams<'a>) -> CommandExecFuture<'a>;
@@ -23,6 +25,7 @@ pub enum CommandOutcome {
     Ok,
     Error,
     WithData(String),
+    WithDataError(String),
     PendingInput,
 }
 
@@ -58,41 +61,33 @@ macro_rules! command_spec {
 
 pub(crate) use command_spec;
 
-pub struct CommandRegistry;
-
-static CORE_COMMANDS: &[&[PublishedCommand]] = &[
+pub(crate) static CORE_COMMANDS: &[&[PublishedCommand]] = &[
     basic::COMMANDS,
     cip::COMMANDS,
     http::COMMANDS,
 ];
 
-pub fn build_command_registry() -> CommandRegistry {
-    CommandRegistry
-}
+static COMMAND_REGISTRY: LazyLock<HashMap<&'static str, &'static CommandHandler>> = LazyLock::new(|| {
+    let mut by_signature = HashMap::new();
 
-fn find_published_command(signature: &str) -> Option<&'static CommandHandler> {
     for published in CORE_COMMANDS {
         for (candidate, command) in *published {
-            if *candidate == signature {
-                return Some(*command);
-            }
+            by_signature.entry(*candidate).or_insert(*command);
         }
     }
 
-    for publication in crate::publication::builtin_at_publications_slice() {
+    for publication in crate::publication::builtin_plugin_publications() {
         let Some(at_commands) = publication.at_commands.as_ref() else {
             continue;
         };
 
         for (candidate, command) in at_commands.install {
-            if *candidate == signature {
-                return Some(*command);
-            }
+            by_signature.entry(*candidate).or_insert(*command);
         }
     }
 
-    None
-}
+    by_signature
+});
 
 pub fn parse_command_params<'a>(
     cmd: &CommandHandler,
@@ -113,12 +108,11 @@ pub fn parse_command_params<'a>(
     }
 }
 
-pub fn lookup_command_in_registry<'registry, 'input>(
-    _registry: &'registry CommandRegistry,
-    input: &'input str,
-) -> Option<(&'registry CommandHandler, &'input str, bool)> {
+pub fn lookup_command_in_registry(
+    input: &str,
+) -> Option<(&'static CommandHandler, &str, bool)> {
     if input.is_empty() {
-        let cmd = find_published_command("")?;
+        let cmd = *COMMAND_REGISTRY.get("")?;
         return Some((cmd, "", false));
     }
 
@@ -136,12 +130,12 @@ pub fn lookup_command_in_registry<'registry, 'input>(
     if let Some(eq_pos) = stripped.find('=') {
         let sig = stripped[..eq_pos].to_lowercase();
         let params = &stripped[eq_pos + 1..];
-        if let Some(cmd) = find_published_command(sig.as_str()) {
+        if let Some(cmd) = COMMAND_REGISTRY.get(sig.as_str()) {
             return Some((cmd, params, print_usage));
         }
     } else {
         let sig = stripped.to_lowercase();
-        if let Some(cmd) = find_published_command(sig.as_str()) {
+        if let Some(cmd) = COMMAND_REGISTRY.get(sig.as_str()) {
             return Some((cmd, "", print_usage));
         }
     }

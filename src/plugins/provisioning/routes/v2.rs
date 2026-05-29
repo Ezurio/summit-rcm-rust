@@ -3,11 +3,17 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::plugins::provisioning::{CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH, DEVICE_SERVER_CSR_PATH};
+use crate::plugins::provisioning::routes::shared::{
+    create_csr_from_upload, save_uploaded_certificate, ProvisioningRouteError,
+};
 use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ProvisioningSaveError, ProvisioningState,
 };
-use axum::{extract::multipart::MultipartRejection, extract::Multipart};
+use crate::plugins::provisioning::state_machine::{Event, ProvisioningStateMachine};
+use axum::{
+    extract::multipart::MultipartRejection,
+    extract::Multipart,
+};
 use log::error;
 
 #[cfg(feature = "api-docs")]
@@ -66,58 +72,13 @@ pub async fn get_provisioning() -> GetProvisioningResponses {
 pub async fn post_provisioning(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ProvisioningTextResponses {
-    let Ok(mut multipart) = multipart else {
-        return ProvisioningTextResponses::BadRequest;
-    };
-
-    if CertificateProvisioningService::get_provisioning_state_async().await
-        != ProvisioningState::Unprovisioned
-    {
-        return ProvisioningTextResponses::BadRequest;
-    }
-
-    let mut config_file_found = false;
-    let mut openssl_key_gen_args = String::new();
-
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let name = field.name().unwrap_or("").to_string();
-        match name.as_str() {
-            "configFile" => {
-                let fname = field.file_name().unwrap_or("").to_string();
-                if !fname.ends_with(".cnf") {
-                    return ProvisioningTextResponses::BadRequest;
-                }
-                let data = field.bytes().await.unwrap_or_default();
-                if tokio::fs::write(CONFIG_FILE_TEMP_PATH, data).await.is_err() {
-                    return ProvisioningTextResponses::InternalError;
-                }
-                config_file_found = true;
-            }
-            "opensslKeyGenArgs" => {
-                openssl_key_gen_args = field.text().await.unwrap_or_default();
-            }
-            _ => {}
-        }
-    }
-
-    if !config_file_found {
-        return ProvisioningTextResponses::BadRequest;
-    }
-
-    let key_gen_args = if openssl_key_gen_args.is_empty() { None } else { Some(openssl_key_gen_args.as_str()) };
-    match CertificateProvisioningService::generate_key_and_csr(key_gen_args).await {
-        Ok(_) => {
-            let _ = tokio::fs::remove_file(CONFIG_FILE_TEMP_PATH).await;
-            match tokio::fs::read(DEVICE_SERVER_CSR_PATH).await {
-                Ok(data) => String::from_utf8_lossy(&data).into_owned().into(),
-                Err(_) => ProvisioningTextResponses::InternalError,
-            }
-        }
-        Err(e) => {
-            error!("Couldn't generate key and CSR: {}", e);
-            let _ = tokio::fs::remove_file(CONFIG_FILE_TEMP_PATH).await;
-            ProvisioningTextResponses::InternalError
-        }
+    match create_csr_from_upload(multipart).await {
+        Ok(csr) => csr.into(),
+        Err(ProvisioningRouteError::BadRequest)
+        | Err(ProvisioningRouteError::AlreadyProvisioned)
+        | Err(ProvisioningRouteError::MissingFilename)
+        | Err(ProvisioningRouteError::InvalidCertificate) => ProvisioningTextResponses::BadRequest,
+        Err(ProvisioningRouteError::InternalError) => ProvisioningTextResponses::InternalError,
     }
 }
 
@@ -134,49 +95,13 @@ pub async fn post_provisioning(
 pub async fn put_provisioning(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> PutProvisioningResponses {
-    let Ok(mut multipart) = multipart else {
-        return PutProvisioningResponses::BadRequest;
-    };
-
-    if CertificateProvisioningService::get_provisioning_state_async().await
-        != ProvisioningState::Unprovisioned
-    {
-        return PutProvisioningResponses::BadRequest;
-    }
-
-    let mut cert_file_found = false;
-
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let name = field.name().unwrap_or("").to_string();
-        if name == "certificate" {
-            let fname = field.file_name().unwrap_or("").to_string();
-            if !fname.ends_with(".crt") && !fname.ends_with(".pem") {
-                return PutProvisioningResponses::BadRequest;
-            }
-            let data = field.bytes().await.unwrap_or_default();
-            if tokio::fs::write(CERT_TEMP_PATH, data).await.is_err() {
-                return PutProvisioningResponses::InternalError;
-            }
-            cert_file_found = true;
-        }
-    }
-
-    if !cert_file_found {
-        return PutProvisioningResponses::BadRequest;
-    }
-
-    match CertificateProvisioningService::save_certificate_file().await {
-        Ok(_) => {
-            tokio::spawn(async { CertificateProvisioningService::restart_summit_rcm().await });
-            PutProvisioningResponses::Ok
-        }
-        Err(ProvisioningSaveError::InvalidCertificate) => {
-            PutProvisioningResponses::BadRequest
-        }
-        Err(error) => {
-            error!("Couldn't upload certificate file: {:?}", error);
-            PutProvisioningResponses::InternalError
-        }
+    match save_uploaded_certificate(multipart).await {
+        Ok(()) => PutProvisioningResponses::Ok,
+        Err(ProvisioningRouteError::BadRequest)
+        | Err(ProvisioningRouteError::AlreadyProvisioned)
+        | Err(ProvisioningRouteError::MissingFilename)
+        | Err(ProvisioningRouteError::InvalidCertificate) => PutProvisioningResponses::BadRequest,
+        Err(ProvisioningRouteError::InternalError) => PutProvisioningResponses::InternalError,
     }
 }
 
@@ -221,10 +146,13 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
     }
 
     match CertificateProvisioningService::save_paired_client_cert(TEMP_PATH).await {
-        Ok(_) => {
-            tokio::spawn(async { CertificateProvisioningService::restart_summit_rcm().await });
-            PutClientBundleResponses::Ok
-        }
+        Ok(_) => match ProvisioningStateMachine::handle(Event::ClientBundleUploaded).await {
+            Ok(_) => PutClientBundleResponses::Ok,
+            Err(error) => {
+                error!("Couldn't process client bundle upload: {:?}", error);
+                PutClientBundleResponses::InternalError
+            }
+        },
         Err(ProvisioningSaveError::InvalidCertificate) => {
             let _ = tokio::fs::remove_file(TEMP_PATH).await;
             PutClientBundleResponses::BadRequest

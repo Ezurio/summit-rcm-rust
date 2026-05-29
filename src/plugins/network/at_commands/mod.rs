@@ -17,7 +17,7 @@ pub async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &Csv
 
     match NetworkService::get_interface_stats(name).await {
         Ok(value) => match to_string(&value) {
-            Ok(value) => CommandOutcome::WithData(format!("+NETIFSTAT: {}\r\nOK", value)),
+            Ok(value) => CommandOutcome::WithData(format!("+NETIFSTAT: {}", value)),
             Err(error) => {
                 error!("Network interface stats serialization error: {}", error);
                 CommandOutcome::Error
@@ -35,7 +35,7 @@ pub async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &Cs
 
     match NetworkService::get_interface_driver_info(name).await {
         Ok(value) => match to_string(&value) {
-            Ok(value) => CommandOutcome::WithData(format!("+NETIFDRVINF: {}\r\nOK", value)),
+            Ok(value) => CommandOutcome::WithData(format!("+NETIFDRVINF: {}", value)),
             Err(error) => {
                 error!("Network interface driver info serialization error: {}", error);
                 CommandOutcome::Error

@@ -86,29 +86,48 @@ pub async fn execute_empty(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> Command
 }
 
 pub async fn execute_ping(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let target = params.trimmed(0);
-    let timeout_secs = if params.trimmed(1).is_empty() {
-        DEFAULT_TIMEOUT_SECS
-    } else {
-        match params.parse_value::<u64>(1) {
-            Some(timeout_secs) => timeout_secs,
-            None => return CommandOutcome::Error,
-        }
-    };
-    let protocol = match PingProtocol::from_param(params.trimmed(2)) {
-        Ok(protocol) => protocol,
-        Err(error) => {
-            error!("Ping parameter error: {error}");
-            return CommandOutcome::Error;
-        }
-    };
+    match params.parameter_count() {
+        1..=3 => {
+            let target = params.trimmed(0);
+            if target.is_empty() {
+                return CommandOutcome::Error;
+            }
 
-    match ping_target(target, timeout_secs, protocol).await {
-        Ok(duration) => CommandOutcome::WithData(format!("+PING: {}\r\nOK", format_ping_millis(duration))),
-        Err(error) => {
-            error!("Ping error: {error}");
-            CommandOutcome::Error
+            let timeout_param = if params.parameter_count() >= 2 {
+                params.trimmed(1)
+            } else {
+                ""
+            };
+            let timeout_secs = if timeout_param.is_empty() {
+                DEFAULT_TIMEOUT_SECS
+            } else {
+                match timeout_param.parse::<u64>() {
+                    Ok(timeout_secs) => timeout_secs,
+                    Err(_) => return CommandOutcome::Error,
+                }
+            };
+            let protocol_param = if params.parameter_count() >= 3 {
+                params.trimmed(2)
+            } else {
+                ""
+            };
+            let protocol = match PingProtocol::from_param(protocol_param) {
+                Ok(protocol) => protocol,
+                Err(error) => {
+                    error!("Ping parameter error: {error}");
+                    return CommandOutcome::Error;
+                }
+            };
+
+            match ping_target(target, timeout_secs, protocol).await {
+                Ok(duration) => CommandOutcome::WithData(format!("+PING: {}", format_ping_millis(duration))),
+                Err(error) => {
+                    error!("Ping error: {error}");
+                    CommandOutcome::Error
+                }
+            }
         }
+        _ => CommandOutcome::Error,
     }
 }
 
@@ -125,7 +144,7 @@ pub async fn execute_at_echo_disable(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::at_interface::commands::command_spec!("at", "AT", 0, &[], execute_communication_check),
     crate::at_interface::commands::command_spec!("", "", 0, &[], execute_empty),
-    crate::at_interface::commands::command_spec!("at+ping", "AT+PING=<target>[,<timeout>[,<protocol>]]", 3, &[0], execute_ping),
+    crate::at_interface::commands::command_spec!("at+ping", "AT+PING=<target>[,<timeout>[,<protocol>]]", 0, &[], execute_ping),
     crate::at_interface::commands::command_spec!("ate1", "ATE1", 0, &[], execute_at_echo_enable),
     crate::at_interface::commands::command_spec!("ate0", "ATE0", 0, &[], execute_at_echo_disable),
 ];

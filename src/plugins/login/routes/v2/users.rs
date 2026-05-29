@@ -144,8 +144,8 @@ pub async fn get_user(Path(name): Path<String>) -> GetUserResponses {
     }
 
     GetUserResponses::Ok(UserResponse {
-        username: name.clone(),
         permissions: UserService::get_permission(&name).unwrap_or_default(),
+        username: name,
     })
 }
 
@@ -189,8 +189,8 @@ pub async fn patch_user(
         }
 
     PatchUserResponses::Ok(UserResponse {
-        username: name.clone(),
         permissions: UserService::get_permission(&name).unwrap_or_default(),
+        username: name,
     })
 }
 

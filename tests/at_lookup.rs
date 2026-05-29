@@ -7,19 +7,17 @@
 
 #[test]
 fn at_lookup_resolves_core_and_plugin_usage_commands() {
-    let registry = summit_rcm::at_interface::commands::build_command_registry();
-
-    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry(&registry, "ATE1?")
+    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry("ATE1?")
         .expect("ATE1? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry(&registry, "AT+VER?")
+    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry("AT+VER?")
         .expect("AT+VER? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry(&registry, "AT+DATETIME?")
+    let (_, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry("AT+DATETIME?")
         .expect("AT+DATETIME? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);

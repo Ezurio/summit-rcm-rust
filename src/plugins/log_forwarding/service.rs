@@ -6,7 +6,7 @@ use crate::plugins::log_forwarding::{
     LOG_FORWARDING_ENABLED_FLAG_FILE, SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE,
 };
 use crate::systemd_unit::SystemdUnit;
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 pub struct LogForwardingService {
     unit: SystemdUnit,
@@ -39,7 +39,7 @@ impl LogForwardingService {
             "inactive" => {
                 let _ = tokio::fs::remove_file(LOG_FORWARDING_ENABLED_FLAG_FILE).await;
             }
-            _ => {}
+            _ => bail!("invalid requested state: {requested_state}"),
         }
         self.unit.set_state(requested_state).await
     }

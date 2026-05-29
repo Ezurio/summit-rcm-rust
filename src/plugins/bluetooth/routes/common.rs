@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use crate::utils::parse_model;
 
 fn deserialize_optional_intish<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
 where
@@ -206,12 +205,11 @@ pub struct BluetoothControllerModel {
 #[serde(transparent)]
 pub struct BluetoothStateResponse(pub BTreeMap<String, BluetoothControllerModel>);
 
-pub fn parse_bluetooth_state_response<T: Serialize>(value: T) -> Result<BluetoothStateResponse, serde_json::Error> {
-    parse_model(value)
+pub fn parse_bluetooth_state_response(value: serde_json::Value) -> Result<BluetoothStateResponse, serde_json::Error> {
+    serde_json::from_value(value)
 }
 
-pub fn parse_bluetooth_control_response<T: Serialize>(value: T) -> Result<BluetoothControlResponse, serde_json::Error> {
-    let mut value = serde_json::to_value(value)?;
+pub fn parse_bluetooth_control_response(mut value: serde_json::Value) -> Result<BluetoothControlResponse, serde_json::Error> {
     if let Some(object) = value.as_object_mut() {
         object.remove("SDCERR");
         object.remove("InfoMsg");
@@ -219,8 +217,8 @@ pub fn parse_bluetooth_control_response<T: Serialize>(value: T) -> Result<Blueto
     serde_json::from_value(value)
 }
 
-pub fn parse_bluetooth_device_response<T: Serialize>(value: T) -> Result<BluetoothDeviceModel, serde_json::Error> {
-    parse_model(value)
+pub fn parse_bluetooth_device_response(value: serde_json::Value) -> Result<BluetoothDeviceModel, serde_json::Error> {
+    serde_json::from_value(value)
 }
 
 impl BluetoothQuery {

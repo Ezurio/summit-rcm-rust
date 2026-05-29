@@ -7,7 +7,7 @@ pub mod auth;
 pub mod pkcs11;
 pub mod security_headers;
 pub mod response;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#[cfg(feature = "api-legacy")]
 pub mod legacy_response;
 #[cfg(feature = "api-docs")]
 #[path = "../openapi/mod.rs"]
@@ -44,7 +44,7 @@ use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ClientTlsInfo, ProvisioningWebTlsConfig,
 };
 use self::pkcs11::convert_pkcs11_uri_to_pem;
-use crate::utils::random_token_hex;
+use crate::utils::{path_exists_sync, random_token_hex};
 
 #[cfg(feature = "runtime-docs")]
 const OPENAPI_DOC_PATH: &str = "/etc/summit-rcm-openapi.json";
@@ -62,7 +62,7 @@ fn default_bind_addr() -> String {
 }
 
 fn max_active_web_connections() -> usize {
-    let configured = SystemSettingsManage::get_int("max_web_clients", 1);
+    let configured = SystemSettingsManage::get_int("max_web_clients", 8);
     if configured < 1 {
         1
     } else {
@@ -112,7 +112,7 @@ async fn index() -> impl IntoResponse {
 
 #[cfg(feature = "runtime-docs")]
 async fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
-    let openapi_doc = tokio::fs::read_to_string(runtime_openapi_doc_path()).await?;
+    let openapi_doc = crate::utils::read_text(runtime_openapi_doc_path()).await?;
     Ok(serde_json::from_str(&openapi_doc)?)
 }
 
@@ -228,7 +228,7 @@ fn build_resolved_tls_config(
     ignore_client_cert_time: bool,
     temp_dir: Option<TempDirGuard>,
 ) -> anyhow::Result<ResolvedWebTlsConfig> {
-    if !Path::new(&cert_path).exists() || !Path::new(&key_path).exists() {
+    if !path_exists_sync(&cert_path) || !path_exists_sync(&key_path) {
         anyhow::bail!(
             "TLS certificates not available (cert: {}, key: {})",
             cert_path,
@@ -236,7 +236,7 @@ fn build_resolved_tls_config(
         );
     }
 
-    let ca_path = if !ca_path.is_empty() && Path::new(&ca_path).exists() {
+    let ca_path = if !ca_path.is_empty() && path_exists_sync(&ca_path) {
         Some(ca_path)
     } else {
         if require_client_auth {
@@ -495,17 +495,48 @@ async fn serve_tls_connection(
     HyperBuilder::new(TokioExecutor::new())
         .serve_connection_with_upgrades(io, service)
         .await
-        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        .map_err(|e| anyhow::anyhow!(e))?;
     Ok(())
+}
+
+/// Returns whether a route declared with the given [`RouteMode`] should be
+/// registered in the current daemon boot mode.
+///
+/// Routes are evicted at router build time, not gated at request time, so this
+/// is consulted exactly once per route during [`build_router`].
+fn admit_route_mode(mode: crate::publication::RouteMode) -> bool {
+    use crate::publication::RouteMode;
+    #[cfg(feature = "provisioning")]
+    {
+        use crate::plugins::provisioning::BootMode;
+        let normal = matches!(
+            crate::plugins::provisioning::current_boot_mode(),
+            BootMode::Normal,
+        );
+        match mode {
+            RouteMode::Any => true,
+            RouteMode::NormalOnly => normal,
+            RouteMode::ProvisioningOnly => !normal,
+        }
+    }
+    #[cfg(not(feature = "provisioning"))]
+    {
+        // Without the provisioning subsystem there is no provisioning boot
+        // mode; only `Any` and `NormalOnly` routes are reachable.
+        matches!(mode, RouteMode::Any | RouteMode::NormalOnly)
+    }
 }
 
 fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuthPolicy) -> Router {
     let should_log_routes = ServerConfig::get_bool("summit-rcm", "log_routes_loaded", false);
-    for publication in crate::publication::builtin_http_publications() {
+    for publication in crate::publication::builtin_plugin_publications() {
         debug_assert!(!publication.name.is_empty());
         if let Some(route_publications) = publication.routes {
             for route_publication in route_publications {
                 if route_publication.auth != auth {
+                    continue;
+                }
+                if !admit_route_mode(route_publication.mode) {
                     continue;
                 }
                 if should_log_routes {
@@ -543,6 +574,17 @@ pub fn build_router() -> Router {
         crate::publication::RouteAuthPolicy::SessionRequired,
     );
 
+    // In provisioning boot mode no real session can exist (the daemon is
+    // operator-paired before login is available), so the session-required
+    // layer is omitted entirely. In normal boot mode it is applied.
+    #[cfg(feature = "provisioning")]
+    let session_api = match crate::plugins::provisioning::current_boot_mode() {
+        crate::plugins::provisioning::BootMode::Normal => {
+            session_api.layer(axum::middleware::from_fn(auth::require_session))
+        }
+        crate::plugins::provisioning::BootMode::Provisioning => session_api,
+    };
+    #[cfg(not(feature = "provisioning"))]
     let session_api = session_api.layer(axum::middleware::from_fn(auth::require_session));
 
     let base_router = Router::new()
@@ -552,8 +594,16 @@ pub fn build_router() -> Router {
             security_headers::add_security_headers,
         ));
 
+    // Track the latest installed client cert and propagate its notBefore
+    // into the fallback-timestamp file. Only meaningful (and only attached)
+    // when the daemon is fully provisioned.
     #[cfg(feature = "provisioning")]
-    let base_router = crate::plugins::provisioning::apply_global_middleware(base_router);
+    let base_router = match crate::plugins::provisioning::current_boot_mode() {
+        crate::plugins::provisioning::BootMode::Normal => {
+            crate::plugins::provisioning::apply_fallback_timestamp_layer(base_router)
+        }
+        crate::plugins::provisioning::BootMode::Provisioning => base_router,
+    };
 
     let session_layer = SessionManagerLayer::new(MemoryStore::default())
         .with_name("session_id")

@@ -11,8 +11,10 @@ use anyhow::Result;
 use log::warn;
 use serde_json::{json, Value as JsonValue};
 use serde::{de::DeserializeOwned, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
+use tokio::sync::RwLock;
 use std::time::Duration;
 use zbus::{
     connection::Builder,
@@ -72,10 +74,10 @@ pub fn is_timeout_error(error: &anyhow::Error) -> bool {
     })
 }
 
-type ConnectionCacheKey = (String, Option<u64>);
+type ConnectionCacheKey = (Cow<'static, str>, Option<u64>);
 
-static SYSTEM_BUS_CONNECTIONS: LazyLock<Mutex<HashMap<ConnectionCacheKey, Arc<Connection>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static SYSTEM_BUS_CONNECTIONS: LazyLock<RwLock<HashMap<ConnectionCacheKey, Arc<Connection>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub trait ConnectionRef {
     fn connection(&self) -> &Connection;
@@ -109,14 +111,15 @@ fn timeout_cache_key(timeout: Option<Duration>) -> Option<u64> {
     timeout.map(|value| value.as_millis().min(u64::MAX as u128) as u64)
 }
 
-fn current_system_bus_key() -> String {
+fn current_system_bus_key() -> Cow<'static, str> {
     std::env::var(TEST_SYSTEM_BUS_ADDRESS_ENV)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "__system__".to_string())
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed("__system__"))
 }
 
-fn dbus_method_timeout() -> Duration {
+static DBUS_METHOD_TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
     let default_timeout_ms: u64 = 2_000;
     match std::env::var(DBUS_METHOD_TIMEOUT_MS_ENV) {
         Ok(value) => {
@@ -136,6 +139,10 @@ fn dbus_method_timeout() -> Duration {
         }
         Err(_) => Duration::from_millis(default_timeout_ms),
     }
+});
+
+fn dbus_method_timeout() -> Duration {
+    *DBUS_METHOD_TIMEOUT
 }
 
 async fn connect_system_bus(key: &str, timeout: Option<Duration>) -> Result<Connection> {
@@ -153,9 +160,11 @@ async fn connect_system_bus(key: &str, timeout: Option<Duration>) -> Result<Conn
     builder.build().await.map_err(Into::into)
 }
 
-fn evict_cached_connection(conn: &Connection) {
-    let mut cached_connections = SYSTEM_BUS_CONNECTIONS.lock().unwrap();
-    cached_connections.retain(|_, cached_conn| !std::ptr::eq(cached_conn.as_ref(), conn));
+async fn evict_cached_connection(conn: &Connection) {
+    SYSTEM_BUS_CONNECTIONS
+        .write()
+        .await
+        .retain(|_, cached_conn| !std::ptr::eq(cached_conn.as_ref(), conn));
 }
 
 /// Return the shared system bus connection for the application.
@@ -168,8 +177,8 @@ pub async fn system_bus_with_timeout(timeout: Option<Duration>) -> Result<Arc<Co
     let cache_key = (current_system_bus_key(), timeout_cache_key(timeout));
 
     if let Some(connection) = SYSTEM_BUS_CONNECTIONS
-        .lock()
-        .unwrap()
+        .read()
+        .await
         .get(&cache_key)
         .cloned()
     {
@@ -177,7 +186,7 @@ pub async fn system_bus_with_timeout(timeout: Option<Duration>) -> Result<Arc<Co
     }
 
     let connection = Arc::new(connect_system_bus(&cache_key.0, timeout).await?);
-    let mut connections = SYSTEM_BUS_CONNECTIONS.lock().unwrap();
+    let mut connections = SYSTEM_BUS_CONNECTIONS.write().await;
     match connections.entry(cache_key) {
         std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.get().clone()),
         std::collections::hash_map::Entry::Vacant(entry) => {
@@ -285,7 +294,7 @@ where
             );
 
             if timed_out {
-                evict_cached_connection(conn);
+                evict_cached_connection(conn).await;
                 if let Err(close_error) = conn.clone().close().await {
                     warn!("Failed to close D-Bus connection after timeout: {close_error}");
                 }

@@ -63,7 +63,7 @@ async fn set_test_provisioning_state(state: ProvisioningState) {
         );
     }
 
-    CertificateProvisioningService::set_provisioning_state_async(state)
+    tokio::fs::write(&state_path, format!("{}", state as i32))
         .await
         .expect("test provisioning state should be writable");
 }
@@ -574,7 +574,7 @@ async fn legacy_log_data_rejects_out_of_range_priority_with_python_message() {
 #[cfg(feature = "at-interface")]
 #[test]
 fn at_command_publications_expose_feature_gated_metadata() {
-    let commands: Vec<&str> = crate::publication::builtin_at_publications_slice()
+    let commands: Vec<&str> = crate::publication::builtin_plugin_publications()
         .iter()
         .copied()
         .filter_map(|publication| publication.at_commands.as_ref())
@@ -597,19 +597,17 @@ fn at_command_publications_expose_feature_gated_metadata() {
 #[cfg(feature = "at-interface")]
 #[test]
 fn at_lookup_resolves_core_and_plugin_usage_commands() {
-    let registry = crate::at_interface::commands::build_command_registry();
-
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "ATE1?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry("ATE1?")
         .expect("ATE1? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "AT+VER?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry("AT+VER?")
         .expect("AT+VER? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry(&registry, "AT+DATETIME?")
+    let (_, params, print_usage) = crate::at_interface::commands::lookup_command_in_registry("AT+DATETIME?")
         .expect("AT+DATETIME? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
@@ -687,4 +685,106 @@ async fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
 
     assert!(resolved.config.require_client_auth);
     assert_eq!(resolved.mode_log, Some("*** PARTIALLY PROVISIONED MODE ***"));
+}
+
+#[cfg(feature = "provisioning")]
+#[tokio::test]
+async fn provisioning_mode_router_exposes_provisioning_routes_without_login() {
+    use axum::body::to_bytes;
+    use serde_json::Value;
+
+    test_env!(("summit-rcm", "enable_client_pairing", "true"));
+    set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .uri("/api/v2/system/certificateProvisioning")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["state"], 0);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/system/datetime")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[cfg(feature = "provisioning")]
+#[tokio::test]
+async fn provisioning_mode_router_omits_normal_login_routes() {
+    test_env!(("summit-rcm", "enable_client_pairing", "true"));
+    set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v2/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"username":"root","password":"summit"}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[cfg(all(feature = "provisioning", feature = "api-legacy"))]
+#[tokio::test]
+async fn legacy_provisioning_post_invalid_upload_returns_bad_request() {
+    test_env!(
+        ("summit-rcm", "enable_client_pairing", "true"),
+        ("/", "tools.sessions.on", "false")
+    );
+    set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/certificateProvisioning")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"dummy":true}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[cfg(all(feature = "provisioning", feature = "api-legacy"))]
+#[tokio::test]
+async fn legacy_provisioning_put_already_provisioned_matches_python_response() {
+    use axum::body::to_bytes;
+    use serde_json::Value;
+
+    test_env!(
+        ("summit-rcm", "enable_client_pairing", "true"),
+        ("/", "tools.sessions.on", "false")
+    );
+    set_test_provisioning_state(ProvisioningState::PartiallyProvisioned).await;
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri("/certificateProvisioning")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"dummy":true}"#))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["SDCERR"], 1);
+    assert_eq!(body["InfoMsg"], "Already provisioned");
 }

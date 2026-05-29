@@ -11,7 +11,6 @@ use crate::plugins::bluetooth::routes::common::{
 #[cfg(feature = "bluetooth-websocket")]
 use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
 use crate::plugins::bluetooth::service::{BluetoothDeviceStateError, BluetoothService};
-use crate::utils::parse_model;
 use axum::{extract::{Path, Query}, Json};
 #[cfg(feature = "bluetooth-websocket")]
 use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
@@ -88,6 +87,16 @@ fn legacy_bluetooth_control_response(
     }
 }
 
+fn legacy_bluetooth_state_response(
+    operation: LegacyOperationResponse,
+    controllers: BTreeMap<String, LegacyBluetoothControllerModel>,
+) -> LegacyBluetoothStateResponse {
+    LegacyBluetoothStateResponse {
+        operation,
+        controllers,
+    }
+}
+
 fn legacy_bluetooth_device_response(
     operation: LegacyOperationResponse,
     device: BluetoothDeviceModel,
@@ -98,32 +107,11 @@ fn legacy_bluetooth_device_response(
     }
 }
 
-fn parse_legacy_response<T, U>(value: U) -> Result<T, serde_json::Error>
+fn parse_legacy_response<T>(value: serde_json::Value) -> Result<T, serde_json::Error>
 where
     T: DeserializeOwned,
-    U: Serialize,
 {
-    parse_model(value)
-}
-
-fn parse_legacy_route_response<T, U, R, F>(
-    value: U,
-    log_context: impl AsRef<str>,
-    bad_request: F,
-) -> R
-where
-    T: DeserializeOwned,
-    U: Serialize,
-    R: From<T>,
-    F: FnOnce() -> R,
-{
-    match parse_legacy_response::<T, U>(value) {
-        Ok(value) => value.into(),
-        Err(error) => {
-            log::error!("{}: {}", log_context.as_ref(), error);
-            bad_request()
-        }
-    }
+    serde_json::from_value(value)
 }
 
 fn empty_bluetooth_device() -> BluetoothDeviceModel {
@@ -175,11 +163,16 @@ fn empty_bluetooth_control() -> BluetoothControlResponse {
     responses(GetBluetoothLegacyResponses)
 ))]
 pub async fn get_bluetooth_legacy(Query(query): Query<BluetoothQuery>) -> GetBluetoothLegacyResponses {
-    parse_legacy_route_response::<LegacyBluetoothStateResponse, _, _, _>(
-        BluetoothService::get_state_legacy(None, None, query.filters()).await,
-        "get_bluetooth_legacy invalid response shape",
-        || GetBluetoothLegacyResponses::BadRequest,
-    )
+    match BluetoothService::get_state_legacy(None, None, query.filters()).await {
+        Ok(value) => match parse_legacy_response::<BTreeMap<String, LegacyBluetoothControllerModel>>(value) {
+            Ok(controllers) => legacy_bluetooth_state_response(ok_response(""), controllers).into(),
+            Err(error) => {
+                log::error!("get_bluetooth_legacy invalid response shape: {}", error);
+                GetBluetoothLegacyResponses::BadRequest
+            }
+        },
+        Err(error) => legacy_bluetooth_state_response(fail_response(error.to_string()), BTreeMap::new()).into(),
+    }
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -190,12 +183,11 @@ pub async fn get_bluetooth_legacy(Query(query): Query<BluetoothQuery>) -> GetBlu
     responses(PutBluetoothLegacyResponses)
 ))]
 pub async fn put_bluetooth_legacy(Json(body): Json<BluetoothCommandRequest>) -> PutBluetoothLegacyResponses {
-    match BluetoothService::handle_command_json(None, None, body).await {
-        Ok(value) => parse_legacy_route_response::<LegacyBluetoothControlResponse, _, _, _>(
-            value,
-            "put_bluetooth_legacy invalid request or response shape",
-            || PutBluetoothLegacyResponses::BadRequest,
-        ),
+    match BluetoothService::handle_command_legacy(None, None, body).await {
+        Ok((response, succeeded, info_msg)) => legacy_bluetooth_control_response(
+            if succeeded { ok_response(info_msg) } else { fail_response(info_msg) },
+            response,
+        ).into(),
         Err(error) => {
             log::error!("put_bluetooth_legacy invalid request or response shape: {}", error);
             PutBluetoothLegacyResponses::BadRequest
@@ -217,11 +209,16 @@ pub async fn get_bluetooth_controller_legacy(
     Path(controller): Path<String>,
     Query(query): Query<BluetoothQuery>,
 ) -> GetBluetoothLegacyResponses {
-    parse_legacy_route_response::<LegacyBluetoothStateResponse, _, _, _>(
-        BluetoothService::get_state_legacy(Some(&controller), None, query.filters()).await,
-        format!("get_bluetooth_controller_legacy {} invalid response shape", controller),
-        || GetBluetoothLegacyResponses::BadRequest,
-    )
+    match BluetoothService::get_state_legacy(Some(&controller), None, query.filters()).await {
+        Ok(value) => match parse_legacy_response::<BTreeMap<String, LegacyBluetoothControllerModel>>(value) {
+            Ok(controllers) => legacy_bluetooth_state_response(ok_response(""), controllers).into(),
+            Err(error) => {
+                log::error!("get_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
+                GetBluetoothLegacyResponses::BadRequest
+            }
+        },
+        Err(error) => legacy_bluetooth_state_response(fail_response(error.to_string()), BTreeMap::new()).into(),
+    }
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -236,15 +233,11 @@ pub async fn put_bluetooth_controller_legacy(
     Path(controller): Path<String>,
     Json(body): Json<BluetoothCommandRequest>,
 ) -> PutBluetoothLegacyResponses {
-    match BluetoothService::handle_command_json(Some(&controller), None, body).await {
-        Ok(value) => parse_legacy_route_response::<LegacyBluetoothControlResponse, _, _, _>(
-            value,
-            format!(
-                "put_bluetooth_controller_legacy {} invalid request or response shape",
-                controller
-            ),
-            || PutBluetoothLegacyResponses::BadRequest,
-        ),
+    match BluetoothService::handle_command_legacy(Some(&controller), None, body).await {
+        Ok((response, succeeded, info_msg)) => legacy_bluetooth_control_response(
+            if succeeded { ok_response(info_msg) } else { fail_response(info_msg) },
+            response,
+        ).into(),
         Err(error) => {
             log::error!(
                 "put_bluetooth_controller_legacy {} invalid request or response shape: {}",
@@ -305,17 +298,13 @@ pub async fn put_bluetooth_device_legacy(
         .into();
     }
 
-    match BluetoothService::handle_command_json(Some(&controller), Some(&device), body)
+    match BluetoothService::handle_command_legacy(Some(&controller), Some(&device), body)
         .await
     {
-        Ok(value) => parse_legacy_route_response::<LegacyBluetoothControlResponse, _, _, _>(
-            value,
-            format!(
-                "put_bluetooth_device_legacy {} {} invalid request or response shape",
-                controller, device
-            ),
-            || PutBluetoothDeviceLegacyResponses::BadRequest,
-        ),
+        Ok((response, succeeded, info_msg)) => legacy_bluetooth_control_response(
+            if succeeded { ok_response(info_msg) } else { fail_response(info_msg) },
+            response,
+        ).into(),
         Err(error) => {
             log::error!(
                 "put_bluetooth_device_legacy {} {} invalid request or response shape: {}",

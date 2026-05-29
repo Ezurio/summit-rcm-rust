@@ -52,7 +52,13 @@ pub async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
 }
 
 pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let Some(file_type) = FilesListType::parse(params.trimmed(0)) else {
+    let file_type_arg = match params.parameter_count() {
+        0 => "",
+        1 => params.trimmed(0),
+        _ => return CommandOutcome::Error,
+    };
+
+    let Some(file_type) = FilesListType::parse(file_type_arg) else {
         return CommandOutcome::Error;
     };
 
@@ -67,7 +73,6 @@ pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Com
     for file in &files {
         let _ = writeln!(out, "+FILESLIST: {}\r", file);
     }
-    out.push_str("OK");
     CommandOutcome::WithData(out)
 }
 
@@ -78,7 +83,7 @@ pub async fn execute_files_export(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> 
                 &base64::engine::general_purpose::STANDARD,
                 &data,
             );
-            CommandOutcome::WithData(format!("+FILESEXP: {}\r\nOK", encoded))
+            CommandOutcome::WithData(format!("+FILESEXP: {}", encoded))
         }
         Err(error) => {
             error!("Files export error: {}", error);
@@ -118,7 +123,7 @@ pub async fn execute_files_upload(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::at_interface::commands::command_spec!("at+filesdel", "AT+FILESDEL=<type>,<name>", 2, &[0, 1], execute_files_delete),
-    crate::at_interface::commands::command_spec!("at+fileslist", "AT+FILESLIST[=<type>]", 1, &[], execute_files_list),
+    crate::at_interface::commands::command_spec!("at+fileslist", "AT+FILESLIST[=<type>]", 0, &[], execute_files_list),
     crate::at_interface::commands::command_spec!("at+filesexp", "AT+FILESEXP", 0, &[], execute_files_export),
     crate::at_interface::commands::command_spec!("at+filesup", "AT+FILESUP=<type>,<name>,<length>", 3, &[0, 1], execute_files_upload),
 ];

@@ -11,9 +11,9 @@ use crate::plugins::network_manager::FILEDIR_CERT;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::plugins::network_manager::routes::connection_profile::ConnectionProfile;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use crate::plugins::network_manager::routes::shared::{
-    AccessPoint, LegacyNetworkStatusPayload, NetworkStatusResponse, WifiStatus,
-};
+use crate::plugins::network_manager::routes::shared::{AccessPoint, NetworkStatusResponse, WifiStatus};
+#[cfg(feature = "api-legacy")]
+use crate::plugins::network_manager::routes::legacy::types::LegacyNetworkStatusPayload;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{boottime, timespec_duration};
 use serde_json::{json, Value};
@@ -468,7 +468,7 @@ impl NetworkService {
             .and_then(Self::decode_route_model)
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+    #[cfg(feature = "api-legacy")]
     pub async fn get_legacy_status_model() -> Result<LegacyNetworkStatusPayload> {
         Self::get_status(true).await.and_then(Self::decode_route_model)
     }

@@ -7,6 +7,22 @@ use crate::config::{ServerConfig, SummitRcmConfigManage, SystemSettingsManage};
 pub struct UnauthenticatedService;
 
 impl UnauthenticatedService {
+    #[cfg(not(test))]
+    fn legacy_gate_enabled() -> bool {
+        static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+            ServerConfig::get_bool(
+                "weblcm",
+                "enable_allow_unauthenticated_reboot_reset",
+                ServerConfig::get_bool(
+                    "summit-rcm",
+                    "enable_allow_unauthenticated_reboot_reset",
+                    false,
+                ),
+            )
+        });
+        *V
+    }
+    #[cfg(test)]
     fn legacy_gate_enabled() -> bool {
         ServerConfig::get_bool(
             "weblcm",

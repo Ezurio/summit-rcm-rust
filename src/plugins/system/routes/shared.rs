@@ -17,7 +17,7 @@ pub async fn set_power_state(state: PowerState) -> anyhow::Result<PowerState> {
 }
 
 pub async fn run_factory_reset() -> FactoryResetResult {
-    if !std::path::Path::new(FACTORY_RESET_SCRIPT).exists() {
+    if !crate::utils::path_exists_sync(FACTORY_RESET_SCRIPT) {
         return FactoryResetResult::NotAvailable;
     }
 

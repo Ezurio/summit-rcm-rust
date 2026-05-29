@@ -9,7 +9,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use log::error;
 
-#[cfg(feature = "api-docs")]
+#[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) use super::v2_openapi::ApiDoc;
 
 #[derive(Deserialize)]
@@ -28,6 +28,14 @@ pub struct DateTimeInfo {
     pub datetime: String,
 }
 
+fn date_time_info(zones: Vec<String>, zone: String, datetime: String) -> DateTimeInfo {
+    DateTimeInfo {
+        zones,
+        zone,
+        datetime,
+    }
+}
+
 crate::define_json_response_family! {
     pub enum GetDateTimeResponses {
         Ok(DateTimeInfo) => 200;
@@ -37,7 +45,15 @@ crate::define_json_response_family! {
     from DateTimeInfo => Ok;
 }
 
-pub type SetDateTimeResponses = GetDateTimeResponses;
+crate::define_json_response_family! {
+    pub enum SetDateTimeResponses {
+        Ok(DateTimeInfo) => 200,
+        BadRequest(DateTimeInfo) => 400;
+        Timeout => 504,
+        InternalError => 500
+    }
+    from DateTimeInfo => Ok;
+}
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -46,12 +62,12 @@ pub type SetDateTimeResponses = GetDateTimeResponses;
     responses(GetDateTimeResponses)
 ))]
 pub async fn get_datetime() -> GetDateTimeResponses {
-    match DateTimeService::get_datetime().await {
-        Ok(v) => GetDateTimeResponses::Ok(DateTimeInfo {
-            zones: v.zones,
-            zone: v.zone,
-            datetime: v.datetime,
-        }),
+    match DateTimeService::list_timezones().await {
+        Ok(zones) => {
+            let zone = DateTimeService::local_zone().await;
+            let v = DateTimeService::get_datetime(zones, zone);
+            GetDateTimeResponses::Ok(date_time_info(v.zones, v.zone, v.datetime))
+        }
         Err(e) => {
             error!("get_datetime: {}", e);
             if dbus::is_timeout_error(&e) {
@@ -71,7 +87,8 @@ pub async fn get_datetime() -> GetDateTimeResponses {
     responses(SetDateTimeResponses)
 ))]
 pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeResponses {
-    if let Some(tz) = body.zone.or(body.timezone)
+    let zone = body.zone.or(body.timezone);
+    if let Some(tz) = zone.clone()
         && let Err(e) = DateTimeService::set_timezone(&tz).await {
             error!("set_datetime timezone: {}", e);
             return if dbus::is_timeout_error(&e) {
@@ -91,12 +108,12 @@ pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeRespo
             };
         }
 
-    match DateTimeService::get_datetime().await {
-        Ok(v) => SetDateTimeResponses::Ok(DateTimeInfo {
-            zones: v.zones,
-            zone: v.zone,
-            datetime: v.datetime,
-        }),
+    match DateTimeService::list_timezones().await {
+        Ok(zones) => {
+            let zone = DateTimeService::local_zone().await;
+            let v = DateTimeService::get_datetime(zones, zone);
+            SetDateTimeResponses::Ok(date_time_info(v.zones, v.zone, v.datetime))
+        }
         Err(e) => {
             error!("set_datetime get: {}", e);
             if dbus::is_timeout_error(&e) {

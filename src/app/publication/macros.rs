@@ -49,80 +49,100 @@ macro_rules! __declare_method_router {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __declare_route_publication {
-    (protected $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
+    ($auth:ident $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
             summit_rcm_plugin_api::published_routes!($path; $($method),+);
         fn install(api: axum::Router) -> axum::Router {
             api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
-        $crate::publication::RoutePublication::new(
+        $crate::publication::RoutePublication::new_with_mode(
             ROUTES,
             install,
-            summit_rcm_plugin_api::__route_auth_policy!(protected),
+            summit_rcm_plugin_api::__route_auth_policy!($auth),
+            summit_rcm_plugin_api::__route_mode!($auth),
         )
     }};
-    (public $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
+
+    ($auth:ident $path:expr => $installer:expr, { $($method:ident),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
             summit_rcm_plugin_api::published_routes!($path; $($method),+);
-        fn install(api: axum::Router) -> axum::Router {
-            api.route($path, $crate::__declare_method_router!($($method => $handler),+))
-        }
-        $crate::publication::RoutePublication::new(
+        $crate::publication::RoutePublication::new_with_mode(
             ROUTES,
-            install,
-            summit_rcm_plugin_api::__route_auth_policy!(public),
+            $installer,
+            summit_rcm_plugin_api::__route_auth_policy!($auth),
+            summit_rcm_plugin_api::__route_mode!($auth),
         )
     }};
-    (unauthenticated $path:expr => { $($methods:tt)+ }) => {
-        $crate::__declare_route_publication!(public $path => { $($methods)+ })
-    };
 }
 
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __declare_dual_api_slice {
-    ($name:ident : $ty:ty;
-        v2 => [$($v2_item:expr),* $(,)?],
-        legacy => [$($legacy_item:expr),* $(,)?] $(,)?
-    ) => {
-        #[cfg(all(feature = "api-v2", feature = "api-legacy"))]
-        const $name: &[$ty] = &[
-            $($v2_item,)*
-            $($legacy_item,)*
-        ];
+macro_rules! __declare_route_items {
+    (@emit [$($out:tt)*]) => {
+        &[
+            $($out)*
+        ]
+    };
 
-        #[cfg(all(feature = "api-v2", not(feature = "api-legacy")))]
-        const $name: &[$ty] = &[
-            $($v2_item,)*
-        ];
+    (@emit [$($out:tt)*] $(#[$meta:meta])* $auth:ident $path:expr => { $($methods:tt)+ }, $($rest:tt)*) => {
+        $crate::__declare_route_items!(
+            @emit [
+                $($out)*
+                $(#[$meta])*
+                $crate::__declare_route_publication!($auth $path => { $($methods)+ }),
+            ]
+            $($rest)*
+        )
+    };
 
-        #[cfg(all(not(feature = "api-v2"), feature = "api-legacy"))]
-        const $name: &[$ty] = &[
-            $($legacy_item,)*
-        ];
+    (@emit [$($out:tt)*] $(#[$meta:meta])* $auth:ident $path:expr => $installer:expr, { $($methods:ident),+ $(,)? }, $($rest:tt)*) => {
+        $crate::__declare_route_items!(
+            @emit [
+                $($out)*
+                $(#[$meta])*
+                $crate::__declare_route_publication!($auth $path => $installer, { $($methods),+ }),
+            ]
+            $($rest)*
+        )
+    };
+
+    (@emit [$($out:tt)*] $(#[$meta:meta])* $auth:ident $path:expr => { $($methods:tt)+ } $(,)?) => {
+        $crate::__declare_route_items!(
+            @emit [
+                $($out)*
+                $(#[$meta])*
+                $crate::__declare_route_publication!($auth $path => { $($methods)+ }),
+            ]
+        )
+    };
+
+    (@emit [$($out:tt)*] $(#[$meta:meta])* $auth:ident $path:expr => $installer:expr, { $($methods:ident),+ $(,)? } $(,)?) => {
+        $crate::__declare_route_items!(
+            @emit [
+                $($out)*
+                $(#[$meta])*
+                $crate::__declare_route_publication!($auth $path => $installer, { $($methods),+ }),
+            ]
+        )
+    };
+
+    ($($items:tt)*) => {
+        $crate::__declare_route_items!(@emit [] $($items)*)
     };
 }
 
 #[macro_export]
 macro_rules! declare_plugin_api {
     (
-        route_table {
-            v2 => [
-                $($(#[$v2_meta:meta])* $v2_auth:ident $v2_path:expr => { $($v2_methods:tt)+ }),* $(,)?
-            ],
-            legacy => [
-                $($(#[$legacy_meta:meta])* $legacy_auth:ident $legacy_path:expr => { $($legacy_methods:tt)+ }),* $(,)?
-            ] $(,)?
+        routes {
+            v2 => [$($v2_items:tt)*],
+            legacy => [$($legacy_items:tt)*] $(,)?
         } $(,)?
     ) => {
         $crate::declare_plugin_api! {
-            route_table {
-                v2 => [
-                    $($(#[$v2_meta])* $v2_auth $v2_path => { $($v2_methods)+ }),*
-                ],
-                legacy => [
-                    $($(#[$legacy_meta])* $legacy_auth $legacy_path => { $($legacy_methods)+ }),*
-                ],
+            routes {
+                v2 => [$($v2_items)*],
+                legacy => [$($legacy_items)*],
             },
             openapi {
                 v2 => [<routes::v2::ApiDoc as utoipa::OpenApi>::openapi],
@@ -132,171 +152,160 @@ macro_rules! declare_plugin_api {
     };
 
     (
-        route_table {
-            v2 => [
-                $($(#[$v2_meta:meta])* $v2_auth:ident $v2_path:expr => { $($v2_methods:tt)+ }),* $(,)?
-            ],
-            legacy => [
-                $($(#[$legacy_meta:meta])* $legacy_auth:ident $legacy_path:expr => { $($legacy_methods:tt)+ }),* $(,)?
-            ] $(,)?
-        },
-        openapi {
-            v2 => [$($v2_doc:expr),* $(,)?],
-            legacy => [$($legacy_doc:expr),* $(,)?] $(,)?
-        } $(,)?
-    ) => {
-        $crate::declare_plugin_api! {
-            routes {
-                v2 => [
-                    $(
-                        $(#[$v2_meta])*
-                        $crate::__declare_route_publication!(
-                            $v2_auth $v2_path => { $($v2_methods)+ }
-                        )
-                    ),*
-                ],
-                route_doc_policies => [
-                    $(summit_rcm_plugin_api::route_doc_policy!($v2_auth, $v2_path)),*
-                ],
-                legacy => [
-                    $(
-                        $(#[$legacy_meta])*
-                        $crate::__declare_route_publication!(
-                            $legacy_auth $legacy_path => { $($legacy_methods)+ }
-                        )
-                    ),*
-                ],
-                legacy_route_doc_policies => [
-                    $(summit_rcm_plugin_api::route_doc_policy!($legacy_auth, $legacy_path)),*
-                ],
-            },
-            openapi {
-                v2 => [$($v2_doc),*],
-                legacy => [$($legacy_doc),*]
-            },
-        }
-    };
-
-    (
-        protected_routes {
-            v2 => $v2_route:expr,
-            legacy => $legacy_route:expr $(,)?
-        } $(,)?
-    ) => {
-        $crate::declare_plugin_api! {
-            routes {
-                v2 => [
-                    $crate::publication::RoutePublication::install_only(
-                        $v2_route,
-                        $crate::publication::RouteAuthPolicy::SessionRequired,
-                    ),
-                ],
-                route_doc_policies => [],
-                legacy => [
-                    $crate::publication::RoutePublication::install_only(
-                        $legacy_route,
-                        $crate::publication::RouteAuthPolicy::SessionRequired,
-                    ),
-                ]
-                ,legacy_route_doc_policies => []
-            },
-            openapi {
-                v2 => [<routes::v2::ApiDoc as utoipa::OpenApi>::openapi],
-                legacy => [<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi]
-            },
-        }
-    };
-
-    (
-        protected_routes {
-            v2 => $v2_route:expr,
-            legacy => $legacy_route:expr $(,)?
-        },
-        openapi {
-            v2 => [$($v2_doc:expr),* $(,)?],
-            legacy => [$($legacy_doc:expr),* $(,)?] $(,)?
-        } $(,)?
-    ) => {
-        $crate::declare_plugin_api! {
-            routes {
-                v2 => [
-                    $crate::publication::RoutePublication::install_only(
-                        $v2_route,
-                        $crate::publication::RouteAuthPolicy::SessionRequired,
-                    ),
-                ],
-                route_doc_policies => [],
-                legacy => [
-                    $crate::publication::RoutePublication::install_only(
-                        $legacy_route,
-                        $crate::publication::RouteAuthPolicy::SessionRequired,
-                    ),
-                ]
-                ,legacy_route_doc_policies => []
-            },
-            openapi {
-                v2 => [$($v2_doc),*],
-                legacy => [$($legacy_doc),*]
-            },
-        }
-    };
-
-    (
         routes {
             v2 => [$($v2_route:expr),* $(,)?],
-            route_doc_policies => [$($v2_route_doc_policy:expr),* $(,)?],
-            legacy => [$($legacy_route:expr),* $(,)?],
-            legacy_route_doc_policies => [$($legacy_route_doc_policy:expr),* $(,)?] $(,)?
+            legacy => [$($legacy_route:expr),* $(,)?] $(,)?
         },
         openapi {
             v2 => [$($v2_doc:expr),* $(,)?],
             legacy => [$($legacy_doc:expr),* $(,)?] $(,)?
         } $(,)?
     ) => {
-        $crate::__declare_dual_api_slice!(
-            ROUTE_PUBLICATIONS: $crate::publication::RoutePublication;
-            v2 => [$($v2_route),*],
-            legacy => [$($legacy_route),*]
-        );
+        #[cfg(all(feature = "api-v2", feature = "api-legacy"))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] = &[
+            $($v2_route,)*
+            $($legacy_route,)*
+        ];
+
+        #[cfg(all(feature = "api-v2", not(feature = "api-legacy")))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] = &[
+            $($v2_route,)*
+        ];
+
+        #[cfg(all(not(feature = "api-v2"), feature = "api-legacy"))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] = &[
+            $($legacy_route,)*
+        ];
 
         #[cfg(feature = "api-docs")]
-        $crate::__declare_dual_api_slice!(
-            OPENAPI_DOCS: $crate::publication::OpenApiDocFn;
-            v2 => [$($v2_doc),*],
-            legacy => [$($legacy_doc),*]
-        );
+        const ROUTE_DOC_POLICIES_LEN: usize =
+            $crate::publication::route_doc_policies_len(ROUTE_PUBLICATIONS);
 
         #[cfg(feature = "api-docs")]
-        $crate::__declare_dual_api_slice!(
-            ROUTE_DOC_POLICIES: $crate::publication::RouteDocPolicy;
-            v2 => [$($v2_route_doc_policy),*],
-            legacy => [$($legacy_route_doc_policy),*]
-        );
+        const ROUTE_DOC_POLICIES: &[$crate::publication::RouteDocPolicy] =
+            &$crate::publication::derive_route_doc_policies::<ROUTE_DOC_POLICIES_LEN>(ROUTE_PUBLICATIONS);
 
         #[cfg(feature = "api-docs")]
         fn openapi_json() -> String {
-            $crate::publication::serialize_openapi_docs(OPENAPI_DOCS)
-        }
+            let mut merged: Option<utoipa::openapi::OpenApi> = None;
 
-        #[cfg(feature = "api-docs")]
-        fn openapi_doc() -> utoipa::openapi::OpenApi {
-            let mut docs = OPENAPI_DOCS.iter();
-            let Some(first) = docs.next() else {
-                return utoipa::openapi::OpenApiBuilder::new()
+            #[cfg(feature = "api-v2")]
+            {
+                $(
+                    {
+                        let openapi = ($v2_doc)();
+                        if let Some(existing) = &mut merged {
+                            existing.merge(openapi);
+                        } else {
+                            merged = Some(openapi);
+                        }
+                    }
+                )*
+            }
+
+            #[cfg(feature = "api-legacy")]
+            {
+                $(
+                    {
+                        let openapi = ($legacy_doc)();
+                        if let Some(existing) = &mut merged {
+                            existing.merge(openapi);
+                        } else {
+                            merged = Some(openapi);
+                        }
+                    }
+                )*
+            }
+
+            let merged = merged.unwrap_or_else(|| {
+                utoipa::openapi::OpenApiBuilder::new()
                     .info(
                         utoipa::openapi::InfoBuilder::new()
                             .title("Summit RCM API")
                             .version("1.0")
                             .build(),
                     )
-                    .build();
-            };
+                    .build()
+            });
 
-            let mut merged = first();
-            for openapi in docs {
-                merged.merge(openapi());
+            serde_json::to_string(&merged).unwrap_or_default()
+        }
+    };
+
+    (
+        routes {
+            v2 => [$($v2_items:tt)*],
+            legacy => [$($legacy_items:tt)*] $(,)?
+        },
+        openapi {
+            v2 => [$($v2_doc:expr),* $(,)?],
+            legacy => [$($legacy_doc:expr),* $(,)?] $(,)?
+        } $(,)?
+    ) => {
+        #[cfg(all(feature = "api-v2", feature = "api-legacy"))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] =
+            $crate::__declare_route_items!($($v2_items)* $($legacy_items)*);
+
+        #[cfg(all(feature = "api-v2", not(feature = "api-legacy")))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] =
+            $crate::__declare_route_items!($($v2_items)*);
+
+        #[cfg(all(not(feature = "api-v2"), feature = "api-legacy"))]
+        const ROUTE_PUBLICATIONS: &[$crate::publication::RoutePublication] =
+            $crate::__declare_route_items!($($legacy_items)*);
+
+        #[cfg(feature = "api-docs")]
+        const ROUTE_DOC_POLICIES_LEN: usize =
+            $crate::publication::route_doc_policies_len(ROUTE_PUBLICATIONS);
+
+        #[cfg(feature = "api-docs")]
+        const ROUTE_DOC_POLICIES: &[$crate::publication::RouteDocPolicy] =
+            &$crate::publication::derive_route_doc_policies::<ROUTE_DOC_POLICIES_LEN>(ROUTE_PUBLICATIONS);
+
+        #[cfg(feature = "api-docs")]
+        fn openapi_json() -> String {
+            let mut merged: Option<utoipa::openapi::OpenApi> = None;
+
+            #[cfg(feature = "api-v2")]
+            {
+                $(
+                    {
+                        let openapi = ($v2_doc)();
+                        if let Some(existing) = &mut merged {
+                            existing.merge(openapi);
+                        } else {
+                            merged = Some(openapi);
+                        }
+                    }
+                )*
             }
-            merged
+
+            #[cfg(feature = "api-legacy")]
+            {
+                $(
+                    {
+                        let openapi = ($legacy_doc)();
+                        if let Some(existing) = &mut merged {
+                            existing.merge(openapi);
+                        } else {
+                            merged = Some(openapi);
+                        }
+                    }
+                )*
+            }
+
+            let merged = merged.unwrap_or_else(|| {
+                utoipa::openapi::OpenApiBuilder::new()
+                    .info(
+                        utoipa::openapi::InfoBuilder::new()
+                            .title("Summit RCM API")
+                            .version("1.0")
+                            .build(),
+                    )
+                    .build()
+            });
+
+            serde_json::to_string(&merged).unwrap_or_default()
         }
     };
 }
@@ -306,29 +315,27 @@ macro_rules! declare_plugin {
     (
         cfg($($cfg:tt)+);
         name: $name:literal
+        $(, startup: $startup:expr)?
         $(, at_commands: $commands:expr)?
         $(,)?
     ) => {
-        #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy")))]
-        pub static HTTP_PUBLICATION: $crate::publication::HttpPluginPublication = {
-            let publication = $crate::publication::HttpPluginPublication::new($name);
-            let publication = publication.with_routes(ROUTE_PUBLICATIONS);
-            publication
-        };
-
-        #[cfg(all($($cfg)+, feature = "api-docs"))]
-        pub static DOCS_PUBLICATION: $crate::publication::OpenApiPluginPublication = {
-            let publication = $crate::publication::OpenApiPluginPublication::new($name);
-            let publication = publication.with_openapi(openapi_doc);
-            let publication = publication.with_openapi_json(openapi_json);
-            let publication = publication.with_route_doc_policies(ROUTE_DOC_POLICIES);
-            publication
-        };
-
-        #[cfg(all($($cfg)+, feature = "at-interface"))]
-        pub static AT_PUBLICATION: $crate::publication::AtPluginPublication = {
-            let publication = $crate::publication::AtPluginPublication::new($name);
-            let publication = $crate::declare_plugin!(@with_at_commands publication $(, $commands)?);
+        #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy", feature = "at-interface")))]
+        pub static PLUGIN_PUBLICATION: $crate::publication::PluginPublication = {
+            let mut publication = $crate::publication::PluginPublication::new($name);
+            #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+            {
+                publication = publication.with_routes(ROUTE_PUBLICATIONS);
+            }
+            $(publication = publication.with_startup($startup);)?
+            #[cfg(feature = "api-docs")]
+            {
+                publication = publication.with_openapi_json(openapi_json);
+            }
+            #[cfg(feature = "api-docs")]
+            {
+                publication = publication.with_route_doc_policies(ROUTE_DOC_POLICIES);
+            }
+            publication = $crate::declare_plugin!(@with_at_commands publication $(, $commands)?);
             publication
         };
     };
@@ -339,7 +346,12 @@ macro_rules! declare_plugin {
 
     (@with_at_commands $publication:ident, $commands:expr) => {{
         #[cfg(feature = "at-interface")]
-        let publication = $publication.with_at_commands($commands);
-        publication
+        {
+            $publication.with_at_commands($commands)
+        }
+        #[cfg(not(feature = "at-interface"))]
+        {
+            $publication
+        }
     }};
 }

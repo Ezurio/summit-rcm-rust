@@ -13,7 +13,7 @@ pub mod routes;
 pub use self::files_service::FilesService;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/system/config/export" => {
 				GET => routes::v2::export_config

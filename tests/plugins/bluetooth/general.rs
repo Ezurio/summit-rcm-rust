@@ -18,13 +18,16 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
         .and_then(serde_json::Value::as_array)
         .is_some());
 
-    let started = BluetoothService::handle_command(
+    let (started, info_msg) = BluetoothService::handle_command_v2(
         Some("controller0"),
         None,
-        &json!({"command": "bleStartDiscovery"}),
+        serde_json::from_value(json!({"command": "bleStartDiscovery"}))
+            .expect("bleStartDiscovery request should deserialize"),
     )
-    .await;
-    assert_eq!(started["SDCERR"].as_i64(), Some(0));
+    .await
+    .expect("bleStartDiscovery should succeed");
+    assert!(info_msg.is_empty(), "{}", info_msg);
+    assert!(started.started.is_none());
 
     let mut observed_discovering = false;
     for _ in 0..10 {
@@ -41,12 +44,14 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    let _ = BluetoothService::handle_command(
+    let _ = BluetoothService::handle_command_v2(
         Some("controller0"),
         None,
-        &json!({"command": "bleStopDiscovery"}),
+        serde_json::from_value(json!({"command": "bleStopDiscovery"}))
+            .expect("bleStopDiscovery request should deserialize"),
     )
-    .await;
+    .await
+    .expect("bleStopDiscovery should succeed");
 
     assert!(observed_discovering, "expected live BlueZ discovery to become visible at least once");
 }

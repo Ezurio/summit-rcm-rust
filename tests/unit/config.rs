@@ -33,7 +33,7 @@ pub(crate) fn set_system_setting(key: &str, value: &str) -> bool {
 }
 
 pub(crate) fn delete_system_setting(key: &str) {
-    let mut cfg = SETTINGS_CONFIG.lock().unwrap();
+    let mut cfg = SETTINGS_CONFIG.write().unwrap();
     cfg.remove_key(SystemSettingsManage::SECTION, key);
 }
 
@@ -74,7 +74,7 @@ fn system_settings_defaults_match_python_port_contract() {
 
     assert_eq!(SystemSettingsManage::get_int("session_timeout", 10) as u64, 10);
     assert_eq!(SystemSettingsManage::get_int("tamper_protection_timeout", 600) as u64, 600);
-    assert_eq!(SystemSettingsManage::get_int("max_web_clients", 1) as usize, 1);
+    assert_eq!(SystemSettingsManage::get_int("max_web_clients", 8) as usize, 8);
     assert_eq!(user_callback_timeout_secs(), 10);
     assert_eq!(SystemSettingsManage::get_int("login_retry_times", 5) as usize, 5);
     assert_eq!(SystemSettingsManage::get_int("login_retry_window", 600) as u64, 600);
@@ -106,7 +106,7 @@ fn system_settings_overrides_are_reflected_immediately() {
 
     assert_eq!(SystemSettingsManage::get_int("session_timeout", 10) as u64, 42);
     assert_eq!(SystemSettingsManage::get_int("tamper_protection_timeout", 600) as u64, 77);
-    assert_eq!(SystemSettingsManage::get_int("max_web_clients", 1) as usize, 3);
+    assert_eq!(SystemSettingsManage::get_int("max_web_clients", 8) as usize, 3);
     assert_eq!(user_callback_timeout_secs(), 19);
     assert_eq!(SystemSettingsManage::get_int("login_retry_times", 5) as usize, 9);
     assert_eq!(SystemSettingsManage::get_int("login_retry_window", 600) as u64, 123);

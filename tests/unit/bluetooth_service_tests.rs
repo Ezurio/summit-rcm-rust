@@ -1,4 +1,4 @@
-use super::test_support::{MockBluezHarness, TEST_DEVICE_ADDRESS, success_code};
+use super::test_support::{MockBluezHarness, TEST_DEVICE_ADDRESS};
 use super::*;
 use serde_json::json;
 use std::sync::atomic::Ordering;
@@ -24,7 +24,7 @@ async fn simulated_bluez_discovery_updates_controller_state() {
     )
     .await
     .expect("start discovery should succeed");
-    assert_eq!(started["SDCERR"].as_i64(), Some(success_code()));
+    assert!(started.succeeded, "{}", started.info_msg);
     assert!(harness.state.discovering.load(Ordering::SeqCst));
 
     let after_start = BluetoothService::get_state_inner_with_conn(&harness.conn, Some("controller0"), None, None)
@@ -40,7 +40,7 @@ async fn simulated_bluez_discovery_updates_controller_state() {
     )
     .await
     .expect("stop discovery should succeed");
-    assert_eq!(stopped["SDCERR"].as_i64(), Some(success_code()));
+    assert!(stopped.succeeded, "{}", stopped.info_msg);
     assert!(!harness.state.discovering.load(Ordering::SeqCst));
 }
 
@@ -56,7 +56,7 @@ async fn simulated_bluez_pair_and_connect_flow_updates_device_payload() {
     )
     .await
     .expect("pair command should succeed");
-    assert_eq!(paired["SDCERR"].as_i64(), Some(success_code()));
+    assert!(paired.succeeded, "{}", paired.info_msg);
 
     let connected = BluetoothService::handle_command_inner_with_conn(
         &harness.conn,
@@ -66,7 +66,7 @@ async fn simulated_bluez_pair_and_connect_flow_updates_device_payload() {
     )
     .await
     .expect("connect command should succeed");
-    assert_eq!(connected["SDCERR"].as_i64(), Some(success_code()));
+    assert!(connected.succeeded, "{}", connected.info_msg);
 
     let device = BluetoothService::get_device_state_v2_with_conn(
         &harness.conn,

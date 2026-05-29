@@ -53,7 +53,7 @@ impl NetworkManagerService {
                 if value.is_null() {
                     continue;
                 }
-                if ["pairwise", "group", "proto"].contains(&key.as_str()) {
+                if matches!(key.as_str(), "pairwise" | "group" | "proto") {
                     let values = if let Some(items) = value.as_array() {
                         items
                             .iter()
@@ -77,15 +77,14 @@ impl NetworkManagerService {
                 if value.is_null() {
                     continue;
                 }
-                if [
-                    "eap",
-                    "phase2-auth",
-                    "phase2-autheap",
-                    "altsubject-matches",
-                    "phase2-altsubject-matches",
-                ]
-                .contains(&key.as_str())
-                {
+                if matches!(
+                    key.as_str(),
+                    "eap"
+                        | "phase2-auth"
+                        | "phase2-autheap"
+                        | "altsubject-matches"
+                        | "phase2-altsubject-matches"
+                ) {
                     let values = if let Some(items) = value.as_array() {
                         items
                             .iter()
@@ -100,16 +99,15 @@ impl NetworkManagerService {
                     continue;
                 }
 
-                if [
-                    "ca-cert",
-                    "client-cert",
-                    "private-key",
-                    "phase2-ca-cert",
-                    "phase2-client-cert",
-                    "phase2-private-key",
-                ]
-                .contains(&key.as_str())
-                {
+                if matches!(
+                    key.as_str(),
+                    "ca-cert"
+                        | "client-cert"
+                        | "private-key"
+                        | "phase2-ca-cert"
+                        | "phase2-client-cert"
+                        | "phase2-private-key"
+                ) {
                     if let Some(cert_name) = value.as_str() {
                         target.insert(
                             key.clone(),

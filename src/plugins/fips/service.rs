@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use crate::utils::command_output;
-use std::process::Output;
+use crate::utils::read_sysfs;
 use log::error;
 
 const FIPS_SCRIPT: &str = "/usr/bin/fips-set";
@@ -18,58 +18,45 @@ const VALID_STATES: &[&str] = &["fips", "fips_wifi", "unset"];
 enum FipsScriptResult {
 	Success,
 	Missing,
-	Failure(String),
+	Failure,
 }
 
 pub struct FipsService;
 
 impl FipsService {
 	async fn read_fips_flag(path: &str) -> Option<bool> {
-		match tokio::fs::read_to_string(path).await {
+		match read_sysfs(path).await {
 			Ok(value) => Some(value.trim() == "1"),
 			Err(_) => None,
-		}
-	}
-
-	fn command_error_message(output: &Output) -> String {
-		let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-		let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-		if !stderr.is_empty() {
-			stderr
-		} else if !stdout.is_empty() {
-			stdout
-		} else {
-			"script failed".to_string()
 		}
 	}
 
 	async fn run_fips_script(args: &[&str]) -> FipsScriptResult {
 		match command_output(FIPS_SCRIPT, args).await {
 			Ok(output) if output.status.success() => FipsScriptResult::Success,
-			Ok(output) => FipsScriptResult::Failure(Self::command_error_message(&output)),
+			Ok(_) => FipsScriptResult::Failure,
 			Err(error)
 				if error
 					.downcast_ref::<std::io::Error>()
 					.is_some_and(|io_error| io_error.kind() == std::io::ErrorKind::NotFound) => {
 				FipsScriptResult::Missing
 			}
-			Err(error) => FipsScriptResult::Failure(error.to_string()),
+			Err(_) => FipsScriptResult::Failure,
 		}
 	}
 
-	pub async fn get_fips_state() -> String {
+	pub async fn get_fips_state() -> &'static str {
 		let fips_enabled = match Self::read_fips_flag(FIPS_ENABLED_PATH).await {
 			Some(enabled) => enabled,
-			None => return "unsupported".to_string(),
+			None => return "unsupported",
 		};
 
 		if !fips_enabled {
-			"unset".to_string()
+			"unset"
 		} else {
 			match Self::read_fips_flag(FIPS_WIFI_ENABLED_PATH).await {
-				Some(true) => "fips_wifi".to_string(),
-				Some(false) | None => "fips".to_string(),
+				Some(true) => "fips_wifi",
+				Some(false) | None => "fips",
 			}
 		}
 	}
@@ -85,8 +72,8 @@ impl FipsService {
 		match Self::run_fips_script(&[value]).await {
 			FipsScriptResult::Success => Ok(true),
 			FipsScriptResult::Missing => Ok(false),
-			FipsScriptResult::Failure(message) => {
-				error!("set_fips_state: {}", message);
+			FipsScriptResult::Failure => {
+				error!("set_fips_state: fips-set command failed");
 				Ok(false)
 			}
 		}

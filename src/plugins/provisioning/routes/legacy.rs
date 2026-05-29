@@ -4,9 +4,16 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::plugins::provisioning::service::{CertificateProvisioningService, ProvisioningState};
-use axum::extract::multipart::MultipartRejection;
-use axum::extract::Multipart;
+use crate::plugins::provisioning::routes::shared::{
+    create_csr_from_upload, save_uploaded_certificate, ProvisioningRouteError,
+};
+use crate::plugins::provisioning::service::CertificateProvisioningService;
+use axum::{
+    extract::multipart::MultipartRejection,
+    extract::Multipart,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -15,6 +22,7 @@ crate::define_ok_json_response_family! {
     pub enum GetProvisioningLegacyResponses(LegacyProvisioningStateResponse);
 }
 
+pub type PostProvisioningLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 pub type PutProvisioningLegacyResponses = crate::web::legacy_response::LegacyOperationOkResponse;
 
 #[derive(serde::Serialize)]
@@ -45,22 +53,19 @@ pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
     path = "/certificateProvisioning",
     tag = "provisioning",
     request_body(content = String, content_type = "multipart/form-data"),
-    responses(super::v2::ProvisioningTextResponses)
+    responses(PostProvisioningLegacyResponses)
 ))]
 pub async fn post_provisioning_legacy(
     multipart: Result<Multipart, MultipartRejection>,
-) -> super::v2::ProvisioningTextResponses {
-    if CertificateProvisioningService::get_provisioning_state_async().await
-        != ProvisioningState::Unprovisioned
-    {
-        return super::v2::ProvisioningTextResponses::BadRequest;
+) -> Response {
+    match create_csr_from_upload(multipart).await {
+        Ok(csr) => ([(header::CONTENT_TYPE, "application/x-download")], csr).into_response(),
+        Err(ProvisioningRouteError::BadRequest)
+        | Err(ProvisioningRouteError::AlreadyProvisioned)
+        | Err(ProvisioningRouteError::MissingFilename)
+        | Err(ProvisioningRouteError::InvalidCertificate) => StatusCode::BAD_REQUEST.into_response(),
+        Err(ProvisioningRouteError::InternalError) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
-
-    let Ok(multipart) = multipart else {
-        return super::v2::ProvisioningTextResponses::BadRequest;
-    };
-
-    super::v2::post_provisioning(Ok(multipart)).await
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -73,20 +78,13 @@ pub async fn post_provisioning_legacy(
 pub async fn put_provisioning_legacy(
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
 ) -> PutProvisioningLegacyResponses {
-    if CertificateProvisioningService::get_provisioning_state_async().await
-        != ProvisioningState::Unprovisioned
-    {
-        return fail_response("Already provisioned").into();
-    }
-
-    let Ok(multipart) = multipart else {
-        return fail_response("Could not upload certificate file").into();
-    };
-
-    match super::v2::put_provisioning(Ok(multipart)).await {
-        super::v2::PutProvisioningResponses::Ok => ok_response("").into(),
-        super::v2::PutProvisioningResponses::BadRequest | super::v2::PutProvisioningResponses::InternalError => {
-            fail_response("Could not upload certificate file").into()
+    match save_uploaded_certificate(multipart).await {
+        Ok(()) => ok_response("").into(),
+        Err(ProvisioningRouteError::AlreadyProvisioned) => fail_response("Already provisioned").into(),
+        Err(ProvisioningRouteError::MissingFilename) => fail_response("No filename specified").into(),
+        Err(ProvisioningRouteError::BadRequest) | Err(ProvisioningRouteError::InvalidCertificate) => {
+            fail_response("Invalid certificate file").into()
         }
+        Err(ProvisioningRouteError::InternalError) => fail_response("Error uploading certificate file").into(),
     }
 }

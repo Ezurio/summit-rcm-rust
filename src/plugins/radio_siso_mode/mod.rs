@@ -9,7 +9,7 @@ pub mod routes;
 pub mod at_commands;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/network/wifi/radioSISOMode" => {
 				GET => routes::v2::get_radio_siso_mode,

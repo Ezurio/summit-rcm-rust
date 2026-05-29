@@ -73,7 +73,7 @@ fn tracked_sessions_expire_after_timeout() {
     assert!(tests::set_system_setting("session_timeout", "1"));
 
     test_support::set_boottime_secs(500);
-    LoginService::track_session("session-a", "root");
+    LoginService::track_session(1, "root");
     assert!(LoginService::is_user_logged_in("root"));
 
     test_support::set_boottime_secs(561);
@@ -88,17 +88,17 @@ fn tracked_sessions_extend_from_activity() {
     assert!(tests::set_system_setting("session_timeout", "1"));
 
     test_support::set_boottime_secs(700);
-    LoginService::track_session("session-b", "root");
-    assert!(LoginService::is_session_active("session-b"));
+    LoginService::track_session(2, "root");
+    assert!(LoginService::is_session_active(2));
 
     test_support::set_boottime_secs(759);
-    assert!(LoginService::refresh_session("session-b"));
+    assert!(LoginService::check_and_refresh_session(2));
 
     test_support::set_boottime_secs(818);
-    assert!(LoginService::is_session_active("session-b"));
+    assert!(LoginService::is_session_active(2));
 
     test_support::set_boottime_secs(819);
-    assert!(!LoginService::is_session_active("session-b"));
+    assert!(!LoginService::is_session_active(2));
 }
 
 #[test]
@@ -108,19 +108,19 @@ fn multiple_sessions_for_same_user_are_supported() {
     test_support::clear_login_state();
 
     test_support::set_boottime_secs(900);
-    LoginService::track_session("session-u1", "root");
-    LoginService::track_session("session-u2", "root");
+    LoginService::track_session(11, "root");
+    LoginService::track_session(12, "root");
 
     assert!(LoginService::is_user_logged_in("root"));
-    assert!(LoginService::is_session_active("session-u1"));
-    assert!(LoginService::is_session_active("session-u2"));
+    assert!(LoginService::is_session_active(11));
+    assert!(LoginService::is_session_active(12));
 
-    LoginService::remove_session("session-u1");
+    LoginService::remove_session(11);
     assert!(LoginService::is_user_logged_in("root"));
-    assert!(!LoginService::is_session_active("session-u1"));
-    assert!(LoginService::is_session_active("session-u2"));
+    assert!(!LoginService::is_session_active(11));
+    assert!(LoginService::is_session_active(12));
 
-    LoginService::remove_session("session-u2");
+    LoginService::remove_session(12);
     assert!(!LoginService::is_user_logged_in("root"));
 }
 
@@ -132,11 +132,11 @@ fn tracked_sessions_respect_nanosecond_expiry_boundary() {
 
     test_support::set_boottime(1000, 900_000_000);
     assert!(tests::set_system_setting("session_timeout", "1"));
-    LoginService::track_session("session-ns", "root");
+    LoginService::track_session(20, "root");
 
     test_support::set_boottime(1060, 800_000_000);
-    assert!(LoginService::is_session_active("session-ns"));
+    assert!(LoginService::is_session_active(20));
 
     test_support::set_boottime(1060, 900_000_000);
-    assert!(!LoginService::is_session_active("session-ns"));
+    assert!(!LoginService::is_session_active(20));
 }

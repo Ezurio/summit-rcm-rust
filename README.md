@@ -258,6 +258,13 @@ cargo check --bin generate_openapi --no-default-features --features "api-v2,api-
 Common targeted filters:
 
 ```bash
+# Provisioning-only host response parity against the sibling Python summit-rcm baseline
+../summit-rcm/.venv/bin/python tests/parity/api_parity.py responses \
+  --cases tests/parity/provisioning_response_cases.json \
+  --python-repo ../summit-rcm \
+  --legacy-python-repo ../summit-rcm \
+  --plugins provisioning
+
 # One Rust test by name
 cargo test builtin_plugin_registry_matches_source_tree -- --exact
 
@@ -297,6 +304,8 @@ The parity harnesses use temporary config and TLS assets so they do not depend o
 ## Embedded target testing
 
 See [docs/embedded-testing.md](docs/embedded-testing.md) for the full device workflow, including Buildroot rebuilds, deployment, smoke checks, remote parity, and AT testing.
+
+For AT-specific parity scope, case authoring, and troubleshooting details, see [docs/at-interface-parity.md](docs/at-interface-parity.md).
 
 Quick links:
 

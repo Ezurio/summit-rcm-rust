@@ -34,7 +34,7 @@ pub async fn execute_http_execute_transaction(_fsm: &FsmHandle, params: &CsvPara
     FsmHandle::at_output(b"> ", false, false);
 
     match HttpService::execute_transaction(length).await {
-        Ok((resp, _sent)) => CommandOutcome::WithData(format!("{}\r\nOK", resp)),
+        Ok((resp, _sent)) => CommandOutcome::WithData(resp),
         Err(error) => {
             error!("HTTP execute error: {}", error);
             CommandOutcome::Error
@@ -79,37 +79,60 @@ pub async fn execute_http_clear_configuration(_fsm: &FsmHandle, _params: &CsvPar
 }
 
 pub async fn execute_http_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let Some(auth_mode) = params.parse_value::<i32>(0) else {
-        error!("HTTP SSL parse error: invalid auth mode");
-        return CommandOutcome::Error;
-    };
-    let check_hostname = match AtSslConfig::parse_hostname_flag(params.trimmed(1)) {
-        Ok(check_hostname) => check_hostname,
-        Err(error) => {
-            error!("HTTP SSL parse error: {}", error);
-            return CommandOutcome::Error;
-        }
-    };
-    let key = params.trimmed(2);
-    let cert = params.trimmed(3);
-    let ca = params.trimmed(4);
+    match params.parameter_count() {
+        1 | 2 | 4 | 5 => {
+            let Some(auth_mode) = params.parse_value::<i32>(0) else {
+                error!("HTTP SSL parse error: invalid auth mode");
+                return CommandOutcome::Error;
+            };
 
-    let ssl_config = match AtSslConfig::new(auth_mode, check_hostname, key, cert, ca) {
-        Ok(config) => config,
-        Err(error) => {
-            error!("HTTP SSL configure error: {}", error);
-            return CommandOutcome::Error;
-        }
-    };
+            let check_hostname_raw = if params.parameter_count() >= 2 {
+                params.trimmed(1)
+            } else {
+                ""
+            };
+            let check_hostname = match AtSslConfig::parse_hostname_flag(check_hostname_raw) {
+                Ok(check_hostname) => check_hostname,
+                Err(error) => {
+                    error!("HTTP SSL parse error: {}", error);
+                    return CommandOutcome::Error;
+                }
+            };
+            let key = if params.parameter_count() >= 4 {
+                params.trimmed(2)
+            } else {
+                ""
+            };
+            let cert = if params.parameter_count() >= 4 {
+                params.trimmed(3)
+            } else {
+                ""
+            };
+            let ca = if params.parameter_count() >= 5 {
+                params.trimmed(4)
+            } else {
+                ""
+            };
 
-    if let Err(error) = ssl_config.validate_for_http().await {
-        error!("HTTP SSL configure error: {}", error);
-        return CommandOutcome::Error;
+            let ssl_config = match AtSslConfig::new(auth_mode, check_hostname, key, cert, ca) {
+                Ok(config) => config,
+                Err(error) => {
+                    error!("HTTP SSL configure error: {}", error);
+                    return CommandOutcome::Error;
+                }
+            };
+
+            if let Err(error) = ssl_config.validate_for_http().await {
+                error!("HTTP SSL configure error: {}", error);
+                return CommandOutcome::Error;
+            }
+
+            let mut svc = HttpService::instance().lock().unwrap();
+            svc.set_ssl_config(ssl_config);
+            CommandOutcome::Ok
+        }
+        _ => CommandOutcome::Error,
     }
-
-    let mut svc = HttpService::instance().lock().unwrap();
-    svc.set_ssl_config(ssl_config);
-    CommandOutcome::Ok
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
@@ -127,7 +150,7 @@ pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::at_interface::commands::command_spec!(
         "at+httpssl",
         "AT+HTTPSSL=<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
-        5,
+        0,
         &[],
         execute_http_configure_ssl
     ),

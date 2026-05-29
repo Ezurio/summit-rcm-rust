@@ -30,6 +30,8 @@ use libloading::{Library, Symbol};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "api-docs")]
+use std::sync::RwLock;
 use log::{error, info};
 
 #[cfg(feature = "api-docs")]
@@ -39,6 +41,7 @@ use summit_rcm_plugin_api::{cstr_to_string, PluginHandle};
 
 use crate::config::ServerConfig;
 use crate::publication::{PublishedRoute, RouteAuthPolicy};
+use crate::utils::path_exists;
 
 #[cfg(feature = "api-docs")]
 use crate::publication::{ResolvedOpenApiPublication, RouteDocPolicy};
@@ -55,25 +58,25 @@ struct DynamicOpenApiRegistry {
 }
 
 #[cfg(feature = "api-docs")]
-static DYNAMIC_OPENAPI_REGISTRY: LazyLock<Mutex<DynamicOpenApiRegistry>> =
-    LazyLock::new(|| Mutex::new(DynamicOpenApiRegistry::default()));
+static DYNAMIC_OPENAPI_REGISTRY: LazyLock<RwLock<DynamicOpenApiRegistry>> =
+    LazyLock::new(|| RwLock::new(DynamicOpenApiRegistry::default()));
 
 type CreateFn = unsafe extern "C" fn() -> *mut PluginHandle;
 
 #[cfg(feature = "api-docs")]
 fn reset_dynamic_openapi_registry() {
-    *DYNAMIC_OPENAPI_REGISTRY.lock().unwrap() = DynamicOpenApiRegistry::default();
+    *DYNAMIC_OPENAPI_REGISTRY.write().unwrap() = DynamicOpenApiRegistry::default();
 }
 
 #[cfg(feature = "api-docs")]
 fn register_dynamic_openapi(publication: ResolvedOpenApiPublication) {
-    let mut registry = DYNAMIC_OPENAPI_REGISTRY.lock().unwrap();
+    let mut registry = DYNAMIC_OPENAPI_REGISTRY.write().unwrap();
     registry.publications.push(publication);
 }
 
 #[cfg(feature = "api-docs")]
 pub fn dynamic_openapi_publications() -> Vec<ResolvedOpenApiPublication> {
-    DYNAMIC_OPENAPI_REGISTRY.lock().unwrap().publications.clone()
+    DYNAMIC_OPENAPI_REGISTRY.read().unwrap().publications.clone()
 }
 
 #[cfg(feature = "api-docs")]
@@ -339,7 +342,7 @@ pub async fn load_plugins(mut router: Router) -> Router {
     let plugin_dir = ServerConfig::get_string("summit-rcm", "plugin_dir", "/usr/lib/summit-rcm/plugins");
 
     let plugin_dir_path = std::path::Path::new(&plugin_dir);
-    if !tokio::fs::try_exists(plugin_dir_path).await.unwrap_or(false) {
+    if !path_exists(plugin_dir_path).await {
         return router;
     }
 

@@ -6,7 +6,9 @@
 
 use anyhow::{bail, Result};
 use crate::utils::command_output;
+use crate::utils::read_text;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use log::error;
 
 pub const ADD_SOURCE: &str = "addSource";
@@ -36,7 +38,7 @@ impl ChronyNTPService {
     }
 
     pub async fn get_static_sources() -> Vec<String> {
-        let content = match tokio::fs::read_to_string(CHRONY_SOURCES_PATH).await {
+        let content = match read_text(CHRONY_SOURCES_PATH).await {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
@@ -68,11 +70,12 @@ impl ChronyNTPService {
 
     pub async fn get_sources() -> Result<Vec<ChronySource>> {
         let static_sources = Self::get_static_sources().await;
+        let static_set: HashSet<&str> = static_sources.iter().map(String::as_str).collect();
         let mut result: Vec<ChronySource> = static_sources.iter()
             .map(|a| ChronySource { address: a.clone(), source_type: "static".into() })
             .collect();
         for src in Self::get_current_sources().await? {
-            if !static_sources.contains(&src) {
+            if !static_set.contains(src.as_str()) {
                 result.push(ChronySource { address: src, source_type: "dynamic".into() });
             }
         }
@@ -86,13 +89,22 @@ impl ChronyNTPService {
         let current = Self::get_static_sources().await;
         let new_sources: Vec<String> = match command {
             c if c == ADD_SOURCE => {
+                let current_set: HashSet<&str> = current.iter().map(String::as_str).collect();
                 let mut v = current.clone();
                 for s in &sources_in {
-                    if !current.contains(s) { v.push(s.clone()); }
+                    if !current_set.contains(s.as_str()) {
+                        v.push(s.clone());
+                    }
                 }
                 v
             }
-            c if c == REMOVE_SOURCE => current.into_iter().filter(|s| !sources_in.contains(s)).collect(),
+            c if c == REMOVE_SOURCE => {
+                let remove_set: HashSet<&str> = sources_in.iter().map(String::as_str).collect();
+                current
+                    .into_iter()
+                    .filter(|s| !remove_set.contains(s.as_str()))
+                    .collect()
+            }
             _ => sources_in, // OVERRIDE_SOURCES
         };
 

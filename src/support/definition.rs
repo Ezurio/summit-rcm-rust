@@ -10,6 +10,8 @@ use time::macros::format_description;
 pub static SUMMIT_RCM_TIME_FORMAT_DESCRIPTION: &[BorrowedFormatItem<'static>] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
 
+pub const CURRENT_PROCESS_LOG_IDENTIFIER: &str = env!("CARGO_PKG_NAME");
+
 pub const NETWORKMANAGER_DIR: &str = "/etc/NetworkManager/";
 pub const NETWORKMANAGER_CERT_DIR: &str = "/etc/NetworkManager/certs/";
 pub const NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR: &str =

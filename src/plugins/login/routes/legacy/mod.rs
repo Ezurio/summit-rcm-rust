@@ -128,11 +128,11 @@ fn permission_string_value(permission: impl Into<String>) -> Value {
 }
 
 fn sessions_enabled() -> bool {
-    crate::config::ServerConfig::get_bool("/", "tools.sessions.on", true)
+    crate::cached_config!(bool, crate::config::ServerConfig::get_bool("/", "tools.sessions.on", true))
 }
 
 fn default_username() -> String {
-    crate::config::ServerConfig::get_string("summit-rcm", "default_username", "root")
+    crate::cached_config!(String, crate::config::ServerConfig::get_string("summit-rcm", "default_username", "root"))
 }
 
 fn max_web_clients() -> usize {
@@ -140,13 +140,12 @@ fn max_web_clients() -> usize {
 }
 
 fn effective_permission_string(username: &str) -> String {
-    use crate::config::SystemSettingsManage;
     use crate::definition::USER_PERMISSION_TYPES;
 
     let mut permission = UserService::get_permission(username)
         .unwrap_or_else(|| USER_PERMISSION_TYPES.join(" "));
 
-    if SystemSettingsManage::get_int("max_web_clients", 1) as usize == 1 && !permission.is_empty() {
+    if max_web_clients() == 1 && !permission.is_empty() {
         permission = permission
             .split_whitespace()
             .filter(|entry| *entry != "system_user")
@@ -317,21 +316,21 @@ pub async fn post_login_legacy(
 
     match session.get::<String>("username").await {
         Ok(Some(_)) => {
-            let Some(session_id) = session.id().map(|session_id| session_id.to_string()) else {
+            let Some(session_id) = session.id().map(|id| id.0) else {
                 return login_response(fail_response("malformed cookie"), 0, empty_permission_value()).into();
             };
 
-            if LoginService::is_session_active(&session_id) {
+            if LoginService::is_session_active(session_id) {
                 if !UserService::verify(&username, password) {
                     LoginService::login_failed(&username);
-                    LoginService::remove_session(&session_id);
+                    LoginService::remove_session(session_id);
                     let _ = session.flush().await;
                     return login_response(fail_response("unable to verify user/password"), 0, empty_permission_value()).into();
                 }
 
                 LoginService::login_reset(&username);
                 LoginService::track_session(
-                    &session_id,
+                    session_id,
                     &username,
                 );
 
@@ -433,14 +432,11 @@ pub async fn post_login_legacy(
         .into();
     }
 
-    let Some(session_id) = session.id() else {
+    let Some(session_id) = session.id().map(|id| id.0) else {
         return login_response(fail_response("session id missing after save"), 0, empty_permission_value()).into();
     };
 
-    LoginService::track_session(
-        &session_id.to_string(),
-        &username,
-    );
+    LoginService::track_session(session_id, &username);
 
     let perm = effective_permission_string(&username);
 
@@ -473,11 +469,11 @@ pub async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses
         return DeleteLoginLegacyResponses::Ok(fail_response("user not found"));
     };
 
-    let Some(session_id) = session.id() else {
+    let Some(session_id) = session.id().map(|id| id.0) else {
         return DeleteLoginLegacyResponses::InternalError;
     };
 
-    LoginService::remove_session(&session_id.to_string());
+    LoginService::remove_session(session_id);
 
     if let Err(error) = session.flush().await {
         let _ = error;

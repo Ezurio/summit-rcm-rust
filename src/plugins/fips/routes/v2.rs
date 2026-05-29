@@ -38,12 +38,9 @@ pub struct FipsState {
 	responses(GetFipsResponses)
 ))]
 pub async fn get_fips() -> GetFipsResponses {
-	let mut fips_state = FipsService::get_fips_state().await;
-	if fips_state == "fips_wifi" {
-		fips_state = "fipsWifi".to_string();
-	}
-
-	FipsState { state: fips_state }.into()
+	let raw = FipsService::get_fips_state().await;
+	let fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
+	FipsState { state: fips_state.to_string() }.into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -68,13 +65,11 @@ pub async fn set_fips(Json(body): Json<FipsRequest>) -> SetFipsResponses {
 		Err(_) => return SetFipsResponses::BadRequest,
 	};
 
-	let mut new_fips_state = FipsService::get_fips_state().await;
-	if new_fips_state == "fips_wifi" {
-		new_fips_state = "fipsWifi".to_string();
-	}
+	let raw = FipsService::get_fips_state().await;
+	let new_fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
 
 	if success {
-		FipsState { state: new_fips_state }.into()
+		FipsState { state: new_fips_state.to_string() }.into()
 	} else {
 		SetFipsResponses::InternalError
 	}

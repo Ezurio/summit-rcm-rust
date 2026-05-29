@@ -44,3 +44,11 @@ pub struct BluetoothVspControlResponse {
     #[serde(rename = "GattConnections", skip_serializing_if = "Option::is_none")]
     pub gatt_connections: Option<Vec<BluetoothConnectionModel>>,
 }
+
+pub fn gatt_connections_response(
+    connections: Vec<BluetoothConnectionModel>,
+) -> BluetoothVspControlResponse {
+    BluetoothVspControlResponse {
+        gatt_connections: Some(connections),
+    }
+}

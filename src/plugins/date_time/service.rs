@@ -6,14 +6,16 @@
 
 use crate::dbus;
 use crate::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
+use crate::utils::read_text;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, util};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use time::PrimitiveDateTime;
 
 const TIMEDATE1_BUS_NAME: &str = "org.freedesktop.timedate1";
 const TIMEDATE1_MAIN_OBJ: &str = "/org/freedesktop/timedate1";
+const TIMEDATE1_MAIN_IFACE: &str = "org.freedesktop.timedate1";
 
 pub struct DateTimeService;
 
@@ -26,41 +28,36 @@ pub struct DateTimeSnapshot {
 }
 
 impl DateTimeService {
-    fn local_now() -> Result<OffsetDateTime> {
-        OffsetDateTime::now_local().map_err(Into::into)
-    }
-
     pub async fn local_zone() -> String {
-        tokio::fs::read_to_string("/etc/timezone")
+        read_text("/etc/timezone")
             .await
             .map(|zone| zone.trim().to_string())
             .unwrap_or_else(|_| "Unable to determine timezone".to_string())
     }
 
-    pub fn check_current_date_and_time() -> (bool, String) {
-        match Self::local_now() {
-            Ok(now) => (
-                true,
-                now.format(SUMMIT_RCM_TIME_FORMAT_DESCRIPTION)
-                    .unwrap_or_else(|error| error.to_string()),
-            ),
-            Err(error) => (false, error.to_string()),
+    pub fn current_datetime() -> String {
+        let _ = util::refresh_tz();
+        OffsetDateTime::now_local()
+            .unwrap_or_else(|_| OffsetDateTime::now_utc())
+            .format(SUMMIT_RCM_TIME_FORMAT_DESCRIPTION)
+            .expect("static datetime format should always format OffsetDateTime")
+    }
+
+    /// Current time as a UTC string in the standard summit-rcm format.
+    pub fn now_utc_formatted() -> String {
+        OffsetDateTime::now_utc()
+            .format(SUMMIT_RCM_TIME_FORMAT_DESCRIPTION)
+            .unwrap_or_else(|t| t.to_string())
+    }
+
+    pub fn get_datetime(zones: Vec<String>, zone: String) -> DateTimeSnapshot {
+        DateTimeSnapshot {
+            zones,
+            zone,
+            datetime: Self::current_datetime(),
         }
     }
 
-    pub async fn get_datetime() -> Result<DateTimeSnapshot> {
-        let zones = Self::list_timezones().await?;
-        let (success, current_datetime) = Self::check_current_date_and_time();
-        let datetime = if success { current_datetime } else { String::new() };
-
-        Ok(DateTimeSnapshot {
-            zones,
-            zone: Self::local_zone().await,
-            datetime,
-        })
-    }
-
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn set_time_manual(dt: &str) -> Result<()> {
         let dt_int = match dt.parse::<i64>() {
             Ok(value) => value,
@@ -78,7 +75,7 @@ impl DateTimeService {
             conn,
             Some(TIMEDATE1_BUS_NAME),
             TIMEDATE1_MAIN_OBJ,
-            Some("org.freedesktop.timedate1"),
+            Some(TIMEDATE1_MAIN_IFACE),
             "SetTime",
             &(dt_int, false, false),
             None,
@@ -93,7 +90,7 @@ impl DateTimeService {
             conn,
             Some(TIMEDATE1_BUS_NAME),
             TIMEDATE1_MAIN_OBJ,
-            Some("org.freedesktop.timedate1"),
+            Some(TIMEDATE1_MAIN_IFACE),
             "SetTimezone",
             &(timezone, false),
             None,

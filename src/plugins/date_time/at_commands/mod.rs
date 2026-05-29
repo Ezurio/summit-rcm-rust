@@ -11,16 +11,26 @@ use crate::plugins::date_time::service::DateTimeService;
 use log::error;
 
 pub async fn execute_datetime(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    if params.trimmed(0).is_empty() {
-        match DateTimeService::get_datetime().await {
-            Ok(v) => CommandOutcome::WithData(format!("+DATETIME: {}\r\nOK", v.datetime)),
-            Err(e) => {
-                error!("Datetime get error: {}", e);
-                CommandOutcome::Error
+    match params.parameter_count() {
+        0 => CommandOutcome::WithData(format!(
+            "+DATETIME: {}",
+            DateTimeService::current_datetime()
+        )),
+        1 => {
+            let timestamp = params.trimmed(0);
+            if timestamp.is_empty() {
+                return CommandOutcome::Error;
+            }
+
+            match DateTimeService::set_time_manual(timestamp).await {
+                Ok(_) => CommandOutcome::Ok,
+                Err(e) => {
+                    error!("Datetime set error: {}", e);
+                    CommandOutcome::Error
+                }
             }
         }
-    } else {
-        CommandOutcome::Error
+        _ => CommandOutcome::Error,
     }
 }
 
@@ -35,26 +45,34 @@ pub async fn execute_timezone_set(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     }
 }
 
-pub async fn execute_timezone_get(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
-    match DateTimeService::list_timezones().await {
-        Ok(zones) => {
-            let body = zones
-                .iter()
-                .map(|z| format!("+TZGET: {}", z))
-                .collect::<Vec<_>>()
-                .join("\r\n");
-            CommandOutcome::WithData(format!("{}\r\nOK", body))
-        }
-        Err(e) => {
-            error!("Timezone get error: {}", e);
-            CommandOutcome::Error
-        }
+pub async fn execute_timezone_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    match params.parameter_count() {
+        0 => CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await)),
+        1 => match params.trimmed(0) {
+            "" | "0" => CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await)),
+            "1" => match DateTimeService::list_timezones().await {
+                Ok(zones) => {
+                    let body = zones
+                        .iter()
+                        .map(|z| format!("+TZGET: {}", z))
+                        .collect::<Vec<_>>()
+                        .join("\r\n");
+                    CommandOutcome::WithData(body)
+                }
+                Err(e) => {
+                    error!("Timezone get error: {}", e);
+                    CommandOutcome::Error
+                }
+            },
+            _ => CommandOutcome::Error,
+        },
+        _ => CommandOutcome::Error,
     }
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    crate::at_interface::commands::command_spec!("at+datetime", "AT+DATETIME[=<ISO8601>]", 1, &[], execute_datetime),
+    crate::at_interface::commands::command_spec!("at+datetime", "AT+DATETIME[=<ISO8601>]", 0, &[], execute_datetime),
     crate::at_interface::commands::command_spec!("at+tzset", "AT+TZSET=<timezone>", 1, &[0], execute_timezone_set),
-    crate::at_interface::commands::command_spec!("at+tzget", "AT+TZGET", 0, &[], execute_timezone_get),
+    crate::at_interface::commands::command_spec!("at+tzget", "AT+TZGET[=<scope>]", 0, &[], execute_timezone_get),
 ];
 

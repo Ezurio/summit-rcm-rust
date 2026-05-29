@@ -8,7 +8,7 @@ use crate::plugins::date_time::service::{DateTimeService, DateTimeSnapshot};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "api-docs")]
+#[cfg(all(feature = "api-docs", feature = "api-legacy"))]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
 #[derive(Deserialize)]
@@ -76,8 +76,11 @@ fn legacy_datetime_put_response(operation: LegacyOperationResponse, time: impl I
     responses(GetDateTimeLegacyResponses)
 ))]
 pub async fn get_datetime_legacy() -> GetDateTimeLegacyResponses {
-    match DateTimeService::get_datetime().await {
-        Ok(dt) => GetDateTimeLegacyResponses::Ok(legacy_datetime_get_response(dt)),
+    match DateTimeService::list_timezones().await {
+        Ok(zones) => {
+            let zone = DateTimeService::local_zone().await;
+            GetDateTimeLegacyResponses::Ok(legacy_datetime_get_response(DateTimeService::get_datetime(zones, zone)))
+        }
         Err(e) => GetDateTimeLegacyResponses::Ok(legacy_datetime_response(
             fail_response(e.to_string()),
             Some(vec![]),
@@ -112,8 +115,10 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
                 ));
             }
     } else {
-        match DateTimeService::get_datetime().await {
-            Ok(dt) => {
+        match DateTimeService::list_timezones().await {
+            Ok(zones) => {
+                let zone = DateTimeService::local_zone().await;
+                let dt = DateTimeService::get_datetime(zones, zone);
                 return PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
                     ok_response(dt.zone),
                     dt.datetime,
@@ -128,11 +133,15 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
         }
     }
 
-    match DateTimeService::get_datetime().await {
-        Ok(dt) => PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
-            ok_response(dt.zone),
-            dt.datetime,
-        )),
+    match DateTimeService::list_timezones().await {
+        Ok(zones) => {
+            let zone = DateTimeService::local_zone().await;
+            let dt = DateTimeService::get_datetime(zones, zone);
+            PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
+                ok_response(dt.zone),
+                dt.datetime,
+            ))
+        }
         Err(e) => PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
             fail_response(e.to_string()),
             "",

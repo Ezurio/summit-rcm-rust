@@ -43,6 +43,7 @@ pub struct UpdateStatusResponse {
     pub status: i32,
     pub url: String,
     pub image: String,
+    pub percent_complete: u32,
 }
 
 crate::define_ok_json_response_family! {
@@ -63,12 +64,13 @@ crate::define_status_response_family! {
 }
 
 fn current_update_status() -> UpdateStatusResponse {
-    let service = FirmwareUpdateService::instance().lock().unwrap();
-    let (status, _) = service.get_update_status();
+    let (status, _) = FirmwareUpdateService::get_update_status();
+    let snap = FirmwareUpdateService::snapshot();
     UpdateStatusResponse {
         status,
-        url: service.url.clone(),
-        image: service.image.clone(),
+        url: snap.url,
+        image: snap.image,
+        percent_complete: snap.percent_complete,
     }
 }
 
@@ -89,34 +91,30 @@ pub async fn get_update_status() -> GetUpdateStatusResponses {
     responses(SetUpdateStatusResponses)
 ))]
 pub async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpdateStatusResponses {
-    let desired_status = body
-        .status
-        .unwrap_or(SummitRcmUpdateStatus::NotUpdating as i32);
-
-    if desired_status != SummitRcmUpdateStatus::Updating as i32
-        && desired_status != SummitRcmUpdateStatus::NotUpdating as i32
-    {
-        return SetUpdateStatusResponses::BadRequest;
-    }
-
     let url = body.url.unwrap_or_default();
     if url.contains(' ') {
         return SetUpdateStatusResponses::BadRequest;
     }
 
-    if desired_status == SummitRcmUpdateStatus::Updating as i32 {
-        let image = body.image.unwrap_or_else(|| "main".to_string());
-        match FirmwareUpdateService::start_update(&url, &image).await {
-            Ok(_) => current_update_status().into(),
-            Err(error) => {
-                FirmwareUpdateService::cancel();
-                let _ = error;
-                SetUpdateStatusResponses::InternalError
+    match body.status.unwrap_or(SummitRcmUpdateStatus::NotUpdating as i32)
+        .try_into()
+        .unwrap_or(SummitRcmUpdateStatus::NotUpdating)
+    {
+        SummitRcmUpdateStatus::Updating => {
+            let image = body.image.unwrap_or_else(|| "main".to_string());
+            match FirmwareUpdateService::start_update(&url, &image).await {
+                Ok(_) => current_update_status().into(),
+                Err(_) => {
+                    FirmwareUpdateService::cancel();
+                    SetUpdateStatusResponses::InternalError
+                }
             }
         }
-    } else {
-        FirmwareUpdateService::cancel();
-        current_update_status().into()
+        SummitRcmUpdateStatus::NotUpdating => {
+            FirmwareUpdateService::cancel();
+            current_update_status().into()
+        }
+        _ => SetUpdateStatusResponses::BadRequest,
     }
 }
 

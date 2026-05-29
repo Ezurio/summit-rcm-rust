@@ -7,11 +7,11 @@ use crate::config::ServerConfig;
 use crate::plugins::provisioning::{
     CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH, DEVICE_SERVER_CERT_PATH,
     DEVICE_CA_CERT_CHAIN_PATH, DEVICE_SERVER_CSR_PATH, DEVICE_SERVER_KEY_PATH,
-    PROVISIONING_CA_CERT_CHAIN_PATH, PROVISIONING_DIR, PROVISIONING_STATE_FILE_PATH,
+    PROVISIONING_CA_CERT_CHAIN_PATH,
     enable_client_pairing,
 };
 use crate::systemd_unit::SystemdUnit;
-use crate::utils::command_output;
+use crate::utils::{command_output, path_exists, path_exists_sync, read_text};
 use anyhow::{bail, Result};
 use openssl::asn1::{Asn1Time, Asn1TimeRef};
 use openssl::hash::{hash, MessageDigest};
@@ -23,23 +23,38 @@ use time::{Duration, UtcDateTime};
 use log::error;
 
 fn server_ssl_certificate_chain() -> String {
-    ServerConfig::get_string("global", "server.ssl_certificate_chain", "/etc/summit-rcm/ssl/ca.crt")
+    static V: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        ServerConfig::get_string("global", "server.ssl_certificate_chain", "/etc/summit-rcm/ssl/ca.crt")
+    });
+    V.clone()
 }
 
 fn disable_certificate_expiry_verification() -> bool {
-    ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
+    static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
+    });
+    *V
 }
 
 fn paired_client_cert_path() -> String {
-    ServerConfig::get_string("summit-rcm", "paired_client_cert_path", "")
+    static V: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        ServerConfig::get_string("summit-rcm", "paired_client_cert_path", "")
+    });
+    V.clone()
 }
 
 fn enable_client_auth() -> bool {
-    ServerConfig::get_bool("summit-rcm", "enable_client_auth", false)
+    static V: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        ServerConfig::get_bool("summit-rcm", "enable_client_auth", false)
+    });
+    *V
 }
 
 fn rodata_ca_cert_path() -> String {
-    ServerConfig::get_string("summit-rcm", "rodata_ca_cert_path", "")
+    static V: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        ServerConfig::get_string("summit-rcm", "rodata_ca_cert_path", "")
+    });
+    V.clone()
 }
 
 fn env_or_trimmed(env_key: &str, default: &str) -> String {
@@ -100,7 +115,7 @@ pub struct ClientTlsInfo {
 
 impl CertificateProvisioningService {
     fn provisioning_tls_assets_available(cert_path: &str, key_path: &str) -> bool {
-        Path::new(cert_path).exists() && Path::new(key_path).exists()
+        path_exists_sync(cert_path) && path_exists_sync(key_path)
     }
 
     fn web_tls_overrides(
@@ -142,7 +157,7 @@ impl CertificateProvisioningService {
         }
 
         let rodata_ca_path = Path::new(&rodata_ca);
-        if !tokio::fs::try_exists(rodata_ca_path).await.unwrap_or(false) {
+        if !path_exists(rodata_ca_path).await {
             log::warn!("rodata CA cert not found: {}", rodata_ca);
             return Ok(());
         }
@@ -151,7 +166,7 @@ impl CertificateProvisioningService {
         let paired_cert = paired_client_cert_path();
         if !paired_cert.is_empty() {
             let paired_cert_path = Path::new(&paired_cert);
-            if tokio::fs::try_exists(paired_cert_path).await.unwrap_or(false) {
+            if path_exists(paired_cert_path).await {
                 trust_store.extend_from_slice(b"\n");
                 trust_store.extend(tokio::fs::read(paired_cert_path).await?);
             }
@@ -166,8 +181,7 @@ impl CertificateProvisioningService {
     }
 
     fn provisioning_state_file_path() -> String {
-        std::env::var("SUMMIT_RCM_PROVISIONING_STATE_FILE")
-            .unwrap_or_else(|_| PROVISIONING_STATE_FILE_PATH.to_string())
+        super::provisioning_state_file_path()
     }
 
     fn parse_openssl_datetime(datetime: &Asn1TimeRef) -> Result<UtcDateTime> {
@@ -219,7 +233,7 @@ impl CertificateProvisioningService {
             }
         };
 
-        if !tokio::fs::try_exists(&ca_cert_path).await.unwrap_or(false) {
+        if !path_exists(&ca_cert_path).await {
             bail!("Could not get CA certificate validity period - file not found");
         }
 
@@ -261,10 +275,7 @@ impl CertificateProvisioningService {
     }
 
     pub async fn set_fallback_timestamp(fallback_timestamp: UtcDateTime) -> Result<()> {
-        if !tokio::fs::try_exists(FALLBACK_TIMESTAMP_FILE_PATH)
-            .await
-            .unwrap_or(false)
-        {
+        if !path_exists(FALLBACK_TIMESTAMP_FILE_PATH).await {
             tokio::fs::write(FALLBACK_TIMESTAMP_FILE_PATH, b"").await?;
         }
 
@@ -285,11 +296,11 @@ impl CertificateProvisioningService {
     pub async fn get_provisioning_state_async() -> ProvisioningState {
         let state_path = Self::provisioning_state_file_path();
         let path = Path::new(&state_path);
-        if !tokio::fs::try_exists(path).await.unwrap_or(false) {
+        if !path_exists(path).await {
             let _ = Self::set_provisioning_state_async(ProvisioningState::Unprovisioned).await;
             return ProvisioningState::Unprovisioned;
         }
-        match tokio::fs::read_to_string(path)
+        match read_text(path)
             .await
             .ok()
             .and_then(|s| s.trim().parse::<i32>().ok())
@@ -300,13 +311,11 @@ impl CertificateProvisioningService {
         }
     }
 
-    pub async fn set_provisioning_state_async(state: ProvisioningState) -> Result<()> {
+    pub(in crate::plugins::provisioning) async fn set_provisioning_state_async(state: ProvisioningState) -> Result<()> {
         let state_path = Self::provisioning_state_file_path();
         let path = Path::new(&state_path);
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
-        } else {
-            tokio::fs::create_dir_all(PROVISIONING_DIR).await?;
         }
         tokio::fs::write(path, format!("{}", state as i32)).await?;
         Ok(())
@@ -374,52 +383,63 @@ impl CertificateProvisioningService {
     }
 
     pub async fn generate_key_and_csr(openssl_key_gen_args: Option<&str>) -> Result<()> {
-        if !tokio::fs::try_exists(CONFIG_FILE_TEMP_PATH).await.unwrap_or(false) {
+        if !path_exists(CONFIG_FILE_TEMP_PATH).await {
             bail!("Config file not found");
         }
-        tokio::fs::create_dir_all(PROVISIONING_DIR).await?;
-        if tokio::fs::try_exists(DEVICE_SERVER_KEY_PATH)
-            .await
-            .unwrap_or(false)
-        {
+        if let Some(parent) = Path::new(DEVICE_SERVER_CERT_PATH).parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        if path_exists(DEVICE_SERVER_KEY_PATH).await {
             let _ = tokio::fs::remove_file(DEVICE_SERVER_KEY_PATH).await;
         }
 
-        let args: Vec<String> = if let Some(extra) = openssl_key_gen_args.filter(|s| !s.is_empty()) {
-            let mut a = vec!["openssl".to_string()];
-            a.extend(extra.split_whitespace().map(|s| s.to_string()));
-            // Run custom key gen
-            let out = command_output(&a[0], &a[1..]).await?;
+        if let Some(extra) = openssl_key_gen_args.filter(|s| !s.is_empty()) {
+            let custom_args: Vec<&str> = extra.split_whitespace().collect();
+            // Run custom key gen.
+            let out = command_output("openssl", &custom_args).await?;
             if !out.status.success() {
                 bail!("{}", String::from_utf8_lossy(&out.stderr));
             }
-            if !tokio::fs::try_exists(DEVICE_SERVER_KEY_PATH)
-                .await
-                .unwrap_or(false)
-            {
+            if !path_exists(DEVICE_SERVER_KEY_PATH).await {
                 bail!("Key file not found after generation");
             }
-            // Now build CSR args using the existing key
-            vec![
-                "openssl".into(), "req".into(), "-new".into(),
-                "-key".into(), DEVICE_SERVER_KEY_PATH.into(),
-                "-out".into(), DEVICE_SERVER_CSR_PATH.into(),
-                "-config".into(), CONFIG_FILE_TEMP_PATH.into(),
-            ]
-        } else {
-            vec![
-                "openssl".into(), "req".into(), "-nodes".into(), "-newkey".into(), "ec".into(),
-                "-pkeyopt".into(), "ec_paramgen_curve:prime256v1".into(),
-                "-pkeyopt".into(), "ec_param_enc:named_curve".into(),
-                "-keyout".into(), DEVICE_SERVER_KEY_PATH.into(),
-                "-out".into(), DEVICE_SERVER_CSR_PATH.into(),
-                "-config".into(), CONFIG_FILE_TEMP_PATH.into(),
-            ]
-        };
 
-        let out = command_output(&args[0], &args[1..]).await?;
-        if !out.status.success() {
-            bail!("{}", String::from_utf8_lossy(&out.stderr));
+            // Build CSR using the existing key.
+            let csr_args = [
+                "req",
+                "-new",
+                "-key",
+                DEVICE_SERVER_KEY_PATH,
+                "-out",
+                DEVICE_SERVER_CSR_PATH,
+                "-config",
+                CONFIG_FILE_TEMP_PATH,
+            ];
+            let out = command_output("openssl", &csr_args).await?;
+            if !out.status.success() {
+                bail!("{}", String::from_utf8_lossy(&out.stderr));
+            }
+        } else {
+            let default_args = [
+                "req",
+                "-nodes",
+                "-newkey",
+                "ec",
+                "-pkeyopt",
+                "ec_paramgen_curve:prime256v1",
+                "-pkeyopt",
+                "ec_param_enc:named_curve",
+                "-keyout",
+                DEVICE_SERVER_KEY_PATH,
+                "-out",
+                DEVICE_SERVER_CSR_PATH,
+                "-config",
+                CONFIG_FILE_TEMP_PATH,
+            ];
+            let out = command_output("openssl", &default_args).await?;
+            if !out.status.success() {
+                bail!("{}", String::from_utf8_lossy(&out.stderr));
+            }
         }
         Ok(())
     }
@@ -441,19 +461,18 @@ impl CertificateProvisioningService {
     }
 
     pub async fn save_certificate_file() -> std::result::Result<(), ProvisioningSaveError> {
-        if !tokio::fs::try_exists(CERT_TEMP_PATH).await.unwrap_or(false) {
+        if !path_exists(CERT_TEMP_PATH).await {
             return Err(ProvisioningSaveError::Internal);
         }
         if !Self::verify_certificate_against_ca(CERT_TEMP_PATH, PROVISIONING_CA_CERT_CHAIN_PATH).await {
             return Err(ProvisioningSaveError::InvalidCertificate);
         }
-        tokio::fs::create_dir_all(PROVISIONING_DIR)
-            .await
-            .map_err(|_| ProvisioningSaveError::Internal)?;
+        if let Some(parent) = Path::new(DEVICE_SERVER_CERT_PATH).parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|_| ProvisioningSaveError::Internal)?;
+        }
         tokio::fs::rename(CERT_TEMP_PATH, DEVICE_SERVER_CERT_PATH)
-            .await
-            .map_err(|_| ProvisioningSaveError::Internal)?;
-        Self::set_provisioning_state_async(ProvisioningState::PartiallyProvisioned)
             .await
             .map_err(|_| ProvisioningSaveError::Internal)?;
         Ok(())
@@ -473,7 +492,7 @@ impl CertificateProvisioningService {
     pub async fn save_paired_client_cert(
         temp_path: &str,
     ) -> std::result::Result<(), ProvisioningSaveError> {
-        if !tokio::fs::try_exists(temp_path).await.unwrap_or(false) {
+        if !path_exists(temp_path).await {
             return Err(ProvisioningSaveError::Internal);
         }
 
@@ -483,7 +502,7 @@ impl CertificateProvisioningService {
             return Err(ProvisioningSaveError::Internal);
         }
 
-        let content = match tokio::fs::read_to_string(temp_path).await {
+        let content = match read_text(temp_path).await {
             Ok(content) => content,
             Err(_) => {
                 let _ = tokio::fs::remove_file(temp_path).await;

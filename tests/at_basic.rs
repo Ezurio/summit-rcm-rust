@@ -4,7 +4,6 @@
 //
 
 use summit_rcm::at_interface::commands::{
-    build_command_registry,
     execute_registered_command,
     lookup_command_in_registry,
     parse_command_params,
@@ -13,8 +12,7 @@ use summit_rcm::at_interface::commands::{
 use summit_rcm::at_interface::fsm::FsmHandle;
 
 fn run_command(command: &str) -> CommandOutcome {
-    let registry = build_command_registry();
-    let (spec, params, _) = lookup_command_in_registry(&registry, command).expect("command should resolve");
+    let (spec, params, _) = lookup_command_in_registry(command).expect("command should resolve");
     let parsed = parse_command_params(spec, params).expect("params should parse");
     let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
     runtime.block_on(async { execute_registered_command(spec, &FsmHandle, &parsed).await })
@@ -46,8 +44,7 @@ fn ping_rejects_invalid_protocol() {
 
 #[tokio::test]
 async fn ping_loopback_returns_rtt() {
-    let registry = build_command_registry();
-    let (spec, params, _) = lookup_command_in_registry(&registry, "AT+PING=127.0.0.1,1,4")
+    let (spec, params, _) = lookup_command_in_registry("AT+PING=127.0.0.1,1,4")
         .expect("AT+PING should resolve");
     let parsed = parse_command_params(spec, params).expect("params should parse");
     let response = execute_registered_command(spec, &FsmHandle, &parsed).await;

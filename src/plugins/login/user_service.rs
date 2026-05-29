@@ -15,18 +15,12 @@ pub struct UserService;
 impl UserService {
     /// Verify username + password against stored hash
     pub fn verify(username: &str, password: &str) -> bool {
-        let salt = match SummitRcmConfigManage::get(username, "salt") {
-            Some(s) => s,
-            None => return false,
-        };
-        let stored = match SummitRcmConfigManage::get(username, "password") {
-            Some(p) => p,
-            None => return false,
+        let Some((salt, stored)) = SummitRcmConfigManage::get_two(username, "salt", "password") else {
+            return false;
         };
         let data = [salt.as_bytes(), password.as_bytes()].concat();
         let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-        let attempt = hex::encode(digest);
-        attempt == stored
+        hex::encode(digest) == stored
     }
 
     pub fn user_exists(username: &str) -> bool {
@@ -49,18 +43,18 @@ impl UserService {
             let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
             let hashed = hex::encode(digest);
 
-            SummitRcmConfigManage::set(username, "salt", &salt);
-            SummitRcmConfigManage::set(username, "password", &hashed);
+            let mut entries: Vec<(&str, &str)> = vec![("salt", &salt), ("password", &hashed)];
             if let Some(perm) = permission {
-                SummitRcmConfigManage::set(username, "permission", perm);
+                entries.push(("permission", perm));
             }
+            SummitRcmConfigManage::set_many(username, &entries);
             return SummitRcmConfigManage::save().is_ok();
         }
         false
     }
 
     pub fn update_password(username: &str, password: &str) -> bool {
-        if SummitRcmConfigManage::get(username, "salt").is_some() {
+        if SummitRcmConfigManage::has_section(username) {
             let Ok(salt) = random_token_hex(16) else {
                 return false;
             };
@@ -68,8 +62,7 @@ impl UserService {
             let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
             let hashed = hex::encode(digest);
 
-            SummitRcmConfigManage::set(username, "salt", &salt);
-            SummitRcmConfigManage::set(username, "password", &hashed);
+            SummitRcmConfigManage::set_many(username, &[("salt", &salt), ("password", &hashed)]);
             return SummitRcmConfigManage::save().is_ok();
         }
         false
@@ -81,17 +74,16 @@ impl UserService {
 
     pub fn update_permission(username: &str, permission: &str) -> bool {
         if !permission.is_empty()
-            && SummitRcmConfigManage::get(username, "permission").is_some()
+            && SummitRcmConfigManage::set_if_key_exists(username, "permission", permission)
         {
-            SummitRcmConfigManage::set(username, "permission", permission)
-                && SummitRcmConfigManage::save().is_ok()
+            SummitRcmConfigManage::save().is_ok()
         } else {
             false
         }
     }
 
     pub fn get_number_of_users() -> usize {
-        SummitRcmConfigManage::sections_with_key("password").len()
+        SummitRcmConfigManage::count_sections_with_key("password")
     }
 
     pub fn get_users_dict() -> HashMap<String, String> {

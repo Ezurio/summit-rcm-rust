@@ -25,7 +25,7 @@ impl<'a> CsvParams<'a> {
         }
 
         let parts = if required_parts == 0 {
-            Vec::new()
+            all_parts.clone()
         } else {
             input.splitn(required_parts, ',').collect()
         };
@@ -64,10 +64,6 @@ impl<'a> CsvParams<'a> {
 
     pub fn raw_input(&self) -> &'a str {
         self.input
-    }
-
-    pub fn raw_parameter(&self, index: usize) -> Option<&'a str> {
-        self.all_parts.get(index).copied()
     }
 
     pub fn iter_raw_parameters(&self) -> impl Iterator<Item = &'a str> + '_ {

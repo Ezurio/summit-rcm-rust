@@ -17,7 +17,7 @@ use log::info;
 use serde::Deserialize;
 
 fn sessions_enabled() -> bool {
-    ServerConfig::get_bool("/", "tools.sessions.on", true)
+    crate::cached_config!(bool, ServerConfig::get_bool("/", "tools.sessions.on", true))
 }
 
 crate::define_status_response_family! {
@@ -61,10 +61,10 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
     // If there is an existing valid session, refresh it.
     match session.get::<String>("username").await {
         Ok(Some(_)) => {
-            let existing_id = session.id().map(|session_id| session_id.to_string());
+            let existing_id = session.id().map(|id| id.0);
             if !UserService::verify(username, password) {
                 LoginService::login_failed(username);
-                if let Some(existing_id) = existing_id.as_deref() {
+                if let Some(existing_id) = existing_id {
                     LoginService::remove_session(existing_id);
                 }
                 if let Err(error) = session.flush().await {
@@ -84,11 +84,8 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
             }
 
             LoginService::login_reset(username);
-            if let Some(existing_id) = session.id() {
-                LoginService::track_session(
-                    &existing_id.to_string(),
-                    username,
-                );
+            if let Some(existing_id) = session.id().map(|id| id.0) {
+                LoginService::track_session(existing_id, username);
             }
             info!("User {} refreshed session", username);
             return LoginResponses::Ok;
@@ -143,15 +140,12 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
         return LoginResponses::InternalError;
     }
 
-    let Some(session_id) = session.id() else {
+    let Some(session_id) = session.id().map(|id| id.0) else {
         log::error!("session id missing after save for {}", username);
         return LoginResponses::InternalError;
     };
 
-    LoginService::track_session(
-        &session_id.to_string(),
-        username,
-    );
+    LoginService::track_session(session_id, username);
 
     info!("User {} logged in", username);
     LoginResponses::Ok
@@ -181,16 +175,15 @@ pub async fn logout(session: Session) -> LogoutResponses {
         return LogoutResponses::InternalError;
     }
 
-    let session_id = match session.id().map(|session_id| session_id.to_string()) {
+    let session_id = match session.id().map(|id| id.0) {
         Some(id) => id,
         None => return LogoutResponses::InternalError,
     };
 
-    LoginService::remove_session(&session_id);
+    LoginService::remove_session(session_id);
     if let Err(error) = session.flush().await {
         log::error!("failed to flush session {} during logout: {}", session_id, error);
         return LogoutResponses::InternalError;
     }
-    info!("Session {} logged out", session_id);
-    LogoutResponses::Ok
+    info!("Session {} logged out", session_id);    LogoutResponses::Ok
 }

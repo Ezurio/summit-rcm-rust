@@ -16,7 +16,7 @@ pub async fn execute_version(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> Comma
         .await
         .map(|info| info.summit_rcm)
         .unwrap_or_else(|_| "unknown".to_string());
-    CommandOutcome::WithData(format!("+VER: {}\r\nOK", ver))
+    CommandOutcome::WithData(format!("+VER: {}", ver))
 }
 
 pub async fn execute_power(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {

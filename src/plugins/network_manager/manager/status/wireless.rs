@@ -17,12 +17,16 @@ use super::super::{
     NM_DEVICE_WIRELESS_IFACE, NM_IFACE, NM_MAIN_OBJ,
 };
 
-fn unmanaged_hardware_devices() -> Vec<String> {
+use std::sync::LazyLock;
+
+static UNMANAGED_DEVICES: LazyLock<HashSet<String>> = LazyLock::new(|| {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")
-}
+        .into_iter()
+        .collect()
+});
 
 impl NetworkManagerService {
-    fn ap_flags_list(flags: u32) -> Vec<String> {
+    fn ap_flags_list(flags: u32) -> Vec<&'static str> {
         let entries = [
             (0, "NONE"),
             (0x1, "PRIVACY"),
@@ -33,19 +37,19 @@ impl NetworkManagerService {
         ];
 
         if flags == 0 {
-            return vec!["NONE".to_string()];
+            return vec!["NONE"];
         }
 
         let mut values = Vec::with_capacity(entries.len() - 1);
         for (bit, name) in entries {
             if bit != 0 && flags & bit != 0 {
-                values.push(name.to_string());
+                values.push(name);
             }
         }
         values
     }
 
-    fn ap_security_flags_list(flags: u32) -> Vec<String> {
+    fn ap_security_flags_list(flags: u32) -> Vec<&'static str> {
         let entries = [
             (0x00000001, "PAIR_WEP40"),
             (0x00000002, "PAIR_WEP104"),
@@ -82,10 +86,10 @@ impl NetworkManagerService {
         let mut values = Vec::with_capacity(entries.len());
         for (bit, name) in entries {
             if flags & bit != 0 {
-                values.push(name.to_string());
+                values.push(name);
             }
         }
-        values.sort();
+        values.sort_unstable();
         values
     }
 
@@ -246,7 +250,6 @@ impl NetworkManagerService {
     }
 
     async fn get_wireless_device_paths(iface: Option<&str>) -> Result<Vec<(String, OwnedObjectPath)>> {
-        let unmanaged_devices: HashSet<String> = unmanaged_hardware_devices().into_iter().collect();
         let devices = Self::get_device_paths().await?;
         let mut device_paths = Vec::with_capacity(devices.len());
 
@@ -255,7 +258,7 @@ impl NetworkManagerService {
             let Some(interface_name) = dbus::property::<String>(&properties, "Interface") else {
                 continue;
             };
-            if unmanaged_devices.contains(&interface_name) {
+            if UNMANAGED_DEVICES.contains(&interface_name) {
                 continue;
             }
             if iface.is_some_and(|expected| expected != interface_name) {

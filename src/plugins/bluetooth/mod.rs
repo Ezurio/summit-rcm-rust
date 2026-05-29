@@ -9,7 +9,7 @@ pub mod service;
 pub mod routes;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/bluetooth" => {
 				GET => routes::v2::get_bluetooth,

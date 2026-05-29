@@ -13,7 +13,7 @@ pub mod service;
 pub mod types;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/network/interfaces/{name}" => {
 				PUT => routes::v2::interfaces::put_interface,
@@ -55,14 +55,6 @@ crate::declare_plugin_api! {
 			protected "/networkInterfaceSummitStatus" => {
 				GET => routes::legacy::network::get_summit_status_legacy
 			},
-		],
-	},
-	openapi {
-		v2 => [
-	<routes::v2::ApiDoc as utoipa::OpenApi>::openapi,
-		],
-		legacy => [
-	<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi,
 		],
 	},
 }

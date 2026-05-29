@@ -1,5 +1,4 @@
 use super::*;
-use crate::web::legacy_response::SdcerrCode;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -362,10 +361,6 @@ impl MockBluezHarness {
             state,
         })
     }
-}
-
-pub(super) fn success_code() -> i64 {
-    i64::from(SdcerrCode::Success.as_i32())
 }
 
 #[cfg(feature = "bluetooth-vsp")]

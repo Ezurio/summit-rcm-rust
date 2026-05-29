@@ -5,6 +5,7 @@
 //! AWM (Adaptive Wi-Fi Management) configuration service
 
 use anyhow::{bail, Context, Result};
+use crate::utils::{path_exists, read_text};
 use configparser::ini::Ini;
 use std::path::Path;
 
@@ -28,7 +29,7 @@ impl AwmConfigService {
             .context("AWM plugin INI not found")?;
         if let Some(path) = ini.get("summit-rcm", "awm_cfg") {
             let path = path.trim_matches('"').to_string();
-            if !path.is_empty() && tokio::fs::try_exists(&path).await.unwrap_or(false) {
+            if !path.is_empty() && path_exists(&path).await {
                 return Ok(path);
             }
         }
@@ -70,7 +71,7 @@ impl AwmConfigService {
     }
 
     pub async fn get_lite_mode_enabled() -> bool {
-        tokio::fs::read_to_string(ADAPTIVE_WW_CONFIG_FILE)
+        read_text(ADAPTIVE_WW_CONFIG_FILE)
             .await
             .map(|c| c.to_lowercase().contains("lite"))
             .unwrap_or(false)

@@ -8,6 +8,7 @@ use crate::plugins::firewall::service::{
 };
 use axum::Json;
 use log::error;
+use std::collections::HashSet;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -45,8 +46,11 @@ pub async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewal
             return PutFirewallResponses::InternalError;
         }
     }
+    let desired_set: HashSet<ForwardedPort> = desired.iter().cloned().collect();
+    let current_set: HashSet<ForwardedPort> = FirewallService::get_forwarded_ports().await.into_iter().collect();
+
     for fp in &desired {
-        if !FirewallService::port_is_present(fp).await {
+        if !current_set.contains(fp) {
             let (ok, msg) = FirewallService::configure_forwarded_port(ADD_PORT, fp.clone()).await;
             if !ok {
                 error!("Failed to add forwarded port: {}", msg);
@@ -54,9 +58,8 @@ pub async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewal
             }
         }
     }
-    let current = FirewallService::get_forwarded_ports().await;
-    for fp in current {
-        if !desired.contains(&fp) {
+    for fp in current_set {
+        if !desired_set.contains(&fp) {
             FirewallService::configure_forwarded_port(REMOVE_PORT, fp).await;
         }
     }

@@ -150,6 +150,49 @@ macro_rules! __route_auth_policy {
     (protected) => { $crate::RouteAuthPolicy::SessionRequired };
     (public) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
     (unauthenticated) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unprov_protected) => { $crate::RouteAuthPolicy::SessionRequired };
+    (unprov_public) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unprov_unauthenticated) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+    (prov_only_protected) => { $crate::RouteAuthPolicy::SessionRequired };
+    (prov_only_public) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+    (prov_only_unauthenticated) => { $crate::RouteAuthPolicy::UnauthenticatedAllowed };
+}
+
+/// Boot-mode visibility for a route.
+///
+/// The provisioning subsystem is a fundamentally different daemon mode: the
+/// TLS material differs, sessions don't apply, and the on-disk state is read
+/// once at startup. Routes are therefore registered (or evicted) at router
+/// build time according to this enum, not gated at request time.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteMode {
+    /// Registered only when the daemon boots fully provisioned (the normal
+    /// operating mode). The default for routes declared with the bare
+    /// `protected` / `public` / `unauthenticated` keywords.
+    NormalOnly = 0,
+    /// Registered only when the daemon boots in provisioning mode
+    /// (`Unprovisioned` or `PartiallyProvisioned`). Used for shadow handlers
+    /// that replace a normal-mode route with provisioning-aware semantics.
+    /// Declared with `prov_only_*` keywords.
+    ProvisioningOnly = 1,
+    /// Registered in both boot modes. Declared with `unprov_*` keywords
+    /// (cert provisioning, status, version, datetime GET, ...).
+    Any = 2,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __route_mode {
+    (protected) => { $crate::RouteMode::NormalOnly };
+    (public) => { $crate::RouteMode::NormalOnly };
+    (unauthenticated) => { $crate::RouteMode::NormalOnly };
+    (unprov_protected) => { $crate::RouteMode::Any };
+    (unprov_public) => { $crate::RouteMode::Any };
+    (unprov_unauthenticated) => { $crate::RouteMode::Any };
+    (prov_only_protected) => { $crate::RouteMode::ProvisioningOnly };
+    (prov_only_public) => { $crate::RouteMode::ProvisioningOnly };
+    (prov_only_unauthenticated) => { $crate::RouteMode::ProvisioningOnly };
 }
 
 /// Build shared published-route metadata from a route path and method list.

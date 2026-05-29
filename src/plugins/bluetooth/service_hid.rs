@@ -4,6 +4,7 @@
 //
 
 use super::*;
+use crate::utils::read_sysfs;
 
 use std::{
     collections::HashMap as StdHashMap,
@@ -160,7 +161,7 @@ pub(super) async fn handle_hid_command(
     _device: Option<&str>,
     _body: &serde_json::Value,
     command: &str,
-) -> Option<anyhow::Result<serde_json::Value>> {
+) -> Option<anyhow::Result<BluetoothCommandOutcome>> {
     match command {
         "hidList" => Some(handle_hid_list().await),
         "hidConnect" => Some(handle_hid_connect(_objects, _adapter_path, _device, _body).await),
@@ -286,16 +287,20 @@ impl HidRawReader {
     }
 }
 
-async fn handle_hid_list() -> anyhow::Result<serde_json::Value> {
+async fn handle_hid_list() -> anyhow::Result<BluetoothCommandOutcome> {
     let guard = HID_CONNECTIONS.lock().unwrap();
     let connections = guard
         .iter()
-        .map(|(device, handle)| serde_json::json!({ "device": device, "port": handle.state.port }))
+        .map(|(device, handle)| crate::plugins::bluetooth::routes::common::BluetoothConnectionModel {
+            device: device.clone(),
+            port: i32::from(handle.state.port),
+        })
         .collect::<Vec<_>>();
-    Ok(legacy_value_with_fields(
-        ok_response(""),
-        [("HidConnections", serde_json::Value::Array(connections))],
-    ))
+    let mut response = BluetoothService::empty_control_response();
+    response.hid = crate::plugins::bluetooth::routes::hid::BluetoothHidControlResponse {
+        hid_connections: Some(connections),
+    };
+    Ok(BluetoothCommandOutcome::success(response))
 }
 
 async fn handle_hid_connect(
@@ -303,7 +308,7 @@ async fn handle_hid_connect(
     adapter_path: &str,
     device: Option<&str>,
     body: &serde_json::Value,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<BluetoothCommandOutcome> {
     let device_uuid = device
         .ok_or_else(|| anyhow::anyhow!("device address not specified"))?
         .to_ascii_uppercase();
@@ -314,13 +319,13 @@ async fn handle_hid_connect(
         .ok_or_else(|| anyhow::anyhow!("tcpPort param not specified"))?;
     let tcp_port = u16::try_from(tcp_port).map_err(|_| anyhow::anyhow!("invalid value for tcpPort param"))?;
     if !(TCP_PORT_MIN..=TCP_PORT_MAX).contains(&tcp_port) {
-        return Ok(legacy_fail_value(format!("port {} not valid", tcp_port)));
+        return Ok(BluetoothCommandOutcome::failure(format!("port {} not valid", tcp_port)));
     }
 
     {
         let guard = HID_CONNECTIONS.lock().unwrap();
         if let Some(existing) = guard.get(&device_uuid) {
-            return Ok(legacy_fail_value(format!(
+            return Ok(BluetoothCommandOutcome::failure(format!(
                 "device {} already has hid connection on port {}",
                 device_uuid, existing.state.port
             )));
@@ -335,13 +340,13 @@ async fn handle_hid_connect(
         .map(|props| dbus::property_or_default(props, "Connected"))
         .unwrap_or(false);
     if !connected {
-        return Ok(legacy_fail_value(format!("Device {} is not connected.", device_uuid)));
+        return Ok(BluetoothCommandOutcome::failure(format!("Device {} is not connected.", device_uuid)));
     }
 
     let hid_device = match find_hid_device(&device_uuid).await? {
         Some(path) => path,
         None => {
-            return Ok(legacy_fail_value(format!(
+            return Ok(BluetoothCommandOutcome::failure(format!(
                 "No HID keyboard service found for device {}",
                 device_uuid
             )))
@@ -349,7 +354,7 @@ async fn handle_hid_connect(
     };
 
     if !hid_device.exists() {
-        return Ok(legacy_fail_value(format!(
+        return Ok(BluetoothCommandOutcome::failure(format!(
             "Cannot open hidraw devnode at {}",
             hid_device.display()
         )));
@@ -374,10 +379,10 @@ async fn handle_hid_connect(
             },
         );
 
-    Ok(legacy_ok_value())
+    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
 }
 
-async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<serde_json::Value> {
+async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<BluetoothCommandOutcome> {
     let device_uuid = device
         .ok_or_else(|| anyhow::anyhow!("device address not specified"))?
         .to_ascii_uppercase();
@@ -385,7 +390,7 @@ async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<serde_jso
     let handle = { HID_CONNECTIONS.lock().unwrap().remove(&device_uuid) };
 
     let Some(handle) = handle else {
-        return Ok(legacy_fail_value(format!(
+        return Ok(BluetoothCommandOutcome::failure(format!(
             "device {} has no hid connection",
             device_uuid
         )));
@@ -399,7 +404,7 @@ async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<serde_jso
     drop(connection_task);
     state.close_tcp_connection().await;
 
-    Ok(legacy_ok_value())
+    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
 }
 
 async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, hid_device: PathBuf) {
@@ -607,7 +612,7 @@ async fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
 
 async fn hid_device_get_bt_address(sys_path: &Path) -> Option<String> {
     let uevent_path = sys_path.join("device").join("uevent");
-    let content = tokio::fs::read_to_string(uevent_path).await.ok()?;
+    let content = read_sysfs(uevent_path).await.ok()?;
     for line in content.lines() {
         let Some(value) = line.strip_prefix("HID_UNIQ=") else {
             continue;

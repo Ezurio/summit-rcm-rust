@@ -6,7 +6,7 @@
 //! AT interface finite state machine
 
 use crate::at_interface::commands;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
 use log::error;
@@ -75,6 +75,14 @@ impl FsmHandle {
 
 pub struct AtInterface;
 
+fn with_default_ok(data: &str) -> String {
+    format!("{}\r\nOK", data)
+}
+
+fn with_default_error(data: &str) -> String {
+    format!("{}\r\nERROR", data)
+}
+
 fn begin_shutdown() {
     let mut inner = FSM.lock().unwrap();
     inner.state = FsmState::Idle;
@@ -85,7 +93,6 @@ fn begin_shutdown() {
 
 async fn run_read_loop_with_queue<R>(
     reader: &mut R,
-    registry: &commands::CommandRegistry,
     command_tx: Option<&tokio::sync::mpsc::UnboundedSender<String>>,
     shutdown: &mut tokio::sync::watch::Receiver<bool>,
 ) where
@@ -103,7 +110,7 @@ async fn run_read_loop_with_queue<R>(
                 match read {
                     Ok(0) => break,
                     Ok(n) => {
-                        process_input_with_queue(registry, command_tx, &buf[..n]).await;
+                        process_input_with_queue(command_tx, &buf[..n]).await;
                     }
                     Err(error) => {
                         error!("Serial read error: {}", error);
@@ -124,18 +131,14 @@ impl AtInterface {
         let port = tokio_serial::new(&serial_port, baud_rate).open_native_async()?;
 
         let (mut reader, mut writer) = tokio::io::split(port);
-
-        let registry = Arc::new(commands::build_command_registry());
-
         let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let command_registry = Arc::clone(&registry);
         let command_task = tokio::spawn(async move {
             while let Some(cmd_str) = command_rx.recv().await {
                 {
                     let mut inner = FSM.lock().unwrap();
                     inner.state = FsmState::ProcessCommand;
                 }
-                execute_command(command_registry.as_ref(), &cmd_str).await;
+                execute_command(&cmd_str).await;
                 FSM.lock().unwrap().state = FsmState::Idle;
             }
         });
@@ -156,7 +159,7 @@ impl AtInterface {
 
         FsmHandle::at_output(b"READY", true, true);
 
-        run_read_loop_with_queue(&mut reader, registry.as_ref(), Some(&command_tx), &mut shutdown).await;
+        run_read_loop_with_queue(&mut reader, Some(&command_tx), &mut shutdown).await;
 
         drop(command_tx);
         let _ = command_task.await;
@@ -167,13 +170,16 @@ impl AtInterface {
 }
 
 async fn process_input_with_queue(
-    registry: &commands::CommandRegistry,
     command_tx: Option<&tokio::sync::mpsc::UnboundedSender<String>>,
     data: &[u8],
 ) {
     let listeners = {
         let inner = FSM.lock().unwrap();
-        inner.listeners.clone()
+        if inner.listeners.is_empty() {
+            Vec::new()
+        } else {
+            inner.listeners.clone()
+        }
     };
     if !listeners.is_empty() {
         for tx in listeners {
@@ -230,19 +236,19 @@ async fn process_input_with_queue(
                         inner.state = FsmState::ProcessCommand;
                     }
                 }
-                execute_command(registry, &cmd_str).await;
+                execute_command(&cmd_str).await;
                 FSM.lock().unwrap().state = FsmState::Idle;
             }
         }
     }
 }
 
-async fn execute_command(registry: &commands::CommandRegistry, cmd_str: &str) {
+async fn execute_command(cmd_str: &str) {
     let handle = FsmHandle;
-    match commands::lookup_command_in_registry(registry, cmd_str) {
+    match commands::lookup_command_in_registry(cmd_str) {
         Some((cmd, params_str, print_usage)) => {
             if print_usage {
-                FsmHandle::at_output(cmd.usage.as_bytes(), true, true);
+                FsmHandle::at_output(with_default_ok(cmd.usage).as_bytes(), true, true);
                 return;
             }
 
@@ -254,7 +260,12 @@ async fn execute_command(registry: &commands::CommandRegistry, cmd_str: &str) {
             match commands::execute_registered_command(cmd, &handle, &csv_params).await {
                 commands::CommandOutcome::Ok => FsmHandle::at_output(b"OK", true, true),
                 commands::CommandOutcome::Error => FsmHandle::at_output(b"ERROR", true, true),
-                commands::CommandOutcome::WithData(data) => FsmHandle::at_output(data.as_bytes(), true, true),
+                commands::CommandOutcome::WithData(data) => {
+                    FsmHandle::at_output(with_default_ok(&data).as_bytes(), true, true)
+                }
+                commands::CommandOutcome::WithDataError(data) => {
+                    FsmHandle::at_output(with_default_error(&data).as_bytes(), true, true)
+                }
                 commands::CommandOutcome::PendingInput => {},
             }
         }

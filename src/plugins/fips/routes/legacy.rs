@@ -81,10 +81,10 @@ pub async fn set_fips_legacy(Json(body): Json<FipsSetBody>) -> SetFipsLegacyResp
 ))]
 pub async fn get_fips_legacy() -> GetFipsLegacyResponses {
 	let raw_status = FipsService::get_fips_state().await;
-	match raw_status.as_str() {
+	match raw_status {
 		"unsupported" => {
 			legacy_fips_status_response(ok_response("Not a FIPS image"), "unset".to_string()).into()
 		}
-		_ => legacy_fips_status_response(ok_response(""), raw_status).into(),
+		_ => legacy_fips_status_response(ok_response(""), raw_status.to_string()).into(),
 	}
 }

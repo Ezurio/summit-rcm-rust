@@ -3,143 +3,52 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+//! Runtime middleware for tracking the latest installed client cert and
+//! propagating its `notBefore` into the fallback-timestamp file.
+//!
+//! Boot-mode-based route eviction (see [`RouteMode`]) handles "what is
+//! reachable" decisions at router build time, so this layer no longer
+//! gates routes; it only observes incoming TLS metadata.
+//!
+//! [`RouteMode`]: summit_rcm_plugin_api::RouteMode
+
 use crate::config::ServerConfig;
-use crate::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
-use crate::plugins::provisioning::routes::common::{
-    TimestampValidityPayload, invalid_timestamp_response,
-};
-use crate::plugins::provisioning::enable_client_pairing;
 use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ClientTlsInfo, ProvisioningState,
 };
 use axum::{
-    body::{to_bytes, Body},
+    body::Body,
     extract::Request,
-    http::{Method, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
-use serde::Deserialize;
-use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
-use time::{OffsetDateTime, UtcDateTime};
+use std::sync::atomic::{AtomicU64, Ordering};
 use log::warn;
-
-fn rest_api_docs_enabled() -> bool {
-    std::env::var("DOCS_GENERATION")
-        .map(|value| value == "True")
-        .unwrap_or(false)
-}
 
 fn disable_certificate_expiry_verification() -> bool {
     ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
 }
 
-static LAST_CLIENT_CERT_HASH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+/// 64-bit fingerprint of the last client cert seen. `0` is the unset
+/// sentinel; a real cert that hashes to 0 is mapped to 1 to avoid colliding
+/// with it. The worst case of a benign collision is one redundant
+/// `set_fallback_timestamp` call, which is idempotent.
+static LAST_CLIENT_CERT_FINGERPRINT: AtomicU64 = AtomicU64::new(0);
 
-static UNPROVISIONED_PATH_WHITE_LIST: &[&str] = &[
-    "/datetime",
-    "/api/v2/system/datetime",
-    "/api/v2/system/provisioning",
-    "/api/v2/system/clientBundle",
-    "/api/v2/network/status",
-    "/api/v2/system/version",
-    "/api/v2/system/power",
-];
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ProvisioningAuthOverride;
-
-#[derive(Deserialize, Default)]
-struct LegacyDateTimeBody {
-    zone: Option<String>,
-    method: Option<String>,
-    datetime: Option<String>,
+fn fingerprint_from_cert_hash(cert_hash: &str) -> u64 {
+    let prefix = cert_hash.get(..16).unwrap_or(cert_hash);
+    let value = u64::from_str_radix(prefix, 16).unwrap_or(0);
+    if value == 0 { 1 } else { value }
 }
 
-#[derive(Deserialize, Default)]
-struct V2DateTimeBody {
-    zone: Option<String>,
-    timezone: Option<String>,
-    datetime: Option<String>,
-}
-
-fn is_whitelisted(path: &str) -> bool {
-    if UNPROVISIONED_PATH_WHITE_LIST.contains(&path) {
-        return true;
-    }
-
-    if rest_api_docs_enabled() {
-        return path == "/" || path == "/api/docs" || path == "/api/openapi.json";
-    }
-
-    false
-}
-
-async fn validity_payload(tls_info: &ClientTlsInfo) -> TimestampValidityPayload {
-    let mut payload = TimestampValidityPayload {
-        time: format_now_utc(),
-        not_before: None,
-        not_after: None,
-    };
-
-    if let Ok((not_before, not_after)) = CertificateProvisioningService::get_validity_period(tls_info).await {
-        payload.not_before = Some(format_utc_datetime(not_before));
-        payload.not_after = Some(format_utc_datetime(not_after));
-    }
-
-    payload
-}
-
-fn format_now_utc() -> String {
-    OffsetDateTime::now_utc()
-        .format(SUMMIT_RCM_TIME_FORMAT_DESCRIPTION)
-        .unwrap_or_else(|now| now.to_string())
-}
-
-fn format_utc_datetime(datetime: UtcDateTime) -> String {
-    datetime
-        .format(SUMMIT_RCM_TIME_FORMAT_DESCRIPTION)
-        .unwrap_or_else(|datetime| datetime.to_string())
-}
-
-fn parse_requested_timestamp(path: &str, body: &[u8]) -> Option<i64> {
-    if body.is_empty() {
-        return None;
-    }
-
-    if path == "/datetime" {
-        let parsed: LegacyDateTimeBody = serde_json::from_slice(body).ok()?;
-        let zone = parsed.zone.unwrap_or_default();
-        let method = parsed.method.unwrap_or_default();
-        let datetime = parsed.datetime.unwrap_or_default();
-        if zone.is_empty() && method == "manual" && !datetime.is_empty() {
-            return datetime.parse::<i64>().ok();
-        }
-        return None;
-    }
-
-    if path == "/api/v2/system/datetime" {
-        let parsed: V2DateTimeBody = serde_json::from_slice(body).ok()?;
-        let zone = parsed.zone.or(parsed.timezone).unwrap_or_default();
-        let datetime = parsed.datetime.unwrap_or_default();
-        if zone.is_empty() && !datetime.is_empty() {
-            return datetime.parse::<i64>().ok();
-        }
-    }
-
-    None
-}
-
-async fn check_for_new_fallback_timestamp(
-    provisioning_state: ProvisioningState,
-    tls_info: &ClientTlsInfo,
-) {
+async fn check_for_new_fallback_timestamp(tls_info: &ClientTlsInfo) {
     if disable_certificate_expiry_verification() {
         return;
     }
 
-    if provisioning_state != ProvisioningState::FullyProvisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::FullyProvisioned
+    {
         return;
     }
 
@@ -148,85 +57,40 @@ async fn check_for_new_fallback_timestamp(
         Err(_) => return,
     };
 
-    {
-        let mut last_hash = LAST_CLIENT_CERT_HASH.lock().unwrap();
-        if last_hash.as_ref() == Some(&cert_hash) {
-            return;
-        }
-        *last_hash = Some(cert_hash);
+    let fingerprint = fingerprint_from_cert_hash(&cert_hash);
+    if LAST_CLIENT_CERT_FINGERPRINT.swap(fingerprint, Ordering::Relaxed) == fingerprint {
+        return;
     }
 
-    let Ok((client_cert_not_before, _)) = CertificateProvisioningService::get_client_cert_validity_period(tls_info) else {
+    let Ok((client_cert_not_before, _)) =
+        CertificateProvisioningService::get_client_cert_validity_period(tls_info)
+    else {
         return;
     };
 
     let fallback_timestamp = CertificateProvisioningService::read_fallback_timestamp().ok().flatten();
     if fallback_timestamp.map(|ts| client_cert_not_before > ts).unwrap_or(true)
-        && let Err(error) = CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before).await
+        && let Err(error) =
+            CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before).await
     {
-            warn!("Couldn't update fallback timestamp from client certificate: {}", error);
-        }
+        warn!("Couldn't update fallback timestamp from client certificate: {}", error);
+    }
 }
 
-pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Response<Body> {
-    let provisioning_state = CertificateProvisioningService::get_provisioning_state_async().await;
-    let enable_client_pairing = enable_client_pairing();
-    let path = req.uri().path().to_string();
-    let method = req.method().clone();
+/// Observes the request's [`ClientTlsInfo`] and, when running in
+/// `FullyProvisioned`, advances the on-disk fallback timestamp.
+///
+/// Applied only on routers built for fully-provisioned boot mode; in
+/// provisioning boot mode this layer is omitted entirely.
+pub async fn track_client_cert_fallback_timestamp(
+    req: Request<Body>,
+    next: Next,
+) -> Response<Body> {
     let tls_info = req
         .extensions()
         .get::<ClientTlsInfo>()
         .cloned()
         .unwrap_or_default();
-
-    check_for_new_fallback_timestamp(provisioning_state, &tls_info).await;
-
-    let mut manual_time_set_request = false;
-    if !disable_certificate_expiry_verification()
-        && method == Method::PUT
-        && (path == "/datetime" || path == "/api/v2/system/datetime")
-    {
-        let (parts, body) = req.into_parts();
-        let body = match to_bytes(body, 64 * 1024).await {
-            Ok(body) => body,
-            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-        };
-
-        if let Some(new_timestamp_usec) = parse_requested_timestamp(&path, &body) {
-            manual_time_set_request = true;
-            if !CertificateProvisioningService::validate_new_timestamp(new_timestamp_usec, &tls_info).await {
-                let payload = validity_payload(&tls_info).await;
-                return invalid_timestamp_response(&path, payload).into_response();
-            }
-        }
-
-        req = Request::from_parts(parts, Body::from(body));
-    }
-
-    if provisioning_state != ProvisioningState::FullyProvisioned {
-        if (enable_client_pairing && provisioning_state == ProvisioningState::PartiallyProvisioned)
-            || is_whitelisted(&path)
-        {
-            req.extensions_mut().insert(ProvisioningAuthOverride);
-        } else {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-    }
-
-    let response = next.run(req).await;
-
-    if manual_time_set_request
-        && response.status().is_success()
-        && provisioning_state == ProvisioningState::PartiallyProvisioned
-        && CertificateProvisioningService::set_provisioning_state_async(ProvisioningState::FullyProvisioned)
-            .await
-            .is_ok()
-    {
-            tokio::spawn(async {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                let _ = CertificateProvisioningService::restart_summit_rcm().await;
-            });
-        }
-
-    response
+    check_for_new_fallback_timestamp(&tls_info).await;
+    next.run(req).await
 }

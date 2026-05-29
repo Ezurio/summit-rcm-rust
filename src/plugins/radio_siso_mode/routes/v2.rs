@@ -60,14 +60,22 @@ pub async fn put_radio_siso_mode(Json(body): Json<SisoModePut>) -> PutRadioSisoR
         Err(_) => return PutRadioSisoResponses::BadRequest,
     };
 
-    if mode
-        != RadioSISOModeService::get_current_siso_mode()
-            .await
-            .unwrap_or(RadioSISOMode::SystemDefault)
-        && let Err(e) = RadioSISOModeService::set_siso_mode(mode).await {
-            error!("Unable to set SISO mode: {}", e);
-            return PutRadioSisoResponses::InternalError;
+    let known_current = RadioSISOModeService::get_current_siso_mode().await.ok();
+
+    // Avoid disruptive module unload/reload when the requested mode is already active.
+    if let Some(current) = known_current
+        && current == mode {
+            return SisoModeState { siso_mode: current as i32 }.into();
         }
+
+    let set_result = match known_current {
+        Some(current) => RadioSISOModeService::set_siso_mode_with_current(mode, current).await,
+        None => RadioSISOModeService::set_siso_mode(mode).await,
+    };
+    if let Err(e) = set_result {
+        error!("Unable to set SISO mode: {}", e);
+        return PutRadioSisoResponses::InternalError;
+    }
 
     SisoModeState {
         siso_mode: current_mode_value().await,

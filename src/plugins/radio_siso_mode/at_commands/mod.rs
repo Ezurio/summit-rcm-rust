@@ -14,7 +14,7 @@ pub async fn execute_siso_mode(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
     let val = params.trimmed(0);
     if val.is_empty() {
             match RadioSISOModeService::get_current_siso_mode().await {
-            Ok(mode) => CommandOutcome::WithData(format!("+SISOMODE: {}\r\nOK", i32::from(mode))),
+            Ok(mode) => CommandOutcome::WithData(format!("+SISOMODE: {}", i32::from(mode))),
             Err(e) => {
                 error!("SISO mode get error: {}", e);
                 CommandOutcome::Error

@@ -368,13 +368,16 @@ async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
             let mut child = spawn_uhid_simulator(&simulator, TEST_DEVICE_ADDRESS, "ABC123");
             let _hidraw = wait_for_hidraw_by_uniq(TEST_DEVICE_ADDRESS);
 
-            let response = BluetoothService::handle_command(
+            let (response, info_msg) = BluetoothService::handle_command_v2(
                 Some("controller0"),
                 Some(TEST_DEVICE_ADDRESS),
-                &json!({"command": "hidConnect", "tcpPort": tcp_port}),
+                serde_json::from_value(json!({"command": "hidConnect", "tcpPort": tcp_port}))
+                    .expect("hidConnect request should deserialize"),
             )
-            .await;
-            assert_eq!(response["SDCERR"].as_i64(), Some(0));
+            .await
+            .expect("hidConnect should succeed");
+            assert!(info_msg.is_empty(), "{}", info_msg);
+            assert_eq!(response.port, Some(i32::from(tcp_port)));
 
             let stream = connect_tcp_client(tcp_port).await;
             let mut reader = BufReader::new(stream);
@@ -384,13 +387,15 @@ async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
             let disconnect_line = wait_for_line(&mut reader, "\"Connected\":0").await;
             assert!(disconnect_line.contains("\"Connected\":0"));
 
-            let response = BluetoothService::handle_command(
+            let (_response, info_msg) = BluetoothService::handle_command_v2(
                 Some("controller0"),
                 Some(TEST_DEVICE_ADDRESS),
-                &json!({"command": "hidDisconnect"}),
+                serde_json::from_value(json!({"command": "hidDisconnect"}))
+                    .expect("hidDisconnect request should deserialize"),
             )
-            .await;
-            assert_eq!(response["SDCERR"].as_i64(), Some(0));
+            .await
+            .expect("hidDisconnect should succeed");
+            assert!(info_msg.is_empty(), "{}", info_msg);
 
             let status = child.wait().expect("simulator process should exit cleanly");
             assert!(status.success(), "simulator should exit successfully");

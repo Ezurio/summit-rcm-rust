@@ -19,9 +19,9 @@ struct ImplicitResponses;
 #[cfg(feature = "api-docs")]
 impl utoipa::Modify for ImplicitResponses {
     fn modify(&self, openapi: &mut OpenApi) {
-        let mut protected_routes = crate::publication::builtin_openapi_publications()
+        let mut protected_routes = crate::publication::builtin_plugin_publications()
             .into_iter()
-            .flat_map(|publication| publication.route_policies)
+            .flat_map(|publication| publication.route_policies.unwrap_or(&[]))
             .filter(|route| route.auth == crate::publication::RouteAuthPolicy::SessionRequired)
             .map(|route| route.path.to_string())
             .collect::<std::collections::BTreeSet<_>>();
@@ -182,11 +182,9 @@ pub fn build_openapi() -> OpenApi {
     #[cfg(feature = "api-legacy")]
     doc.merge(ApiDocLegacy::openapi());
 
-    for publication in crate::publication::builtin_openapi_publications() {
-        if let Some(plugin_doc) = publication.openapi {
-            doc.merge(plugin_doc);
-        } else {
-            merge_plugin_openapi_json(&mut doc, &publication.name, &publication.openapi_json);
+    for publication in crate::publication::builtin_plugin_publications() {
+        if let Some(openapi_json) = publication.openapi_json.map(|callback| callback()) {
+            merge_plugin_openapi_json(&mut doc, publication.name, &openapi_json);
         }
     }
 

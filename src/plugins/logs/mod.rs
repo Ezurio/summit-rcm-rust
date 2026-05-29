@@ -6,14 +6,14 @@
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+pub use crate::definition::CURRENT_PROCESS_LOG_IDENTIFIER;
+
 pub mod logs_service;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 #[cfg(feature = "at-interface")]
 pub mod at_commands;
-
-pub const CURRENT_PROCESS_LOG_IDENTIFIER: &str = "summit-rcm";
 
 /// Enumeration of valid journalctl log identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +43,7 @@ impl FromStr for JournalctlLogType {
 		match s.to_ascii_lowercase().as_str() {
 			"kernel" => Ok(Self::Kernel),
 			"networkmanager" => Ok(Self::NetworkManager),
-			"python" | "weblcm-python" | "summit-rcm-rust" | "summit-rcm" => Ok(Self::CurrentProcess),
+			"python" | "weblcm-python" | "summit-rcm" => Ok(Self::CurrentProcess),
 			"adaptive_ww" => Ok(Self::AdaptiveWw),
 			"all" => Ok(Self::All),
 			_ => Err(format!("Unknown log type: {}", s)),
@@ -93,7 +93,7 @@ pub enum DriverLogLevel {
 pub use self::logs_service::{JournalLogEntry, LogsService};
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/system/logs/data" => {
 				GET => routes::v2::get_logs_data

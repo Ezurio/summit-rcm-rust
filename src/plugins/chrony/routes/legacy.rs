@@ -14,10 +14,8 @@ pub(crate) use super::legacy_openapi::ApiDoc;
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct LegacyChronySourcesResponse {
-    #[serde(rename = "SDCERR")]
-    pub sdcerr: i32,
-    #[serde(rename = "InfoMsg")]
-    pub info_msg: String,
+    #[serde(flatten)]
+    pub operation: LegacyOperationResponse,
     pub sources: Vec<ChronySource>,
 }
 
@@ -38,8 +36,7 @@ fn legacy_chrony_sources_response(
     sources: Vec<ChronySource>,
 ) -> LegacyChronySourcesResponse {
     LegacyChronySourcesResponse {
-        sdcerr: operation.sdcerr,
-        info_msg: operation.info_msg,
+        operation,
         sources,
     }
 }

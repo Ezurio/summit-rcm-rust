@@ -6,13 +6,12 @@
 use crate::config::ServerConfig;
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::plugins::network_manager::manager::NetworkManagerService;
-use crate::plugins::network_manager::routes::connection_profile::{
-    ActivateConnectionLegacyRequest, ConnectionProfile, LegacyConnectionProfileResponse,
+use crate::plugins::network_manager::routes::connection_profile::ConnectionProfile;
+use crate::plugins::network_manager::routes::legacy::types::{
+    ActivateConnectionLegacyRequest, LegacyConnectionProfileResponse,
+    LegacyDhcpLeasesResponse, LegacyDhcpLeasesResponses, LegacyNetworkInterfaceResponse,
 };
-use crate::plugins::network_manager::routes::shared::{
-    parse_route_model, DhcpLeasesResponse, LegacyDhcpLeasesResponse, LegacyDhcpLeasesResponses,
-    LegacyNetworkInterfaceResponse,
-};
+use crate::plugins::network_manager::routes::shared::{parse_route_model, DhcpLeasesResponse};
 use crate::plugins::network_manager::service::{InterfaceError, NetworkService};
 use axum::{extract::{Path, Query}, Json};
 use serde::{Deserialize, Serialize};
@@ -285,7 +284,7 @@ pub struct WifiStateQuery {
 ))]
 pub async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
     match NetworkService::get_connections_legacy().await {
-        Ok(connections) => match parse_route_model::<BTreeMap<String, LegacyConnectionSummary>, _>(
+        Ok(connections) => match parse_route_model::<BTreeMap<String, LegacyConnectionSummary>>(
             normalize_legacy_connections_value(connections),
         ) {
             Ok(connections) => legacy_connections_response(ok_response(""), connections).into(),
@@ -432,7 +431,7 @@ pub async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegac
 pub async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) -> GetAccessPointsLegacyResponses {
     let iface = q.interface.as_deref();
     match NetworkService::get_access_points_legacy(iface).await {
-        Ok(value) => match parse_route_model::<LegacyAccessPointsResponse, _>(value) {
+        Ok(value) => match parse_route_model::<LegacyAccessPointsResponse>(value) {
             Ok(mut value) => {
                 value.operation = ok_response("");
                 value.into()
@@ -539,7 +538,7 @@ pub async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfa
 
     match NetworkService::get_interface_legacy(iface).await {
         Ok(properties) if properties.as_object().is_some_and(|value| !value.is_empty()) => {
-            match parse_route_model::<LegacyNetworkInterfaceResponse, _>(properties) {
+            match parse_route_model::<LegacyNetworkInterfaceResponse>(properties) {
                 Ok(properties) => legacy_interface_response(ok_response(""), Some(properties)).into(),
                 Err(error) => legacy_interface_error(error.to_string()).into(),
             }
@@ -560,7 +559,7 @@ pub async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfa
 ))]
 pub async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
     match NetworkService::get_all_interfaces().await {
-        Ok(names) => match parse_route_model::<Vec<String>, _>(names) {
+        Ok(names) => match parse_route_model::<Vec<String>>(names) {
             Ok(interfaces) => legacy_interfaces_response(ok_response(""), interfaces).into(),
             Err(error) => legacy_interfaces_error(error.to_string()).into(),
         },
@@ -583,7 +582,7 @@ pub async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -
     };
 
     match NetworkService::get_dhcp_leases(name).await {
-        Ok(value) => match parse_route_model::<DhcpLeasesResponse, _>(value) {
+        Ok(value) => match parse_route_model::<DhcpLeasesResponse>(value) {
             Ok(leases) => legacy_dhcp_leases_response(ok_response(""), leases).into(),
             Err(error) => {
                 error!("Error parsing DHCP leases for {}: {}", name, error);

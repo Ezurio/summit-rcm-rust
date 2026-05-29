@@ -9,7 +9,7 @@ use summit_rcm::plugins::logs::{CURRENT_PROCESS_LOG_IDENTIFIER, JournalctlLogTyp
 
 #[test]
 fn current_process_log_type_aliases_parse() {
-	for alias in ["python", "weblcm-python", "summit-rcm-rust", CURRENT_PROCESS_LOG_IDENTIFIER] {
+	for alias in ["python", "weblcm-python", CURRENT_PROCESS_LOG_IDENTIFIER] {
 		assert_eq!(JournalctlLogType::from_str(alias), Ok(JournalctlLogType::CurrentProcess));
 	}
 }

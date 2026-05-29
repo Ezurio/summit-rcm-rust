@@ -55,12 +55,12 @@ pub use self::system_service::SystemService;
 pub use self::version_service::VersionService;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
-			protected "/api/v2/system/version" => {
+			unprov_protected "/api/v2/system/version" => {
 				GET => routes::v2::version::get_version
 			},
-			protected "/api/v2/system/power" => {
+			unprov_protected "/api/v2/system/power" => {
 				GET => routes::v2::power::get_power,
 				PUT => routes::v2::power::set_power
 			},
@@ -75,29 +75,21 @@ crate::declare_plugin_api! {
 			public "/definitions" => {
 				GET => routes::legacy::definitions::get_definitions
 			},
-			public "/version" => {
+			unprov_public "/version" => {
 				GET => routes::legacy::version::get_version_legacy
 			},
-			protected "/poweroff" => {
+			unprov_protected "/poweroff" => {
 				PUT => routes::legacy::advanced::poweroff_legacy
 			},
 			protected "/suspend" => {
 				PUT => routes::legacy::advanced::suspend_legacy
 			},
-			protected "/reboot" => {
+			unprov_protected "/reboot" => {
 				PUT => routes::legacy::advanced::reboot_legacy
 			},
 			protected "/factoryReset" => {
 				PUT => routes::legacy::advanced::factory_reset_legacy
 			},
-		],
-	},
-	openapi {
-		v2 => [
-	<routes::v2::ApiDoc as utoipa::OpenApi>::openapi,
-		],
-		legacy => [
-	<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi,
 		],
 	},
 }

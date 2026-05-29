@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import tty
 from dataclasses import dataclass
@@ -35,9 +36,10 @@ from api_parity import (
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CASES = Path(__file__).with_name("at_parity_cases.json")
 DEFAULT_BAUD_RATE = 115200
-DEFAULT_READ_TIMEOUT_SECONDS = 1.0
+DEFAULT_READ_TIMEOUT_SECONDS = 8.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 20.0
 DEFAULT_IDLE_TIMEOUT_SECONDS = 0.25
+TERMINAL_STATUS_LINES = {"OK", "ERROR"}
 
 
 @dataclass
@@ -77,8 +79,11 @@ class ManagedProcess:
 class SerialEndpoint:
     master_fd: int
     slave_path: str
+    should_close: bool = True
 
     def close(self) -> None:
+        if not self.should_close:
+            return
         try:
             os.close(self.master_fd)
         except OSError:
@@ -225,6 +230,52 @@ def create_serial_endpoint() -> SerialEndpoint:
     return SerialEndpoint(master_fd=master_fd, slave_path=slave_path)
 
 
+def _termios_baudrate(baud_rate: int) -> int:
+    constant_name = f"B{baud_rate}"
+    value = getattr(termios, constant_name, None)
+    if value is None:
+        raise ParityError(f"unsupported baud rate for termios: {baud_rate}")
+    return value
+
+
+def open_serial_device(serial_path: str, *, baud_rate: int) -> SerialEndpoint:
+    try:
+        fd = os.open(serial_path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    except OSError as error:
+        raise ParityError(f"failed to open serial device {serial_path}: {error}") from error
+
+    try:
+        attrs = termios.tcgetattr(fd)
+        baud = _termios_baudrate(baud_rate)
+        attrs[0] = 0
+        attrs[1] = 0
+        attrs[2] = attrs[2] | termios.CLOCAL | termios.CREAD
+        attrs[3] = 0
+        attrs[4] = baud
+        attrs[5] = baud
+        attrs[6][termios.VMIN] = 0
+        attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        tty.setraw(fd)
+        os.set_blocking(fd, False)
+    except Exception as error:
+        os.close(fd)
+        raise ParityError(f"failed to configure serial device {serial_path}: {error}") from error
+
+    return SerialEndpoint(master_fd=fd, slave_path=serial_path, should_close=True)
+
+
+def flush_serial_input(endpoint: SerialEndpoint, *, drain_seconds: float = 0.25) -> None:
+    end = time.time() + drain_seconds
+    while time.time() < end:
+        ready, _, _ = select.select([endpoint.master_fd], [], [], 0.05)
+        if not ready:
+            continue
+        data = read_master_fd(endpoint)
+        if not data:
+            break
+
+
 def read_master_fd(endpoint: SerialEndpoint) -> bytes:
     try:
         return os.read(endpoint.master_fd, 4096)
@@ -299,34 +350,58 @@ def normalize_serial_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def sanitize_serial_text(text: str) -> str:
+    return "".join(ch for ch in text if ch == "\n" or ch == "\r" or (" " <= ch <= "~"))
+
+
+def has_terminal_at_status(response_text: str) -> bool:
+    lines = [
+        line.strip()
+        for line in normalize_serial_text(sanitize_serial_text(response_text)).split("\n")
+        if line.strip()
+    ]
+    if not lines:
+        return False
+    return any(line in TERMINAL_STATUS_LINES for line in lines)
+
+
 def read_serial_response(
     endpoint: SerialEndpoint,
     *,
     timeout_seconds: float,
     idle_timeout_seconds: float,
 ) -> str:
+    if timeout_seconds <= 0:
+        raise ParityError("read timeout must be > 0")
+
     deadline = time.time() + timeout_seconds
     chunks: list[bytes] = []
     saw_data = False
-    while time.time() < deadline:
-        wait_timeout = idle_timeout_seconds if saw_data else max(0.0, deadline - time.time())
+    while True:
+        now = time.time()
+        if now >= deadline:
+            break
+        wait_timeout = max(0.0, deadline - now)
         ready, _, _ = select.select([endpoint.master_fd], [], [], wait_timeout)
         if not ready:
-            if saw_data:
-                break
             continue
         data = read_master_fd(endpoint)
         if not data:
             continue
         saw_data = True
         chunks.append(data)
+        response_text = b"".join(chunks).decode("utf-8", "replace")
+        if has_terminal_at_status(response_text):
+            return normalize_serial_text(sanitize_serial_text(response_text))
 
     if not saw_data:
         raise ParityError(
             f"timed out waiting for serial response after {timeout_seconds:.2f}s"
         )
 
-    return normalize_serial_text(b"".join(chunks).decode("utf-8", "replace"))
+    raise ParityError(
+        f"timed out waiting for terminal status (OK/ERROR) after {timeout_seconds:.2f}s"
+    )
 
 
 def send_command(
@@ -336,6 +411,11 @@ def send_command(
     timeout_seconds: float,
     idle_timeout_seconds: float,
 ) -> str:
+    # Drop any late bytes from the previous command so each request starts at a clean boundary.
+    flush_serial_input(
+        endpoint,
+        drain_seconds=max(0.05, min(0.25, idle_timeout_seconds)),
+    )
     os.write(endpoint.master_fd, f"{command}\r".encode())
     return read_serial_response(
         endpoint,
@@ -358,9 +438,10 @@ def normalize_case_response(command: str, response: str, *, strip_command_echo: 
 
 def load_cases(cases_path: Path, case_ids: list[str]) -> list[dict[str, Any]]:
     cases = json.loads(cases_path.read_text())
-    if not case_ids:
+    normalized_case_ids = [case_id.strip() for case_id in case_ids if case_id and case_id.strip()]
+    if not normalized_case_ids:
         return cases
-    requested = set(case_ids)
+    requested = set(normalized_case_ids)
     selected = [case for case in cases if case["id"] in requested]
     missing = sorted(requested - {case["id"] for case in selected})
     if missing:
@@ -390,6 +471,19 @@ def validate_expected_response(
     if expected_response is None:
         return None
     if actual_response == expected_response:
+        return None
+
+    # Keep compatibility with older case literals that omitted terminal status.
+    if not expected_response.endswith("\nOK") and not expected_response.endswith("\nERROR"):
+        normalized_expected = normalize_serial_text(expected_response)
+        normalized_actual = normalize_serial_text(actual_response)
+        if normalized_actual.startswith(f"{normalized_expected}\n") and re.search(
+            r"(?:^|\n)(?:OK|ERROR)$",
+            normalized_actual,
+        ) is not None:
+            return None
+
+    if expected_response in {"OK", "ERROR"} and actual_response.startswith(expected_response):
         return None
     return "\n".join(
         [
@@ -421,6 +515,7 @@ def execute_case_command(
     idle_timeout_seconds: float,
 ) -> str | None:
     timeout_seconds = float(case.get("timeout_seconds", read_timeout_seconds))
+
     try:
         rust_response = send_command(
             rust_endpoint,
@@ -491,14 +586,119 @@ def compare_responses(
     read_timeout_seconds: float,
     idle_timeout_seconds: float,
     requested_plugins: list[str],
+    rust_serial_path: str | None,
+    python_serial_path: str | None,
+    wait_for_ready_banner: bool,
 ) -> None:
     if python_runtime != "summit-rcm":
         raise ParityError("AT parity is only supported with the summit-rcm Python baseline; weblcm does not support AT.")
+
+    using_live_serial_targets = rust_serial_path is not None or python_serial_path is not None
+    if using_live_serial_targets and (not rust_serial_path or not python_serial_path):
+        raise ParityError("both --rust-serial-path and --python-serial-path are required when using live serial targets")
+
+    if using_live_serial_targets and requested_plugins:
+        raise ParityError("--plugins is not supported with live serial targets because runtimes are already running")
 
     enabled_plugins = selected_plugins(cases, requested_plugins)
     python_executable = python_runtime_executable(python_repo)
     features = rust_at_features(enabled_plugins)
     rust_binary = ensure_rust_binary(bin_name="summit-rcm", features=features)
+
+    if using_live_serial_targets:
+        rust_endpoint = open_serial_device(rust_serial_path, baud_rate=baud_rate)
+        python_endpoint = open_serial_device(python_serial_path, baud_rate=baud_rate)
+        try:
+            flush_serial_input(rust_endpoint)
+            flush_serial_input(python_endpoint)
+
+            if wait_for_ready_banner:
+                rust_ready = read_serial_response(
+                    rust_endpoint,
+                    timeout_seconds=startup_timeout_seconds,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                )
+                python_ready = read_serial_response(
+                    python_endpoint,
+                    timeout_seconds=startup_timeout_seconds,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                )
+                if rust_ready != python_ready:
+                    raise ParityError(
+                        "AT startup parity failed on live targets:\n"
+                        f"  rust={rust_ready!r}\n"
+                        f"  python={python_ready!r}"
+                    )
+
+            failures: list[str] = []
+            total_cases = len(cases)
+            passed_cases = 0
+            failed_cases = 0
+            skipped_cases = 0
+            for case in cases:
+                if case.get("skip_live"):
+                    reason = case.get("skip_reason")
+                    suffix = f" ({reason})" if reason else ""
+                    label = case.get("command") or case.get("id")
+                    print(f"SKIP {case['id']}: {label}{suffix}")
+                    skipped_cases += 1
+                    continue
+
+                steps = case.get("steps")
+                if isinstance(steps, list):
+                    step_failed = False
+                    for index, step in enumerate(steps, start=1):
+                        step_case = dict(case)
+                        step_case.pop("steps", None)
+                        step_case.update(step)
+                        step_case["id"] = f"{case['id']}[{index}]"
+                        failure = execute_case_command(
+                            step_case,
+                            rust_endpoint=rust_endpoint,
+                            python_endpoint=python_endpoint,
+                            read_timeout_seconds=read_timeout_seconds,
+                            idle_timeout_seconds=idle_timeout_seconds,
+                        )
+                        if failure is not None:
+                            failures.append(failure)
+                            failed_cases += 1
+                            step_failed = True
+                            break
+                    if not step_failed:
+                        print(f"PASS {case['id']}: {len(steps)} steps")
+                        passed_cases += 1
+                    continue
+
+                try:
+                    failure = execute_case_command(
+                        case,
+                        rust_endpoint=rust_endpoint,
+                        python_endpoint=python_endpoint,
+                        read_timeout_seconds=read_timeout_seconds,
+                        idle_timeout_seconds=idle_timeout_seconds,
+                    )
+                except Exception as error:
+                    failure = f"{case['id']}: harness runtime error for {case['command']}: {error}"
+                if failure is not None:
+                    failures.append(failure)
+                    failed_cases += 1
+                    continue
+
+                print(f"PASS {case['id']}: {case['command']}")
+                passed_cases += 1
+
+            print(
+                f"SUMMARY total={total_cases} passed={passed_cases} failed={failed_cases} skipped={skipped_cases}"
+            )
+
+            if failures:
+                raise ParityError("AT command parity failed:\n" + "\n".join(failures))
+
+            print("AT command parity passed.")
+        finally:
+            rust_endpoint.close()
+            python_endpoint.close()
+        return
 
     with tempfile.TemporaryDirectory(prefix="at-parity-") as temp_dir_raw:
         temp_dir = Path(temp_dir_raw)
@@ -550,12 +750,17 @@ def compare_responses(
                 )
 
             failures: list[str] = []
+            total_cases = len(cases)
+            passed_cases = 0
+            failed_cases = 0
+            skipped_cases = 0
             for case in cases:
                 if case.get("skip_live"):
                     reason = case.get("skip_reason")
                     suffix = f" ({reason})" if reason else ""
                     label = case.get("command") or case.get("id")
                     print(f"SKIP {case['id']}: {label}{suffix}")
+                    skipped_cases += 1
                     continue
 
                 steps = case.get("steps")
@@ -575,24 +780,35 @@ def compare_responses(
                         )
                         if failure is not None:
                             failures.append(failure)
+                            failed_cases += 1
                             step_failed = True
                             break
                     if not step_failed:
                         print(f"PASS {case['id']}: {len(steps)} steps")
+                        passed_cases += 1
                     continue
 
-                failure = execute_case_command(
-                    case,
-                    rust_endpoint=rust_endpoint,
-                    python_endpoint=python_endpoint,
-                    read_timeout_seconds=read_timeout_seconds,
-                    idle_timeout_seconds=idle_timeout_seconds,
-                )
+                try:
+                    failure = execute_case_command(
+                        case,
+                        rust_endpoint=rust_endpoint,
+                        python_endpoint=python_endpoint,
+                        read_timeout_seconds=read_timeout_seconds,
+                        idle_timeout_seconds=idle_timeout_seconds,
+                    )
+                except Exception as error:
+                    failure = f"{case['id']}: harness runtime error for {case['command']}: {error}"
                 if failure is not None:
                     failures.append(failure)
+                    failed_cases += 1
                     continue
 
                 print(f"PASS {case['id']}: {case['command']}")
+                passed_cases += 1
+
+            print(
+                f"SUMMARY total={total_cases} passed={passed_cases} failed={failed_cases} skipped={skipped_cases}"
+            )
 
             if failures:
                 raise ParityError("AT command parity failed:\n" + "\n".join(failures))
@@ -649,7 +865,7 @@ def parse_args() -> argparse.Namespace:
         "--read-timeout-seconds",
         type=float,
         default=DEFAULT_READ_TIMEOUT_SECONDS,
-        help="Maximum time to wait for each AT command response.",
+        help="Maximum time to wait for each AT command response while waiting for OK/ERROR terminal status.",
     )
     parser.add_argument(
         "--idle-timeout-seconds",
@@ -663,12 +879,27 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Comma-separated plugin names to enable for AT parity checks.",
     )
+    parser.add_argument(
+        "--rust-serial-path",
+        help="Use an already-running Rust target connected via this host serial device (for example /dev/ttyUSB5).",
+    )
+    parser.add_argument(
+        "--python-serial-path",
+        help="Use an already-running Python target connected via this host serial device (for example /dev/ttyUSB4).",
+    )
+    parser.add_argument(
+        "--wait-for-ready-banner",
+        action="store_true",
+        help="In live serial mode, read one startup banner chunk from each endpoint before running cases.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
+        if args.read_timeout_seconds <= 0:
+            raise ParityError("--read-timeout-seconds must be > 0")
         python_repo = args.python_repo.resolve()
         python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
         compare_responses(
@@ -680,6 +911,9 @@ def main() -> int:
             read_timeout_seconds=args.read_timeout_seconds,
             idle_timeout_seconds=args.idle_timeout_seconds,
             requested_plugins=parse_plugin_names(args.plugins),
+            rust_serial_path=args.rust_serial_path,
+            python_serial_path=args.python_serial_path,
+            wait_for_ready_banner=args.wait_for_ready_banner,
         )
     except ParityError as error:
         print(str(error), file=sys.stderr)

@@ -15,8 +15,6 @@ pub mod archive;
 pub mod certificates;
 #[path = "support/utils.rs"]
 pub mod utils;
-#[path = "support/log_config.rs"]
-pub mod log_config;
 #[path = "app/loader.rs"]
 pub mod plugin_loader;
 #[path = "systemd/unit.rs"]
@@ -30,8 +28,14 @@ pub mod systemd_state;
 pub mod plugins;
 #[path = "app/publication.rs"]
 mod publication;
+pub use publication::PluginPublication;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod web;
 #[cfg(feature = "at-interface")]
 pub mod at_interface;
+
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+pub fn builtin_plugin_publications() -> Vec<&'static PluginPublication> {
+	publication::builtin_plugin_publications()
+}

@@ -6,11 +6,10 @@
 
 use crate::dbus;
 use crate::plugins::bluetooth::routes::common::{
-    parse_bluetooth_control_response, parse_bluetooth_device_response,
+    parse_bluetooth_device_response,
     parse_bluetooth_state_response, BluetoothCommandRequest, BluetoothControlResponse,
     BluetoothDeviceModel, BluetoothStateResponse,
 };
-use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -60,22 +59,6 @@ pub enum BluetoothDeviceStateError {
     Internal = 255,
 }
 
-fn legacy_operation_fields(operation: LegacyOperationResponse) -> serde_json::Map<String, serde_json::Value> {
-    match serde_json::to_value(operation) {
-        Ok(serde_json::Value::Object(object)) => object,
-        _ => serde_json::Map::new(),
-    }
-}
-
-fn legacy_ok_value() -> serde_json::Value {
-    serde_json::Value::Object(legacy_operation_fields(ok_response("")))
-}
-
-fn legacy_fail_value(info_msg: impl Into<String>) -> serde_json::Value {
-    serde_json::to_value(fail_response(info_msg))
-        .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()))
-}
-
 #[cfg(feature = "bluetooth-websocket")]
 fn send_notification(message: serde_json::Value) {
     websocket::send_notification(message)
@@ -84,14 +67,28 @@ fn send_notification(message: serde_json::Value) {
 #[cfg(not(feature = "bluetooth-websocket"))]
 fn send_notification(_message: serde_json::Value) {}
 
-#[cfg(any(feature = "bluetooth-vsp", feature = "bluetooth-hid"))]
-fn legacy_value_with_fields(
-    operation: LegacyOperationResponse,
-    fields: impl IntoIterator<Item = (&'static str, serde_json::Value)>,
-) -> serde_json::Value {
-    let mut value = legacy_operation_fields(operation);
-    value.extend(fields.into_iter().map(|(key, value)| (key.to_string(), value)));
-    serde_json::Value::Object(value)
+struct BluetoothCommandOutcome {
+    response: BluetoothControlResponse,
+    succeeded: bool,
+    info_msg: String,
+}
+
+impl BluetoothCommandOutcome {
+    fn success(response: BluetoothControlResponse) -> Self {
+        Self {
+            response,
+            succeeded: true,
+            info_msg: String::new(),
+        }
+    }
+
+    fn failure(info_msg: impl Into<String>) -> Self {
+        Self {
+            response: BluetoothService::empty_control_response(),
+            succeeded: false,
+            info_msg: info_msg.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -191,10 +188,12 @@ impl BluetoothService {
     }
 
     fn matched_filters(filters: &[String]) -> Vec<String> {
+        let filter_set: std::collections::HashSet<&str> =
+            filters.iter().map(String::as_str).collect();
         ADAPTER_FILTER_NAMES
             .iter()
             .copied()
-            .filter(|name| filters.iter().any(|filter| filter == name))
+            .filter(|name| filter_set.contains(name))
             .map(str::to_string)
             .collect()
     }
@@ -360,36 +359,44 @@ impl BluetoothService {
         state: &ControllerStateData,
         filters: Option<&[String]>,
     ) -> serde_json::Value {
-        let mut response = match Self::controller_payload(
+        Self::controller_payload(
             &state.controller_name,
             &state.snapshot,
             state.powered,
             state.discoverable,
             filters,
-        ) {
-            serde_json::Value::Object(object) => object,
-            _ => serde_json::Map::new(),
-        };
-        response.extend(legacy_operation_fields(ok_response("")));
-        serde_json::Value::Object(response)
+        )
     }
 
     fn serialize_legacy_state_response(
         state: &ControllerStateData,
         filters: Option<&[String]>,
     ) -> serde_json::Value {
-        let mut response = match Self::legacy_controller_payload(
+        Self::legacy_controller_payload(
             &state.controller_name,
             &state.snapshot,
             state.powered,
             state.discoverable,
             filters,
-        ) {
-            serde_json::Value::Object(object) => object,
-            _ => serde_json::Map::new(),
-        };
-        response.extend(legacy_operation_fields(ok_response("")));
-        serde_json::Value::Object(response)
+        )
+    }
+
+    pub(super) fn empty_control_response() -> BluetoothControlResponse {
+        BluetoothControlResponse {
+            rssi: None,
+            tx_power: None,
+            max_tx_power: None,
+            #[cfg(feature = "bluetooth-hid")]
+            hid: crate::plugins::bluetooth::routes::hid::BluetoothHidControlResponse {
+                hid_connections: None,
+            },
+            started: None,
+            port: None,
+            #[cfg(feature = "bluetooth-vsp")]
+            vsp: crate::plugins::bluetooth::routes::vsp::BluetoothVspControlResponse {
+                gatt_connections: None,
+            },
+        }
     }
 
     fn adapter_short_name(adapter_path: &str) -> String {
@@ -723,14 +730,8 @@ impl BluetoothService {
         controller: Option<&str>,
         device: Option<&str>,
         filters: Option<Vec<String>>,
-    ) -> serde_json::Value {
-        match Self::get_state_inner_legacy(controller, device, filters).await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("bluetooth get_state error: {}", e);
-                legacy_fail_value(e.to_string())
-            }
-        }
+    ) -> anyhow::Result<serde_json::Value> {
+        Self::get_state_inner_legacy(controller, device, filters).await
     }
 
     pub async fn get_state_v2_result(
@@ -738,15 +739,7 @@ impl BluetoothService {
         device: Option<&str>,
         filters: Option<Vec<String>>,
     ) -> anyhow::Result<serde_json::Value> {
-        match Self::get_state_inner(controller, device, filters).await {
-            Ok(serde_json::Value::Object(mut object)) => {
-                object.remove("SDCERR");
-                object.remove("InfoMsg");
-                Ok(serde_json::Value::Object(object))
-            }
-            Ok(value) => Ok(value),
-            Err(e) => Err(e),
-        }
+        Self::get_state_inner(controller, device, filters).await
     }
 
     pub async fn get_state_v2(
@@ -885,27 +878,20 @@ impl BluetoothService {
         Ok(Self::serialize_legacy_state_response(&state, matched_filters.as_deref()))
     }
 
-    pub async fn handle_command(
-        controller: Option<&str>,
-        device: Option<&str>,
-        body: &serde_json::Value,
-    ) -> serde_json::Value {
-        match Self::handle_command_inner(controller, device, body).await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("bluetooth handle_command error: {}", e);
-                legacy_fail_value(e.to_string())
-            }
-        }
-    }
-
-    pub async fn handle_command_json(
+    pub async fn handle_command_legacy(
         controller: Option<&str>,
         device: Option<&str>,
         body: BluetoothCommandRequest,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> anyhow::Result<(BluetoothControlResponse, bool, String)> {
         let body = Self::encode_command_request(body)?;
-        Ok(Self::handle_command(controller, device, &body).await)
+        match Self::handle_command_inner(controller, device, &body).await {
+            Ok(outcome) => Ok((outcome.response, outcome.succeeded, outcome.info_msg)),
+            Err(error) => {
+                error!("bluetooth handle_command error: {}", error);
+                let outcome = BluetoothCommandOutcome::failure(error.to_string());
+                Ok((outcome.response, outcome.succeeded, outcome.info_msg))
+            }
+        }
     }
 
     pub async fn handle_command_v2(
@@ -913,14 +899,7 @@ impl BluetoothService {
         device: Option<&str>,
         body: BluetoothCommandRequest,
     ) -> anyhow::Result<(BluetoothControlResponse, String)> {
-        let body = Self::encode_command_request(body)?;
-        let value = Self::handle_command(controller, device, &body).await;
-        let info_msg = value
-            .get("InfoMsg")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
-        let response = parse_bluetooth_control_response(value)?;
+        let (response, _, info_msg) = Self::handle_command_legacy(controller, device, body).await?;
         Ok((response, info_msg))
     }
 
@@ -928,7 +907,7 @@ impl BluetoothService {
         controller: Option<&str>,
         device: Option<&str>,
         body: &serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> anyhow::Result<BluetoothCommandOutcome> {
         let conn = Self::get_conn().await?;
         Self::handle_command_inner_with_conn(&conn, controller, device, body).await
     }
@@ -938,7 +917,7 @@ impl BluetoothService {
         controller: Option<&str>,
         device: Option<&str>,
         body: &serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> anyhow::Result<BluetoothCommandOutcome> {
         let objects = Self::get_managed_objects(conn).await?;
 
         let adapter_path = Self::get_adapter_path(&objects, controller)
@@ -951,7 +930,7 @@ impl BluetoothService {
 
         #[cfg(not(feature = "bluetooth-hid"))]
         if matches!(command, "hidList" | "hidConnect" | "hidDisconnect") {
-            return Ok(legacy_fail_value("Bluetooth HID support not enabled"));
+            return Ok(BluetoothCommandOutcome::failure("Bluetooth HID support not enabled"));
         }
         #[cfg(feature = "bluetooth-hid")]
         if let Some(result) = hid::handle_hid_command(&objects, adapter_path.as_str(), device, body, command).await {
@@ -959,7 +938,7 @@ impl BluetoothService {
         }
         #[cfg(not(feature = "bluetooth-vsp"))]
         if matches!(command, "gattList" | "gattConnect" | "gattDisconnect") {
-            return Ok(legacy_fail_value("Bluetooth VSP support not enabled"));
+            return Ok(BluetoothCommandOutcome::failure("Bluetooth VSP support not enabled"));
         }
         #[cfg(feature = "bluetooth-vsp")]
         if let Some(result) = vsp::handle_vsp_command(conn, &objects, adapter_path.as_str(), device, body, command).await {
@@ -988,21 +967,21 @@ impl BluetoothService {
                     )
                     .await?;
                 }
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleStartDiscovery" => {
                 Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StartDiscovery")
                     .await?;
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleStopDiscovery" => {
                 Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StopDiscovery")
                     .await?;
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleEnableWebsockets" => {
                 Self::enable_websocket_notifications().await?;
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleGatt" => {
                 let dev_addr = device
@@ -1088,10 +1067,10 @@ impl BluetoothService {
                             .await?;
                     }
                     _ => {
-                        return Ok(legacy_fail_value(format!("unknown GATT operation {} requested", operation)));
+                        return Ok(BluetoothCommandOutcome::failure(format!("unknown GATT operation {} requested", operation)));
                     }
                 }
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleConnect" => {
                 if let Some(dev_addr) = device {
@@ -1099,7 +1078,7 @@ impl BluetoothService {
                     Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Connect")
                         .await?;
                 }
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "bleDisconnect" => {
                 if let Some(dev_addr) = device {
@@ -1107,7 +1086,7 @@ impl BluetoothService {
                     Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Disconnect")
                         .await?;
                 }
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
             "blePair" => {
                 if let Some(dev_addr) = device {
@@ -1115,9 +1094,9 @@ impl BluetoothService {
                     Self::call_bluez_noargs(conn, dev_path.as_str(), DEVICE_IFACE, "Pair")
                         .await?;
                 }
-                Ok(legacy_ok_value())
+                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
             }
-            _ => Ok(legacy_fail_value(format!("Unknown command: {}", command))),
+            _ => Ok(BluetoothCommandOutcome::failure(format!("Unknown command: {}", command))),
         }
     }
 }
@@ -1134,4 +1113,3 @@ mod tests;
 #[cfg(all(test, feature = "bluetooth-vsp"))]
 #[path = "../../../tests/unit/bluetooth_service_vsp_tests.rs"]
 mod vsp_tests;
-

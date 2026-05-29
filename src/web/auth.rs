@@ -11,9 +11,6 @@
 use crate::config::ServerConfig;
 use crate::plugins::login::LoginService;
 
-#[cfg(feature = "provisioning")]
-use crate::plugins::provisioning::middleware::ProvisioningAuthOverride;
-
 use axum::{
     body::Body,
     extract::Request,
@@ -24,17 +21,12 @@ use axum::{
 use tower_sessions::Session;
 
 fn sessions_enabled() -> bool {
-    ServerConfig::get_bool("/", "tools.sessions.on", true)
+    crate::cached_config!(bool, ServerConfig::get_bool("/", "tools.sessions.on", true))
 }
 
 pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
     // If sessions are disabled globally, skip all checks
     if !sessions_enabled() {
-        return next.run(req).await;
-    }
-
-    #[cfg(feature = "provisioning")]
-    if req.extensions().get::<ProvisioningAuthOverride>().is_some() {
         return next.run(req).await;
     }
 
@@ -54,19 +46,13 @@ pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
 
     match session.get::<String>("username").await {
         Ok(Some(_)) => {
-            let Some(session_id) = session.id().map(|session_id| session_id.to_string()) else {
+            let Some(session_id) = session.id().map(|id| id.0) else {
                 let _ = session.flush().await;
                 return unauthorized();
             };
 
-            if !LoginService::is_session_active(&session_id) {
-                LoginService::remove_session(&session_id);
-                let _ = session.flush().await;
-                return unauthorized();
-            }
-
-            if !LoginService::refresh_session(&session_id) {
-                LoginService::remove_session(&session_id);
+            if !LoginService::check_and_refresh_session(session_id) {
+                LoginService::remove_session(session_id);
                 let _ = session.flush().await;
                 return unauthorized();
             }
@@ -74,9 +60,8 @@ pub async fn require_session(req: Request<Body>, next: Next) -> Response<Body> {
             next.run(req).await
         }
         Ok(None) => {
-            if let Some(session_id) = session.id() {
-                let session_id = session_id.to_string();
-                LoginService::remove_session(&session_id);
+            if let Some(session_id) = session.id().map(|id| id.0) {
+                LoginService::remove_session(session_id);
             }
             let _ = session.flush().await;
             unauthorized()

@@ -5,7 +5,7 @@
 //! Version information service
 
 use anyhow::{anyhow, Result};
-use crate::utils::{command_stdout, get_boot_rootfs_info, get_boot_rootfs_next_side};
+use crate::utils::{command_stdout, get_boot_rootfs_info, get_boot_rootfs_next_side, path_exists, path_exists_sync, read_sysfs, read_text};
 use serde::{Deserialize, Serialize};
 use std::{future::Future, path::Path, sync::LazyLock};
 use tokio::sync::OnceCell;
@@ -143,12 +143,12 @@ fn parse_os_release_info(content: &str) -> Result<String> {
 }
 
 async fn get_os_release_info() -> Result<String> {
-    let content = tokio::fs::read_to_string("/etc/os-release").await?;
+    let content = read_text("/etc/os-release").await?;
     parse_os_release_info(&content)
 }
 
 async fn get_kernel_vermagic() -> Result<String> {
-    let content = tokio::fs::read_to_string("/proc/sys/kernel/osrelease").await?;
+    let content = read_sysfs("/proc/sys/kernel/osrelease").await?;
     let kernel_vermagic = content.trim();
     if kernel_vermagic.is_empty() {
         return Err(anyhow!("/proc/sys/kernel/osrelease returned no data"));
@@ -161,7 +161,7 @@ async fn get_wireless_driver() -> Result<Option<String>> {
     while let Some(entry) = entries.next_entry().await? {
         let interface = entry.file_name();
         let interface = interface.to_string_lossy().into_owned();
-        if !tokio::fs::try_exists(entry.path().join("wireless")).await? {
+        if !path_exists(entry.path().join("wireless")).await {
             continue;
         }
         let driver_link = Path::new("/sys/class/net")
@@ -183,7 +183,7 @@ async fn get_wireless_driver() -> Result<Option<String>> {
 
 async fn get_bluez_version() -> Option<String> {
     let path = "/usr/libexec/bluetooth/bluetoothd";
-    if !Path::new(path).exists() {
+    if !path_exists_sync(path) {
         return Some("Unknown".to_string());
     }
 

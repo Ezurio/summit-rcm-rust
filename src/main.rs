@@ -4,37 +4,31 @@
 //
 
 use summit_rcm::config;
-use log::LevelFilter;
+use summit_rcm::definition::CURRENT_PROCESS_LOG_IDENTIFIER;
 use log::info;
-use simple_logger::SimpleLogger;
-use systemd_journal_logger::{JournalLog, connected_to_journal};
+use env_filter::{Builder as FilterBuilder, FilteredLog};
+use systemd_journal_logger::JournalLog;
 
-fn log_level_from_env() -> LevelFilter {
-    std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|value| value.parse::<LevelFilter>().ok())
-        .unwrap_or(LevelFilter::Info)
+fn build_log_filter() -> env_filter::Filter {
+    let mut builder = FilterBuilder::new();
+    builder
+        .filter_level(log::LevelFilter::Warn)
+        .filter_module("summit_rcm", log::LevelFilter::Info);
+    builder.build()
 }
 
 fn init_logger() {
-    let level = log_level_from_env();
+    let filter = build_log_filter();
+    let max_level = filter.filter();
 
-    if connected_to_journal()
-        && let Ok(logger) = JournalLog::new() {
-            let logger = logger
-                .with_syslog_identifier(env!("CARGO_PKG_NAME").to_string())
-                .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))]);
-            if logger.install().is_ok() {
-                log::set_max_level(level);
-                return;
-            }
-        }
-
-    SimpleLogger::new()
-        .with_level(level)
-        .env()
-        .init()
-        .expect("logger initialization should succeed");
+    if let Ok(logger) = JournalLog::new() {
+        let logger = logger
+            .with_syslog_identifier(CURRENT_PROCESS_LOG_IDENTIFIER.to_string())
+            .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))]);
+        log::set_boxed_logger(Box::new(FilteredLog::new(logger, filter)))
+            .expect("logger initialization should succeed");
+        log::set_max_level(max_level);
+    }
 }
 
 #[cfg(any(feature = "at-interface", feature = "api-v2", feature = "api-legacy"))]
@@ -42,7 +36,6 @@ mod runtime {
     use futures_util::future::try_join_all;
     #[cfg(feature = "at-interface")]
     use summit_rcm::at_interface;
-    use summit_rcm::plugins::network_manager;
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     use summit_rcm::web;
     #[cfg(unix)]
@@ -81,7 +74,11 @@ mod runtime {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                network_manager::initialize_network_manager_runtime();
+                for publication in summit_rcm::builtin_plugin_publications() {
+                    if let Some(startup) = publication.startup {
+                        startup();
+                    }
+                }
 
                 let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
                 let mut tasks: Vec<(&'static str, JoinHandle<anyhow::Result<()>>)> = Vec::new();

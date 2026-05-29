@@ -8,7 +8,7 @@ pub mod service;
 pub mod routes;
 
 crate::declare_plugin_api! {
-	route_table {
+	routes {
 		v2 => [
 			protected "/api/v2/network/firewall/forwardedPorts" => {
 				GET => routes::v2::get_firewall,

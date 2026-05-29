@@ -129,11 +129,27 @@ Notes:
 
 ## Serial / AT testing
 
+For detailed AT parity scope, case design, and troubleshooting, see [at-interface-parity.md](at-interface-parity.md).
+
 For AT parity on embedded hardware:
 
 ```bash
 python3 tests/parity/at_parity.py --python-repo ../summit-rcm
 ```
+
+For two already-running targets connected to host serial adapters:
+
+```bash
+python3 tests/parity/at_parity.py \
+  --python-repo ../summit-rcm \
+  --python-serial-path /dev/ttyUSB4 \
+  --rust-serial-path /dev/ttyUSB5 \
+  --read-timeout-seconds 8 \
+  --wait-for-ready-banner
+```
+
+In live serial mode, the harness does not start services or rewrite target config. It compares command responses from the two connected targets as-is.
+Use a positive `--read-timeout-seconds` value (`> 0`). Command completion waits for terminal AT status (`OK`/`ERROR`).
 
 If the target image is Buildroot-generated, double-check that serial settings in the generated config are correct and not double-quoted.
 

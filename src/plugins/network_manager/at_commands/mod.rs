@@ -25,7 +25,6 @@ pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
                     let _ = writeln!(out, "+CONNLIST: {}:{},{}\r", uuid, id, activated);
                 }
             }
-            out.push_str("OK");
             CommandOutcome::WithData(out)
         }
         Err(e) => {
@@ -36,9 +35,10 @@ pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
 }
 
 pub async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let Some(profile) = params.raw_parameter(0) else {
+    if params.parameter_count() == 0 {
         return CommandOutcome::Error;
-    };
+    }
+    let profile = params.trimmed(0);
 
     let activate_raw = params.iter_raw_parameters().skip(1).collect::<Vec<_>>().join(",");
 
@@ -71,14 +71,10 @@ pub async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>)
         return CommandOutcome::Error;
     }
 
-    let Some(mode_raw) = params.raw_parameter(0) else {
+    let Some(mode) = params.parse_value::<i32>(0) else {
         return CommandOutcome::Error;
     };
-    let mode: i32 = match mode_raw.trim().parse() {
-        Ok(value) => value,
-        Err(_) => return CommandOutcome::Error,
-    };
-    let profile = params.raw_parameter(1).unwrap_or("").trim();
+    let profile = params.trimmed(1);
     let settings_raw = params.iter_raw_parameters().skip(2).collect::<Vec<_>>().join(",");
     let settings = if settings_raw.is_empty() {
         None
@@ -133,19 +129,23 @@ pub async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>)
 }
 
 pub async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    if params.parameter_count() != 2 {
+    if params.parameter_count() == 0 || params.parameter_count() > 2 {
         return CommandOutcome::Error;
     }
 
-    let name = params.raw_parameter(0).unwrap_or("").trim();
-    let password = params.raw_parameter(1).unwrap_or("").trim();
+    let name = params.trimmed(0);
+    let password = if params.parameter_count() > 1 {
+        params.trimmed(1)
+    } else {
+        ""
+    };
     if name.is_empty() {
         return CommandOutcome::Error;
     }
 
     match CertificatesService::get_cert_info(name, Some(password)).await {
         Ok(info) => match to_string(&info) {
-            Ok(serialized) => CommandOutcome::WithData(format!("+CERTGET: {}\r\nOK", serialized)),
+            Ok(serialized) => CommandOutcome::WithData(format!("+CERTGET: {}", serialized)),
             Err(error) => {
                 error!("Certificates get serialization error: {}", error);
                 CommandOutcome::Error
@@ -159,7 +159,11 @@ pub async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) 
 }
 
 pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let name = params.raw_input().trim();
+    let name = if params.parameter_count() == 0 {
+        ""
+    } else {
+        params.trimmed(0)
+    };
     if name.is_empty() {
         match NetworkService::get_interfaces().await {
             Ok(v) => {
@@ -170,7 +174,6 @@ pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>
                         let _ = writeln!(out, "+NETIF: {}\r", n);
                     }
                 }
-                out.push_str("OK");
                 CommandOutcome::WithData(out)
             }
             Err(e) => {
@@ -180,7 +183,7 @@ pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>
         }
     } else {
         match NetworkService::get_interface(name).await {
-            Ok(v) => CommandOutcome::WithData(format!("+NETIF: {}\r\nOK", v)),
+            Ok(v) => CommandOutcome::WithData(format!("+NETIF: {}", v)),
             Err(e) => {
                 error!("Network interface error: {:?}", e);
                 CommandOutcome::Error
@@ -190,7 +193,11 @@ pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>
 }
 
 pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let iface_name = params.raw_input().trim();
+    let iface_name = if params.parameter_count() == 0 {
+        ""
+    } else {
+        params.trimmed(0)
+    };
     let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
     match NetworkService::get_access_points(iface).await {
         Ok(v) => {
@@ -200,7 +207,6 @@ pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
                     let _ = writeln!(out, "+WLIST: {}\r", ap);
                 }
             }
-            out.push_str("OK");
             CommandOutcome::WithData(out)
         }
         Err(e) => {
@@ -211,7 +217,11 @@ pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
 }
 
 pub async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let iface_name = params.raw_input().trim();
+    let iface_name = if params.parameter_count() == 0 {
+        ""
+    } else {
+        params.trimmed(0)
+    };
     let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
     match NetworkService::scan_access_points(iface).await {
         Ok(_) => CommandOutcome::Ok,
@@ -223,10 +233,14 @@ pub async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
 }
 
 pub async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
-    let val = params.raw_input().trim();
+    let val = if params.parameter_count() == 0 {
+        ""
+    } else {
+        params.trimmed(0)
+    };
     if val.is_empty() {
         match NetworkService::get_wifi_status().await {
-            Ok(v) => CommandOutcome::WithData(format!("+WENABLE: {}\r\nOK", v)),
+            Ok(v) => CommandOutcome::WithData(format!("+WENABLE: {}", v)),
             Err(e) => {
                 error!("WiFi enabled get error: {}", e);
                 CommandOutcome::Error
@@ -249,7 +263,7 @@ pub async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
 
 pub async fn execute_wifi_hardware(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     match NetworkService::get_wifi_hardware_enabled().await {
-        Ok(v) => CommandOutcome::WithData(format!("+WHARD: {}\r\nOK", v)),
+        Ok(v) => CommandOutcome::WithData(format!("+WHARD: {}", v)),
         Err(e) => {
             error!("WiFi hardware error: {}", e);
             CommandOutcome::Error

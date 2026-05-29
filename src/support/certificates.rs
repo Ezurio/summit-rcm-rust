@@ -5,10 +5,11 @@
 //! Shared certificate utilities.
 
 use anyhow::Result;
+use crate::utils::path_exists;
 use openssl::pkcs12::Pkcs12;
 use openssl::x509::{X509, X509NameRef};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
@@ -50,7 +51,7 @@ impl CertificatesService {
         formatted
     }
 
-    fn parse_extensions(cert: &X509) -> Result<Vec<Value>> {
+    fn parse_extensions(cert: &X509) -> Result<Vec<CertificateExtension>> {
         let text = String::from_utf8(cert.to_text()?)?;
         let mut extensions = Vec::new();
         let mut in_extensions = false;
@@ -75,10 +76,10 @@ impl CertificatesService {
 
             if is_header {
                 if let Some(name) = current_name.take() {
-                    extensions.push(json!({
-                        "name": name,
-                        "value": current_value.join("\n"),
-                    }));
+                    extensions.push(CertificateExtension {
+                        name,
+                        value: current_value.join("\n"),
+                    });
                     current_value.clear();
                 }
 
@@ -95,13 +96,25 @@ impl CertificatesService {
         }
 
         if let Some(name) = current_name.take() {
-            extensions.push(json!({
-                "name": name,
-                "value": current_value.join("\n"),
-            }));
+            extensions.push(CertificateExtension {
+                name,
+                value: current_value.join("\n"),
+            });
         }
 
         Ok(extensions)
+    }
+
+    fn build_cert_info(cert: &X509) -> Result<CertificateInfo> {
+        Ok(CertificateInfo {
+            version: cert.version() + 1,
+            serial_number: cert.serial_number().to_bn()?.to_dec_str()?.to_string(),
+            subject: Self::format_x509_name(cert.subject_name()),
+            issuer: Self::format_x509_name(cert.issuer_name()),
+            not_before: cert.not_before().to_string(),
+            not_after: cert.not_after().to_string(),
+            extensions: Self::parse_extensions(cert)?,
+        })
     }
 
     pub fn parse_certificate_bytes(data: &[u8], password: Option<&str>) -> Result<X509> {
@@ -125,38 +138,27 @@ impl CertificatesService {
             .ok_or_else(|| anyhow::anyhow!("unable to parse certificate"))
     }
 
-    /// Return metadata about a certificate file using the OpenSSL library.
-    pub async fn get_cert_info(cert_name: &str, password: Option<&str>) -> Result<Value> {
+    async fn load_cert(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
         let safe_name = Path::new(cert_name)
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid certificate name: {}", cert_name))?;
         let cert_path = format!("{}{}", crate::definition::NETWORKMANAGER_CERT_DIR, safe_name);
-        if !tokio::fs::try_exists(&cert_path).await.unwrap_or(false) {
-            return Err(anyhow::anyhow!(
-                "Cannot find certificate with name {}",
-                safe_name
-            ));
+        if !path_exists(&cert_path).await {
+            return Err(anyhow::anyhow!("Cannot find certificate with name {}", safe_name));
         }
-
         let data = tokio::fs::read(&cert_path).await?;
         let cert = Self::parse_certificate_bytes(&data, password)?;
-        let serial_number = cert.serial_number().to_bn()?.to_dec_str()?.to_string();
-        let extensions = Self::parse_extensions(&cert)?;
+        Self::build_cert_info(&cert)
+    }
 
-        Ok(json!({
-            "version": cert.version() + 1,
-            "serial_number": serial_number,
-            "subject": Self::format_x509_name(cert.subject_name()),
-            "issuer": Self::format_x509_name(cert.issuer_name()),
-            "not_before": cert.not_before().to_string(),
-            "not_after": cert.not_after().to_string(),
-            "extensions": extensions,
-        }))
+    /// Return metadata about a certificate file using the OpenSSL library.
+    pub async fn get_cert_info(cert_name: &str, password: Option<&str>) -> Result<Value> {
+        let info = Self::load_cert(cert_name, password).await?;
+        serde_json::to_value(&info).map_err(Into::into)
     }
 
     pub async fn get_cert_info_model(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
-        let value = Self::get_cert_info(cert_name, password).await?;
-        serde_json::from_value(value).map_err(Into::into)
+        Self::load_cert(cert_name, password).await
     }
 }
