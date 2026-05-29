@@ -54,7 +54,7 @@ fn parse_legacy_siso_mode(raw: &str) -> Option<RadioSISOMode> {
     responses(GetRadioSisoLegacyResponses)
 ))]
 pub async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
-    let (siso_mode, operation) = match RadioSISOModeService::get_current_siso_mode() {
+    let (siso_mode, operation) = match RadioSISOModeService::get_current_siso_mode().await {
         Ok(m) => (m as i32, ok_response("")),
         Err(e) => {
             let detailed = format!("{:#}", e);
@@ -81,7 +81,7 @@ pub async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
 pub async fn put_radio_siso_mode_legacy(
     axum::extract::Query(q): axum::extract::Query<SisoModeLegacyQuery>,
 ) -> PutRadioSisoLegacyResponses {
-    let current = current_mode_value();
+    let current = current_mode_value().await;
 
     let raw = q.siso_mode.as_deref().unwrap_or_default();
     let mode = match parse_legacy_siso_mode(raw) {
@@ -97,7 +97,7 @@ pub async fn put_radio_siso_mode_legacy(
 
     match RadioSISOModeService::set_siso_mode(mode).await {
         Ok(_) => {
-            let new = current_mode_value();
+            let new = current_mode_value().await;
             legacy_siso_mode_response(ok_response(""), new).into()
         }
         Err(e) => legacy_siso_mode_response(

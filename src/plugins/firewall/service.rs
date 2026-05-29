@@ -5,9 +5,10 @@
 //! iptables-based firewall port forwarding service
 
 use crate::utils::command_output;
-use std::sync::{LazyLock, Mutex};
-use serde::{Deserialize, Serialize};
 use log::error;
+use serde::{Deserialize, Serialize};
+use std::sync::{LazyLock, Mutex as StdMutex};
+use tokio::sync::Mutex as AsyncMutex;
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";
@@ -31,15 +32,21 @@ pub struct ForwardedPort {
     pub ip_version: String,
 }
 
-static FORWARDED_PORTS: LazyLock<Mutex<Vec<ForwardedPort>>> = LazyLock::new(|| {
-    Mutex::new(load_ports())
-});
+static FORWARDED_PORTS: LazyLock<StdMutex<Vec<ForwardedPort>>> =
+    LazyLock::new(|| StdMutex::new(load_ports()));
+static PORTS_INTERLOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+
+fn with_ports<R>(f: impl FnOnce(&mut Vec<ForwardedPort>) -> R) -> R {
+    let mut ports = FORWARDED_PORTS.lock().unwrap();
+    f(&mut ports)
+}
 
 fn load_ports() -> Vec<ForwardedPort> {
     if let Ok(data) = std::fs::read_to_string(FORWARDED_PORTS_FILE)
-        && let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data) {
-            return v;
-        }
+        && let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data)
+    {
+        return v;
+    }
     Vec::new()
 }
 
@@ -52,16 +59,17 @@ fn save_ports(ports: &[ForwardedPort]) {
 pub struct FirewallService;
 
 impl FirewallService {
-    pub fn get_forwarded_ports() -> Vec<ForwardedPort> {
-        FORWARDED_PORTS.lock().unwrap().clone()
+    pub async fn get_forwarded_ports() -> Vec<ForwardedPort> {
+        with_ports(|ports| ports.clone())
     }
 
-    pub fn port_is_present(port: &ForwardedPort) -> bool {
-        FORWARDED_PORTS.lock().unwrap().contains(port)
+    pub async fn port_is_present(port: &ForwardedPort) -> bool {
+        with_ports(|ports| ports.contains(port))
     }
 
     pub async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
-        let present = Self::port_is_present(&fp);
+        let _interlock = PORTS_INTERLOCK.lock().await;
+        let present = with_ports(|ports| ports.contains(&fp));
 
         if command == ADD_PORT && present {
             return (true, "Forwarded port already exists".into());
@@ -79,13 +87,27 @@ impl FirewallService {
             format!("[{}]:{}", fp.toaddr, fp.toport)
         };
 
-                let port_str = fp.port.to_string();
-                let prerouting = command_output(
-                    ipt,
-                        &["-t", "nat", action, "PREROUTING", "-p", fp.protocol.as_str(),
-                            "-i", WIFI_INTERFACE, "--dport", port_str.as_str(),
-                            "-j", "DNAT", "--to-destination", to_dest.as_str()],
-                ).await;
+        let port_str = fp.port.to_string();
+        let prerouting = command_output(
+            ipt,
+            &[
+                "-t",
+                "nat",
+                action,
+                "PREROUTING",
+                "-p",
+                fp.protocol.as_str(),
+                "-i",
+                WIFI_INTERFACE,
+                "--dport",
+                port_str.as_str(),
+                "-j",
+                "DNAT",
+                "--to-destination",
+                to_dest.as_str(),
+            ],
+        )
+        .await;
 
         match prerouting {
             Ok(out) if out.status.success() => {}
@@ -97,11 +119,26 @@ impl FirewallService {
             Err(e) => { return (false, e.to_string()); }
         }
 
-                let forward = command_output(
-                    ipt,
-                        &[action, "FORWARD", "-p", fp.protocol.as_str(), "-d", fp.toaddr.as_str(),
-                            "--dport", fp.toport.as_str(), "-m", "state", "--state", "NEW", "-j", "ACCEPT"],
-                ).await;
+        let forward = command_output(
+            ipt,
+            &[
+                action,
+                "FORWARD",
+                "-p",
+                fp.protocol.as_str(),
+                "-d",
+                fp.toaddr.as_str(),
+                "--dport",
+                fp.toport.as_str(),
+                "-m",
+                "state",
+                "--state",
+                "NEW",
+                "-j",
+                "ACCEPT",
+            ],
+        )
+        .await;
 
         match forward {
             Ok(out) if out.status.success() => {}
@@ -113,13 +150,14 @@ impl FirewallService {
             Err(e) => { return (false, e.to_string()); }
         }
 
-        let mut ports = FORWARDED_PORTS.lock().unwrap();
-        if command == ADD_PORT {
-            ports.push(fp);
-        } else {
-            ports.retain(|p| p != &fp);
-        }
-        save_ports(&ports);
+        with_ports(|ports| {
+            if command == ADD_PORT {
+                ports.push(fp);
+            } else {
+                ports.retain(|p| p != &fp);
+            }
+            save_ports(ports);
+        });
         (true, String::new())
     }
 

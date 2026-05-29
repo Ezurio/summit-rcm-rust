@@ -112,8 +112,8 @@ impl AtSslConfig {
         Ok(())
     }
 
-    pub(crate) fn validate_for_http(&self) -> Result<()> {
-        let builder = self.apply_reqwest_tls(reqwest::Client::builder())?;
+    pub(crate) async fn validate_for_http(&self) -> Result<()> {
+        let builder = self.apply_reqwest_tls(reqwest::Client::builder()).await?;
         let _ = builder.build()?;
         Ok(())
     }
@@ -164,7 +164,7 @@ impl AtSslConfig {
         Ok(builder.build())
     }
 
-    pub(crate) fn apply_reqwest_tls(
+    pub(crate) async fn apply_reqwest_tls(
         &self,
         mut builder: reqwest::ClientBuilder,
     ) -> Result<reqwest::ClientBuilder> {
@@ -180,7 +180,8 @@ impl AtSslConfig {
             let ca_path = self
                 .ca_path()
                 .ok_or_else(|| anyhow::anyhow!("SSL CA certificate is required"))?;
-            let ca_pem = std::fs::read(&ca_path)
+            let ca_pem = tokio::fs::read(&ca_path)
+                .await
                 .map_err(|error| anyhow::anyhow!("failed to read CA certificate '{}': {}", ca_path, error))?;
             let certificate = reqwest::Certificate::from_pem(&ca_pem)
                 .map_err(|error| anyhow::anyhow!("failed to parse CA certificate '{}': {}", ca_path, error))?;
@@ -195,10 +196,11 @@ impl AtSslConfig {
                 .key_path()
                 .ok_or_else(|| anyhow::anyhow!("SSL client key is required"))?;
 
-            let cert_pem = std::fs::read(&cert_path).map_err(|error| {
+            let cert_pem = tokio::fs::read(&cert_path).await.map_err(|error| {
                 anyhow::anyhow!("failed to read client certificate '{}': {}", cert_path, error)
             })?;
-            let key_pem = std::fs::read(&key_path)
+            let key_pem = tokio::fs::read(&key_path)
+                .await
                 .map_err(|error| anyhow::anyhow!("failed to read client key '{}': {}", key_path, error))?;
             let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem).map_err(|error| {
                 anyhow::anyhow!(

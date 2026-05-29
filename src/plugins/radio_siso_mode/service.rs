@@ -39,27 +39,35 @@ impl From<RadioSISOMode> for i32 {
 pub struct RadioSISOModeService;
 
 impl RadioSISOModeService {
-    pub fn get_running_driver_interface() -> Result<String> {
-        let entries = std::fs::read_dir(LRDMWL_HOLDERS_PATH)
+    pub async fn get_running_driver_interface() -> Result<String> {
+        let mut entries = tokio::fs::read_dir(LRDMWL_HOLDERS_PATH)
+            .await
             .context("Failed to read lrdmwl holders")?;
-        if let Some(e) = entries.flatten().next() {
-            return Ok(e.file_name().to_string_lossy().into_owned());
+        match entries.next_entry().await {
+            Ok(Some(entry)) => {
+                return Ok(entry.file_name().to_string_lossy().into_owned());
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Err(error).context("Failed to read lrdmwl holders");
+            }
         }
         bail!("No driver interface found in lrdmwl holders")
     }
 
-    pub fn get_current_siso_mode() -> Result<RadioSISOMode> {
-        let raw = std::fs::read_to_string(SISO_MODE_PARAMETER_PATH)
+    pub async fn get_current_siso_mode() -> Result<RadioSISOMode> {
+        let raw = tokio::fs::read_to_string(SISO_MODE_PARAMETER_PATH)
+            .await
             .context("Failed to read SISO_mode parameter")?;
         let val: i32 = raw.trim().parse().context("invalid SISO_mode value")?;
         RadioSISOMode::try_from(val)
     }
 
     pub async fn set_siso_mode(mode: RadioSISOMode) -> Result<()> {
-        let current = Self::get_current_siso_mode()?;
+        let current = Self::get_current_siso_mode().await?;
         if current == mode { return Ok(()); }
 
-        let iface = Self::get_running_driver_interface()?;
+        let iface = Self::get_running_driver_interface().await?;
 
         // Unload
         if !command_status_ok(MODPROBE_PATH, &["-r", iface.as_str(), "lrdmwl"]).await? {

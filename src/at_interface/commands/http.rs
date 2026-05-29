@@ -94,14 +94,22 @@ pub async fn execute_http_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>
     let cert = params.trimmed(3);
     let ca = params.trimmed(4);
 
-    let mut svc = HttpService::instance().lock().unwrap();
-    match svc.configure_ssl(auth_mode, check_hostname, key, cert, ca) {
-        Ok(()) => CommandOutcome::Ok,
+    let ssl_config = match AtSslConfig::new(auth_mode, check_hostname, key, cert, ca) {
+        Ok(config) => config,
         Err(error) => {
             error!("HTTP SSL configure error: {}", error);
-            CommandOutcome::Error
+            return CommandOutcome::Error;
         }
+    };
+
+    if let Err(error) = ssl_config.validate_for_http().await {
+        error!("HTTP SSL configure error: {}", error);
+        return CommandOutcome::Error;
     }
+
+    let mut svc = HttpService::instance().lock().unwrap();
+    svc.set_ssl_config(ssl_config);
+    CommandOutcome::Ok
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[

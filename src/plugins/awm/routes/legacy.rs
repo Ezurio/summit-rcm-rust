@@ -49,8 +49,8 @@ fn legacy_awm_response(
     responses(GetAwmLegacyResponses)
 ))]
 pub async fn get_awm_legacy() -> GetAwmLegacyResponses {
-    if AwmConfigService::get_scan_attempts().is_ok() {
-        legacy_awm_response(ok_response(""), current_scan_attempts()).into()
+    if AwmConfigService::get_scan_attempts().await.is_ok() {
+        legacy_awm_response(ok_response(""), current_scan_attempts().await).into()
     } else {
         legacy_awm_response(ok_response("AWM configuration only supported in LITE mode"), DEFAULT_SCAN_ATTEMPTS).into()
     }
@@ -64,7 +64,7 @@ pub async fn get_awm_legacy() -> GetAwmLegacyResponses {
     responses(PutAwmLegacyResponses)
 ))]
 pub async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyResponses {
-    if !AwmConfigService::get_lite_mode_enabled() {
+    if !AwmConfigService::get_lite_mode_enabled().await {
         return legacy_awm_response(
             fail_response("AWM's geolocation scanning configuration only supported in LITE mode"),
             DEFAULT_SCAN_ATTEMPTS,
@@ -74,7 +74,7 @@ pub async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyRespo
 
     let enable = body.geolocation_scanning_enable.unwrap_or(0);
 
-    if AwmConfigService::set_scan_attempts(enable).is_ok() {
+    if AwmConfigService::set_scan_attempts(enable).await.is_ok() {
         legacy_awm_response(ok_response(""), enable).into()
     } else {
         legacy_awm_response(fail_response("No writable configuration file found"), DEFAULT_SCAN_ATTEMPTS).into()

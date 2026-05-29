@@ -9,7 +9,6 @@ use std::{
     collections::HashMap as StdHashMap,
     fs,
     io::{ErrorKind, Read},
-    os::unix::fs::OpenOptionsExt,
     pin::Pin,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex as StdMutex},
@@ -22,8 +21,7 @@ use tokio::{
     sync::mpsc,
     task::JoinHandle,
 };
-use tokio_udev::{AsyncMonitorSocket, EventType, MonitorBuilder};
-use udev::Enumerator;
+use tokio_udev::{AsyncMonitorSocket, Enumerator, EventType, MonitorBuilder};
 
 const TCP_PORT_MIN: u16 = 1025;
 const TCP_PORT_MAX: u16 = 49151;
@@ -202,7 +200,7 @@ struct ReaderState {
 }
 
 struct HidRawReader {
-    file: AsyncFd<std::fs::File>,
+    file: AsyncFd<fs::File>,
 }
 
 enum MonitorAction {
@@ -257,11 +255,13 @@ impl HidSharedState {
 }
 
 impl HidRawReader {
-    fn open(devnode: &Path) -> std::io::Result<Self> {
-        let file = std::fs::OpenOptions::new()
+    async fn open(devnode: &Path) -> std::io::Result<Self> {
+        let file = tokio::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NONBLOCK)
-            .open(devnode)?;
+            .open(devnode)
+            .await?;
+        let file = file.into_std().await;
         let file = AsyncFd::with_interest(file, Interest::READABLE)?;
         Ok(Self { file })
     }
@@ -338,7 +338,7 @@ async fn handle_hid_connect(
         return Ok(legacy_fail_value(format!("Device {} is not connected.", device_uuid)));
     }
 
-    let hid_device = match find_hid_device(&device_uuid)? {
+    let hid_device = match find_hid_device(&device_uuid).await? {
         Some(path) => path,
         None => {
             return Ok(legacy_fail_value(format!(
@@ -391,9 +391,13 @@ async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<serde_jso
         )));
     };
 
-    handle.state.close_tcp_connection().await;
-    handle.connection_task.abort();
-    let _ = handle.connection_task.await;
+    let HidConnectionHandle {
+        state,
+        connection_task,
+    } = handle;
+    connection_task.abort();
+    drop(connection_task);
+    state.close_tcp_connection().await;
 
     Ok(legacy_ok_value())
 }
@@ -448,7 +452,7 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
                 let Some(event) = event else {
                     break;
                 };
-                match classify_monitor_event(&state.device_uuid, event) {
+                match classify_monitor_event(&state.device_uuid, event).await {
                     Some(MonitorAction::Add(devnode)) if reader_state.is_none() => {
                         reader_state = Some(start_reader_state(state.clone(), devnode, true).await);
                     }
@@ -481,13 +485,13 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
     }
 }
 
-fn classify_monitor_event(
+async fn classify_monitor_event(
     device_uuid: &str,
     event: std::io::Result<tokio_udev::Event>,
 ) -> Option<MonitorAction> {
     let event = event.ok()?;
 
-    let address = hid_device_get_bt_address(event.device().syspath())?;
+    let address = hid_device_get_bt_address(event.device().syspath()).await?;
     if !address.eq_ignore_ascii_case(device_uuid) {
         return None;
     }
@@ -523,7 +527,7 @@ async fn start_reader_state(
 }
 
 async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf) {
-    let reader = HidRawReader::open(devnode.as_path());
+    let reader = HidRawReader::open(devnode.as_path()).await;
     let Ok(reader) = reader else {
         if let Err(error) = reader {
             state.send_error(error).await;
@@ -573,28 +577,37 @@ async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf)
     }
 }
 
-fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
-    let mut enumerator = Enumerator::new()?;
-    enumerator.match_subsystem("hidraw")?;
+async fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
+    let candidates = {
+        let mut enumerator = Enumerator::new()?;
+        enumerator.match_subsystem("hidraw")?;
 
-    for device in enumerator.scan_devices()? {
-        let Some(address) = hid_device_get_bt_address(device.syspath()) else {
+        let mut candidates = Vec::new();
+        for device in enumerator.scan_devices()? {
+            let Some(devnode) = device.devnode() else {
+                continue;
+            };
+            candidates.push((device.syspath().to_path_buf(), devnode.to_path_buf()));
+        }
+        candidates
+    };
+
+    for (syspath, devnode) in candidates {
+        let Some(address) = hid_device_get_bt_address(syspath.as_path()).await else {
             continue;
         };
         if !address.eq_ignore_ascii_case(device_uuid) {
             continue;
         }
-        if let Some(devnode) = device.devnode() {
-            return Ok(Some(devnode.to_path_buf()));
-        }
+        return Ok(Some(devnode));
     }
 
     Ok(None)
 }
 
-fn hid_device_get_bt_address(sys_path: &Path) -> Option<String> {
+async fn hid_device_get_bt_address(sys_path: &Path) -> Option<String> {
     let uevent_path = sys_path.join("device").join("uevent");
-    let content = fs::read_to_string(uevent_path).ok()?;
+    let content = tokio::fs::read_to_string(uevent_path).await.ok()?;
     for line in content.lines() {
         let Some(value) = line.strip_prefix("HID_UNIQ=") else {
             continue;

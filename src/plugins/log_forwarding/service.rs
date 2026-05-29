@@ -33,8 +33,12 @@ impl LogForwardingService {
 
     pub async fn set_state(&self, requested_state: &str) -> Result<()> {
         match requested_state {
-            "active" => { let _ = std::fs::File::create(LOG_FORWARDING_ENABLED_FLAG_FILE); }
-            "inactive" => { let _ = std::fs::remove_file(LOG_FORWARDING_ENABLED_FLAG_FILE); }
+            "active" => {
+                let _ = tokio::fs::File::create(LOG_FORWARDING_ENABLED_FLAG_FILE).await;
+            }
+            "inactive" => {
+                let _ = tokio::fs::remove_file(LOG_FORWARDING_ENABLED_FLAG_FILE).await;
+            }
             _ => {}
         }
         self.unit.set_state(requested_state).await

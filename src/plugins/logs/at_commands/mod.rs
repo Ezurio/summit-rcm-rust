@@ -46,7 +46,7 @@ fn supplicant_level_str(level: SupplicantLogLevel) -> &'static str {
 pub async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     if params.trimmed(0).is_empty() {
         let sup = crate::plugins::logs::LogsService::get_supplicant_debug_level().await;
-        let wifi = crate::plugins::logs::LogsService::get_wifi_driver_debug_level();
+        let wifi = crate::plugins::logs::LogsService::get_wifi_driver_debug_level().await;
         let web = crate::plugins::logs::LogsService::get_webserver_log_level();
         let wifi_val = match wifi {
             DriverLogLevel::Disabled => 0,
@@ -70,7 +70,7 @@ pub async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -
         error!("Set supplicant log level error: {}", e);
         return CommandOutcome::Error;
     }
-    crate::plugins::logs::LogsService::set_wifi_driver_debug_level(wifi_level);
+    crate::plugins::logs::LogsService::set_wifi_driver_debug_level(wifi_level).await;
     crate::plugins::logs::LogsService::set_webserver_log_level(web_level);
 
     CommandOutcome::Ok

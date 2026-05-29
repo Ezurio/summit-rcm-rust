@@ -272,7 +272,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
         };
     }
 
-    match FilesService::try_list_files(file_type) {
+    match FilesService::try_list_files(file_type).await {
         Ok(files) => GetFilesLegacyResponses::from(LegacyFilesListResponse {
             operation: ok_response(format!("{} files", file_type)),
             count: files.len(),
@@ -291,7 +291,7 @@ pub async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileL
         Some(value) => value,
         None => return DeleteFileLegacyResponses::Ok(fail_response("file required")),
     };
-    legacy_operation_result(FilesService::delete_file(file_type, name))
+    legacy_operation_result(FilesService::delete_file(file_type, name).await)
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -432,7 +432,7 @@ pub async fn delete_single_file_legacy(
         return DeleteSingleFileLegacyResponses::Ok(fail_response(format!("type not one of {:?}", ["cert", "pac"])));
     }
 
-    match FilesService::delete_file_typed(&file_type, &file) {
+    match FilesService::delete_file_typed(&file_type, &file).await {
         Ok(()) => DeleteSingleFileLegacyResponses::Ok(ok_response(format!("file {} deleted", file))),
         Err(FileDeleteError::NotFound) => {
             DeleteSingleFileLegacyResponses::Ok(fail_response(format!("File: {} not present", file)))

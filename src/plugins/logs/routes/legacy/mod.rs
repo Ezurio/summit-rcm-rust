@@ -159,7 +159,7 @@ pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
         }
     }
 
-    match LogsService::try_get_wifi_driver_debug_level() {
+    match LogsService::try_get_wifi_driver_debug_level().await {
         Ok(driver) => {
             response.driver_debug_level = Some((driver as u8).to_string());
         }
@@ -206,7 +206,7 @@ pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> 
     };
 
     if LogsService::set_supplicant_debug_level(supplicant_level).await.is_ok() {
-        LogsService::set_wifi_driver_debug_level(driver_level);
+        LogsService::set_wifi_driver_debug_level(driver_level).await;
         let driver_level_string = match driver_level {
             DriverLogLevel::Disabled => "0",
             DriverLogLevel::Enabled => "1",

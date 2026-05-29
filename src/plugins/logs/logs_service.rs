@@ -163,24 +163,26 @@ impl LogsService {
 
     // -------------------------------------------------------------- Wi-Fi driver
 
-    pub fn try_get_wifi_driver_debug_level() -> Result<DriverLogLevel> {
-        Ok(match NetworkService::get_wifi_driver_debug_level()? {
+    pub async fn try_get_wifi_driver_debug_level() -> Result<DriverLogLevel> {
+        Ok(match NetworkService::get_wifi_driver_debug_level().await? {
             0 => DriverLogLevel::Disabled,
             _ => DriverLogLevel::Enabled,
         })
     }
 
     #[cfg(any(feature = "api-v2", feature = "at-interface"))]
-    pub fn get_wifi_driver_debug_level() -> DriverLogLevel {
-        Self::try_get_wifi_driver_debug_level().unwrap_or(DriverLogLevel::Disabled)
+    pub async fn get_wifi_driver_debug_level() -> DriverLogLevel {
+        Self::try_get_wifi_driver_debug_level()
+            .await
+            .unwrap_or(DriverLogLevel::Disabled)
     }
 
-    pub fn set_wifi_driver_debug_level(level: DriverLogLevel) {
+    pub async fn set_wifi_driver_debug_level(level: DriverLogLevel) {
         let value = match level {
             DriverLogLevel::Disabled => 0,
             DriverLogLevel::Enabled => 1,
         };
-        if let Err(error) = NetworkService::set_wifi_driver_debug_level(value) {
+        if let Err(error) = NetworkService::set_wifi_driver_debug_level(value).await {
             error!("Failed to set Wi-Fi driver debug level: {}", error);
         }
     }

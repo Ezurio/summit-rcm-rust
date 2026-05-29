@@ -10,14 +10,14 @@ use crate::at_interface::fsm::FsmHandle;
 use log::error;
 
 pub async fn execute_awm_mode(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
-    let lite = crate::plugins::awm::service::AwmConfigService::get_lite_mode_enabled();
+    let lite = crate::plugins::awm::service::AwmConfigService::get_lite_mode_enabled().await;
     CommandOutcome::WithData(format!("+AWMMODE: {}\r\nOK", if lite { 1 } else { 0 }))
 }
 
 pub async fn execute_awm_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let val = params.trimmed(0);
     if val.is_empty() {
-        match crate::plugins::awm::service::AwmConfigService::get_scan_attempts() {
+        match crate::plugins::awm::service::AwmConfigService::get_scan_attempts().await {
             Ok(value) => CommandOutcome::WithData(format!("+AWMSCAN: {}\r\nOK", value)),
             Err(error) => {
                 error!("AWM scan get error: {}", error);
@@ -29,7 +29,7 @@ pub async fn execute_awm_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
             Ok(value) => value,
             Err(_) => return CommandOutcome::Error,
         };
-        match crate::plugins::awm::service::AwmConfigService::set_scan_attempts(attempts) {
+        match crate::plugins::awm::service::AwmConfigService::set_scan_attempts(attempts).await {
             Ok(_) => CommandOutcome::Ok,
             Err(error) => {
                 error!("AWM scan set error: {}", error);

@@ -111,8 +111,8 @@ async fn index() -> impl IntoResponse {
 }
 
 #[cfg(feature = "runtime-docs")]
-fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
-    let openapi_doc = std::fs::read_to_string(runtime_openapi_doc_path())?;
+async fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
+    let openapi_doc = tokio::fs::read_to_string(runtime_openapi_doc_path()).await?;
     Ok(serde_json::from_str(&openapi_doc)?)
 }
 
@@ -122,9 +122,9 @@ fn load_compiled_openapi_doc() -> anyhow::Result<serde_json::Value> {
 }
 
 #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
+async fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
     #[cfg(feature = "runtime-docs")]
-    match load_runtime_openapi_doc() {
+    match load_runtime_openapi_doc().await {
         Ok(openapi_doc) => return Some(openapi_doc),
         Err(error) => {
             let openapi_doc_path = runtime_openapi_doc_path();
@@ -148,8 +148,8 @@ fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
 }
 
 #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-fn add_runtime_docs_routes(base_router: Router) -> Router {
-    let openapi_doc = match load_openapi_doc_for_runtime() {
+async fn add_runtime_docs_routes(base_router: Router) -> Router {
+    let openapi_doc = match load_openapi_doc_for_runtime().await {
         Some(openapi_doc) => openapi_doc,
         None => {
             return base_router.route("/", get(index));
@@ -193,9 +193,9 @@ struct TempDirGuard {
 }
 
 impl TempDirGuard {
-    fn new(prefix: &str) -> anyhow::Result<Self> {
+    async fn new(prefix: &str) -> anyhow::Result<Self> {
         let path = std::env::temp_dir().join(format!("{}{}", prefix, random_token_hex(8)?));
-        std::fs::create_dir_all(&path)?;
+        tokio::fs::create_dir_all(&path).await?;
         Ok(Self { path })
     }
 
@@ -206,7 +206,12 @@ impl TempDirGuard {
 
 impl Drop for TempDirGuard {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        let path = self.path.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = tokio::fs::remove_dir_all(path).await;
+            });
+        }
     }
 }
 
@@ -310,7 +315,8 @@ async fn tls_config_for_current_mode() -> anyhow::Result<ResolvedWebTlsConfig> {
                 ca_path,
                 require_client_auth,
             },
-        )?;
+        )
+        .await?;
         cert_path = resolved.config.cert_path;
         key_path = resolved.config.key_path;
         ca_path = resolved.config.ca_path;
@@ -325,7 +331,7 @@ async fn tls_config_for_current_mode() -> anyhow::Result<ResolvedWebTlsConfig> {
         || cert_path.starts_with(PKCS11_URI_PREFIX)
         || ca_path.starts_with(PKCS11_URI_PREFIX);
     let temp_dir = if needs_pkcs11_materialization {
-        Some(TempDirGuard::new("summit-rcm-pkcs11-")?)
+        Some(TempDirGuard::new("summit-rcm-pkcs11-").await?)
     } else {
         None
     };
@@ -561,10 +567,10 @@ pub fn build_router() -> Router {
 
 pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {
     let app = build_router();
-    let app = plugin_loader::load_plugins(app);
+    let app = plugin_loader::load_plugins(app).await;
 
     #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-    let app = add_runtime_docs_routes(app);
+    let app = add_runtime_docs_routes(app).await;
 
     #[cfg(not(any(feature = "runtime-docs", feature = "api-docs")))]
     let app = app.route("/", get(index));

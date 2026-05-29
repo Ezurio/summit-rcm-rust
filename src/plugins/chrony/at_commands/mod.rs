@@ -7,6 +7,7 @@
 use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
 use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
+use std::fmt::Write as _;
 use log::error;
 
 pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
@@ -41,12 +42,12 @@ pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
             };
 
             for source in &sources {
-                out.push_str(&format!("+NTPGET: {},{}\r\n", source.address, source.source_type));
+                let _ = writeln!(out, "+NTPGET: {},{}\r", source.address, source.source_type);
             }
         }
         "0" => {
             for source in crate::plugins::chrony::service::ChronyNTPService::get_static_sources().await {
-                out.push_str(&format!("+NTPGET: {}\r\n", source));
+                let _ = writeln!(out, "+NTPGET: {}\r", source);
             }
         }
         "1" => {
@@ -59,7 +60,7 @@ pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
             };
 
             for source in &sources {
-                out.push_str(&format!("+NTPGET: {}\r\n", source));
+                let _ = writeln!(out, "+NTPGET: {}\r", source);
             }
         }
         _ => return CommandOutcome::Error,

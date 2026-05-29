@@ -49,7 +49,7 @@ pub struct ProvisioningStateResponse {
     responses(GetProvisioningResponses)
 ))]
 pub async fn get_provisioning() -> GetProvisioningResponses {
-    let state = CertificateProvisioningService::get_provisioning_state();
+    let state = CertificateProvisioningService::get_provisioning_state_async().await;
     ProvisioningStateResponse { state: state as i32 }.into()
 }
 
@@ -70,7 +70,9 @@ pub async fn post_provisioning(
         return ProvisioningTextResponses::BadRequest;
     };
 
-    if CertificateProvisioningService::get_provisioning_state() != ProvisioningState::Unprovisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::Unprovisioned
+    {
         return ProvisioningTextResponses::BadRequest;
     }
 
@@ -86,7 +88,7 @@ pub async fn post_provisioning(
                     return ProvisioningTextResponses::BadRequest;
                 }
                 let data = field.bytes().await.unwrap_or_default();
-                if std::fs::write(CONFIG_FILE_TEMP_PATH, data).is_err() {
+                if tokio::fs::write(CONFIG_FILE_TEMP_PATH, data).await.is_err() {
                     return ProvisioningTextResponses::InternalError;
                 }
                 config_file_found = true;
@@ -105,7 +107,7 @@ pub async fn post_provisioning(
     let key_gen_args = if openssl_key_gen_args.is_empty() { None } else { Some(openssl_key_gen_args.as_str()) };
     match CertificateProvisioningService::generate_key_and_csr(key_gen_args).await {
         Ok(_) => {
-            let _ = std::fs::remove_file(CONFIG_FILE_TEMP_PATH);
+            let _ = tokio::fs::remove_file(CONFIG_FILE_TEMP_PATH).await;
             match tokio::fs::read(DEVICE_SERVER_CSR_PATH).await {
                 Ok(data) => String::from_utf8_lossy(&data).into_owned().into(),
                 Err(_) => ProvisioningTextResponses::InternalError,
@@ -113,7 +115,7 @@ pub async fn post_provisioning(
         }
         Err(e) => {
             error!("Couldn't generate key and CSR: {}", e);
-            let _ = std::fs::remove_file(CONFIG_FILE_TEMP_PATH);
+            let _ = tokio::fs::remove_file(CONFIG_FILE_TEMP_PATH).await;
             ProvisioningTextResponses::InternalError
         }
     }
@@ -136,7 +138,9 @@ pub async fn put_provisioning(
         return PutProvisioningResponses::BadRequest;
     };
 
-    if CertificateProvisioningService::get_provisioning_state() != ProvisioningState::Unprovisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::Unprovisioned
+    {
         return PutProvisioningResponses::BadRequest;
     }
 
@@ -150,7 +154,7 @@ pub async fn put_provisioning(
                 return PutProvisioningResponses::BadRequest;
             }
             let data = field.bytes().await.unwrap_or_default();
-            if std::fs::write(CERT_TEMP_PATH, data).is_err() {
+            if tokio::fs::write(CERT_TEMP_PATH, data).await.is_err() {
                 return PutProvisioningResponses::InternalError;
             }
             cert_file_found = true;
@@ -187,7 +191,9 @@ pub async fn put_provisioning(
     )
 ))]
 pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleResponses {
-    if CertificateProvisioningService::get_provisioning_state() != ProvisioningState::PartiallyProvisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::PartiallyProvisioned
+    {
         return PutClientBundleResponses::BadRequest;
     }
 
@@ -202,7 +208,7 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
                 return PutClientBundleResponses::BadRequest;
             }
             let data = field.bytes().await.unwrap_or_default();
-            if std::fs::write(TEMP_PATH, data).is_err() {
+            if tokio::fs::write(TEMP_PATH, data).await.is_err() {
                 return PutClientBundleResponses::InternalError;
             }
             cert_file_found = true;
@@ -210,7 +216,7 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
     }
 
     if !cert_file_found {
-        let _ = std::fs::remove_file(TEMP_PATH);
+        let _ = tokio::fs::remove_file(TEMP_PATH).await;
         return PutClientBundleResponses::BadRequest;
     }
 
@@ -220,12 +226,12 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
             PutClientBundleResponses::Ok
         }
         Err(ProvisioningSaveError::InvalidCertificate) => {
-            let _ = std::fs::remove_file(TEMP_PATH);
+            let _ = tokio::fs::remove_file(TEMP_PATH).await;
             PutClientBundleResponses::BadRequest
         }
         Err(error) => {
             error!("Couldn't upload paired client certificate: {:?}", error);
-            let _ = std::fs::remove_file(TEMP_PATH);
+            let _ = tokio::fs::remove_file(TEMP_PATH).await;
             PutClientBundleResponses::InternalError
         }
     }

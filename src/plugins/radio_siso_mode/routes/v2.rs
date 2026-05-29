@@ -41,7 +41,10 @@ pub struct SisoModePut {
     responses(GetRadioSisoResponses)
 ))]
 pub async fn get_radio_siso_mode() -> GetRadioSisoResponses {
-    SisoModeState { siso_mode: current_mode_value() }.into()
+    SisoModeState {
+        siso_mode: current_mode_value().await,
+    }
+    .into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -57,11 +60,17 @@ pub async fn put_radio_siso_mode(Json(body): Json<SisoModePut>) -> PutRadioSisoR
         Err(_) => return PutRadioSisoResponses::BadRequest,
     };
 
-    if mode != RadioSISOModeService::get_current_siso_mode().unwrap_or(RadioSISOMode::SystemDefault)
+    if mode
+        != RadioSISOModeService::get_current_siso_mode()
+            .await
+            .unwrap_or(RadioSISOMode::SystemDefault)
         && let Err(e) = RadioSISOModeService::set_siso_mode(mode).await {
             error!("Unable to set SISO mode: {}", e);
             return PutRadioSisoResponses::InternalError;
         }
 
-    SisoModeState { siso_mode: current_mode_value() }.into()
+    SisoModeState {
+        siso_mode: current_mode_value().await,
+    }
+    .into()
 }

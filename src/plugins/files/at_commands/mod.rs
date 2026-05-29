@@ -10,6 +10,7 @@ use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::at_files_service::AtFilesService;
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::files::FilesService;
+use std::fmt::Write as _;
 use log::error;
 
 enum FilesListType {
@@ -28,11 +29,11 @@ impl FilesListType {
         }
     }
 
-    fn list_files(&self) -> anyhow::Result<Vec<String>> {
+    async fn list_files(&self) -> anyhow::Result<Vec<String>> {
         match self {
-            Self::CertAndPac => FilesService::get_cert_and_pac_files(),
-            Self::Cert => FilesService::get_cert_files(),
-            Self::Pac => FilesService::get_pac_files(),
+            Self::CertAndPac => FilesService::get_cert_and_pac_files().await,
+            Self::Cert => FilesService::get_cert_files().await,
+            Self::Pac => FilesService::get_pac_files().await,
         }
     }
 }
@@ -41,7 +42,7 @@ pub async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     let file_type = params.trimmed(0);
     let name = params.trimmed(1);
 
-    match FilesService::delete_file(file_type, name) {
+    match FilesService::delete_file(file_type, name).await {
         Ok(_) => CommandOutcome::Ok,
         Err(error) => {
             error!("Files delete error: {}", error);
@@ -55,7 +56,7 @@ pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Com
         return CommandOutcome::Error;
     };
 
-    let files = match file_type.list_files() {
+    let files = match file_type.list_files().await {
         Ok(files) => files,
         Err(error) => {
             error!("Files list error: {}", error);
@@ -64,7 +65,7 @@ pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Com
     };
     let mut out = String::new();
     for file in &files {
-        out.push_str(&format!("+FILESLIST: {}\r\n", file));
+        let _ = writeln!(out, "+FILESLIST: {}\r", file);
     }
     out.push_str("OK");
     CommandOutcome::WithData(out)

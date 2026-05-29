@@ -582,7 +582,7 @@ pub async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -
         return legacy_empty_dhcp_leases_response(fail_response("Invalid interface name")).into();
     };
 
-    match NetworkService::get_dhcp_leases(name) {
+    match NetworkService::get_dhcp_leases(name).await {
         Ok(value) => match parse_route_model::<DhcpLeasesResponse, _>(value) {
             Ok(leases) => legacy_dhcp_leases_response(ok_response(""), leases).into(),
             Err(error) => {

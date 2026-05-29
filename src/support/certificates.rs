@@ -125,11 +125,6 @@ impl CertificatesService {
             .ok_or_else(|| anyhow::anyhow!("unable to parse certificate"))
     }
 
-    pub fn parse_certificate_file(cert_path: &str, password: Option<&str>) -> Result<X509> {
-        let data = std::fs::read(cert_path)?;
-        Self::parse_certificate_bytes(&data, password)
-    }
-
     /// Return metadata about a certificate file using the OpenSSL library.
     pub async fn get_cert_info(cert_name: &str, password: Option<&str>) -> Result<Value> {
         let safe_name = Path::new(cert_name)
@@ -137,14 +132,15 @@ impl CertificatesService {
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid certificate name: {}", cert_name))?;
         let cert_path = format!("{}{}", crate::definition::NETWORKMANAGER_CERT_DIR, safe_name);
-        if !Path::new(&cert_path).exists() {
+        if !tokio::fs::try_exists(&cert_path).await.unwrap_or(false) {
             return Err(anyhow::anyhow!(
                 "Cannot find certificate with name {}",
                 safe_name
             ));
         }
 
-        let cert = Self::parse_certificate_file(&cert_path, password)?;
+        let data = tokio::fs::read(&cert_path).await?;
+        let cert = Self::parse_certificate_bytes(&data, password)?;
         let serial_number = cert.serial_number().to_bn()?.to_dec_str()?.to_string();
         let extensions = Self::parse_extensions(&cert)?;
 

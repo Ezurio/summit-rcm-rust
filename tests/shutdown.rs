@@ -1,4 +1,3 @@
-use std::fs;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -15,12 +14,12 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
             .as_nanos()
     );
     let path = std::env::temp_dir().join(unique);
-    fs::create_dir_all(&path).expect("temporary test directory should be created");
+    std::fs::create_dir_all(&path).expect("temporary test directory should be created");
     path
 }
 
 fn write_settings_file(path: &Path) {
-    fs::write(
+    std::fs::write(
         path,
         "[settings]\nsession_timeout = 10\nlogin_retry_times = 5\nlogin_retry_window = 600\n\n[root]\nsalt = parity-salt\npassword = ignored\npermission = status_networking networking_connections networking_edit networking_activate networking_ap_activate networking_certificates system_user system_settings system_firmware system_logs\n",
     )
@@ -56,7 +55,7 @@ fn generate_tls_assets(cert_path: &Path, key_path: &Path) {
 }
 
 fn write_server_config(path: &Path, cert_path: &Path, key_path: &Path, plugin_dir: &Path) {
-    fs::write(
+    std::fs::write(
         path,
         format!(
             "[/]\ntools.sessions.on = false\n\n[plugins]\n\n[summit-rcm]\ndefault_username = root\ndefault_password = summit\nallow_multiple_user_sessions = true\nnetwork_status_restricted = false\nlog_routes_loaded = false\nplugin_dir = {}\n\n[global]\nserver.ssl_private_key = {}\nserver.ssl_certificate = {}\nserver.ssl_certificate_chain = {}\n",
@@ -124,7 +123,7 @@ fn shutdown_signal_returns_on_sigterm() {
     let cert_path = temp_dir.join("server.crt");
     let key_path = temp_dir.join("server.key");
     let plugin_dir = temp_dir.join("plugins");
-    fs::create_dir_all(&plugin_dir).expect("plugin directory should be created");
+    std::fs::create_dir_all(&plugin_dir).expect("plugin directory should be created");
 
     write_settings_file(&settings_path);
     generate_tls_assets(&cert_path, &key_path);
@@ -166,5 +165,5 @@ fn shutdown_signal_returns_on_sigterm() {
         std::thread::sleep(Duration::from_millis(25));
     }
 
-    fs::remove_dir_all(&temp_dir).expect("temporary test directory should be removed");
+    std::fs::remove_dir_all(&temp_dir).expect("temporary test directory should be removed");
 }

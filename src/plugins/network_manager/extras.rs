@@ -25,15 +25,20 @@ fn is_valid_interface_name(name: &str) -> bool {
 }
 
 impl NetworkService {
-    pub fn get_dhcp_leases(name: &str) -> std::result::Result<Value, InterfaceError> {
+    pub async fn get_dhcp_leases(name: &str) -> std::result::Result<Value, InterfaceError> {
         if !is_valid_interface_name(name) {
             return Err(InterfaceError::InvalidName);
         }
         let lease_path = format!("/var/lib/NetworkManager/dnsmasq-{}.leases", name);
-        if !std::path::Path::new(&lease_path).exists() {
+        if !tokio::fs::try_exists(&lease_path)
+            .await
+            .map_err(|_| InterfaceError::Internal)?
+        {
             return Err(InterfaceError::InvalidName);
         }
-        let content = std::fs::read_to_string(&lease_path).map_err(|_| InterfaceError::Internal)?;
+        let content = tokio::fs::read_to_string(&lease_path)
+            .await
+            .map_err(|_| InterfaceError::Internal)?;
         let lease_count = content.lines().count();
         let mut ipv4: Vec<Value> = Vec::with_capacity(lease_count);
         let mut ipv6: Vec<Value> = Vec::with_capacity(lease_count);

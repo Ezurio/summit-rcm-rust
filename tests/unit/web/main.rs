@@ -46,7 +46,7 @@ impl Drop for ServerConfigTestCleanup {
 }
 
 #[cfg(feature = "provisioning")]
-fn set_test_provisioning_state(state: ProvisioningState) {
+async fn set_test_provisioning_state(state: ProvisioningState) {
     let state_path = std::env::temp_dir().join(format!(
         "summit-rcm-provisioning-state-{}-{}",
         std::process::id(),
@@ -63,12 +63,13 @@ fn set_test_provisioning_state(state: ProvisioningState) {
         );
     }
 
-    CertificateProvisioningService::set_provisioning_state(state)
+    CertificateProvisioningService::set_provisioning_state_async(state)
+        .await
         .expect("test provisioning state should be writable");
 }
 
 #[cfg(feature = "provisioning")]
-fn set_test_provisioning_tls_assets() {
+async fn set_test_provisioning_tls_assets() {
     let base = std::env::temp_dir().join(format!(
         "summit-rcm-provisioning-tls-{}-{}",
         std::process::id(),
@@ -78,12 +79,18 @@ fn set_test_provisioning_tls_assets() {
             .as_nanos(),
     ));
 
-    std::fs::create_dir_all(&base).expect("test provisioning tls dir should be creatable");
+    tokio::fs::create_dir_all(&base)
+        .await
+        .expect("test provisioning tls dir should be creatable");
 
     let cert_path = base.join("provisioning.crt");
     let key_path = base.join("provisioning.key");
-    std::fs::write(&cert_path, "cert").expect("test provisioning cert should be writable");
-    std::fs::write(&key_path, "key").expect("test provisioning key should be writable");
+    tokio::fs::write(&cert_path, "cert")
+        .await
+        .expect("test provisioning cert should be writable");
+    tokio::fs::write(&key_path, "key")
+        .await
+        .expect("test provisioning key should be writable");
 
     unsafe {
         std::env::set_var("SUMMIT_RCM_PROVISIONING_SERVER_CERT", cert_path.as_os_str());
@@ -609,11 +616,11 @@ fn at_lookup_resolves_core_and_plugin_usage_commands() {
 }
 
 #[cfg(feature = "provisioning")]
-#[test]
-fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
+#[tokio::test]
+async fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
     test_env!(("summit-rcm", "enable_client_pairing", "true"));
-    set_test_provisioning_state(ProvisioningState::Unprovisioned);
-    set_test_provisioning_tls_assets();
+    set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
+    set_test_provisioning_tls_assets().await;
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
         cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
@@ -621,6 +628,7 @@ fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
         ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
         require_client_auth: true,
     })
+    .await
     .expect("provisioning TLS config should resolve");
 
     assert_eq!(
@@ -642,10 +650,10 @@ fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
 }
 
 #[cfg(feature = "provisioning")]
-#[test]
-fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
+#[tokio::test]
+async fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
     test_env!(("summit-rcm", "enable_client_pairing", "true"));
-    set_test_provisioning_state(ProvisioningState::Unprovisioned);
+    set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
         cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
@@ -653,6 +661,7 @@ fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
         ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
         require_client_auth: true,
     })
+    .await
     .expect("missing restricted provisioning assets should not fail TLS config resolution");
 
     assert_eq!(resolved.config.cert_path, "/etc/summit-rcm/ssl/server.crt");
@@ -662,10 +671,10 @@ fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
 }
 
 #[cfg(feature = "provisioning")]
-#[test]
-fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
+#[tokio::test]
+async fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
     test_env!(("summit-rcm", "enable_client_pairing", "true"));
-    set_test_provisioning_state(ProvisioningState::PartiallyProvisioned);
+    set_test_provisioning_state(ProvisioningState::PartiallyProvisioned).await;
 
     let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
         cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
@@ -673,6 +682,7 @@ fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
         ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
         require_client_auth: false,
     })
+    .await
     .expect("provisioning TLS config should resolve");
 
     assert!(resolved.config.require_client_auth);

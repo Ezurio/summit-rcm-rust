@@ -54,6 +54,7 @@ fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortRes
 ))]
 pub async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
     let ports = FirewallService::get_forwarded_ports()
+        .await
         .into_iter()
         .map(legacy_forwarded_port_response)
         .collect();

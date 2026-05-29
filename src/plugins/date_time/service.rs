@@ -30,8 +30,9 @@ impl DateTimeService {
         OffsetDateTime::now_local().map_err(Into::into)
     }
 
-    pub fn local_zone() -> String {
-        std::fs::read_to_string("/etc/timezone")
+    pub async fn local_zone() -> String {
+        tokio::fs::read_to_string("/etc/timezone")
+            .await
             .map(|zone| zone.trim().to_string())
             .unwrap_or_else(|_| "Unable to determine timezone".to_string())
     }
@@ -54,7 +55,7 @@ impl DateTimeService {
 
         Ok(DateTimeSnapshot {
             zones,
-            zone: Self::local_zone(),
+            zone: Self::local_zone().await,
             datetime,
         })
     }

@@ -16,7 +16,7 @@ pub mod at_commands;
 pub const CURRENT_PROCESS_LOG_IDENTIFIER: &str = "summit-rcm";
 
 /// Enumeration of valid journalctl log identifiers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub enum JournalctlLogType {
 	#[serde(rename = "kernel")]

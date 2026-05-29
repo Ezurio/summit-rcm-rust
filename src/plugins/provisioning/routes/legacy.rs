@@ -32,7 +32,7 @@ pub struct LegacyProvisioningStateResponse {
     responses(GetProvisioningLegacyResponses)
 ))]
 pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
-    let state = CertificateProvisioningService::get_provisioning_state();
+    let state = CertificateProvisioningService::get_provisioning_state_async().await;
     LegacyProvisioningStateResponse {
         operation: ok_response(""),
         state: state as i32,
@@ -50,7 +50,9 @@ pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
 pub async fn post_provisioning_legacy(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> super::v2::ProvisioningTextResponses {
-    if CertificateProvisioningService::get_provisioning_state() != ProvisioningState::Unprovisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::Unprovisioned
+    {
         return super::v2::ProvisioningTextResponses::BadRequest;
     }
 
@@ -71,7 +73,9 @@ pub async fn post_provisioning_legacy(
 pub async fn put_provisioning_legacy(
     multipart: Result<Multipart, axum::extract::multipart::MultipartRejection>,
 ) -> PutProvisioningLegacyResponses {
-    if CertificateProvisioningService::get_provisioning_state() != ProvisioningState::Unprovisioned {
+    if CertificateProvisioningService::get_provisioning_state_async().await
+        != ProvisioningState::Unprovisioned
+    {
         return fail_response("Already provisioned").into();
     }
 

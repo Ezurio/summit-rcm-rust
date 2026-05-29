@@ -70,7 +70,7 @@ pub async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
     responses(GetInterfaceDhcpLeasesResponses)
 ))]
 pub async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetInterfaceDhcpLeasesResponses {
-    match NetworkService::get_dhcp_leases(&name) {
+    match NetworkService::get_dhcp_leases(&name).await {
         Ok(value) => match serde_json::from_value::<DhcpLeasesResponse>(value) {
             Ok(value) => value.into(),
             Err(error) => {

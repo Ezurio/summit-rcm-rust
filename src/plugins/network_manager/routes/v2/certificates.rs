@@ -6,11 +6,9 @@
 //! Network certificate endpoints.
 
 use crate::certificates::{CertificateInfo, CertificatesService};
-use crate::definition::NETWORKMANAGER_CERT_DIR;
 use crate::plugins::files::FilesService;
 use axum::{body::to_bytes, extract::{multipart::MultipartRejection, Multipart, Path}};
 use serde::Deserialize;
-use std::path::Path as FsPath;
 use log::error;
 
 crate::define_ok_internal_json_response_family! {
@@ -50,7 +48,7 @@ pub struct CertificateInfoRequest {
     responses(ListCertificatesResponses)
 ))]
 pub async fn list_certificates() -> ListCertificatesResponses {
-    match FilesService::try_get_cert_and_pac_files() {
+    match FilesService::try_get_cert_and_pac_files().await {
         Ok(files) => files.into(),
         Err(error) => {
             error!("list_certificates: {}", error);
@@ -146,14 +144,13 @@ pub async fn upload_certificate(
     responses(DeleteCertificateResponses)
 ))]
 pub async fn delete_certificate(Path(name): Path<String>) -> DeleteCertificateResponses {
-    let path = format!("{}{}", NETWORKMANAGER_CERT_DIR, name);
-    if !FsPath::new(&path).exists() {
-        return DeleteCertificateResponses::NotFound;
-    }
-    match FilesService::delete_file("cert", &name) {
+    match FilesService::delete_file_typed("cert", &name).await {
         Ok(()) => DeleteCertificateResponses::Ok,
+        Err(crate::plugins::files::files_service::FileDeleteError::NotFound) => {
+            DeleteCertificateResponses::NotFound
+        }
         Err(error) => {
-            error!("delete_certificate {}: {}", name, error);
+            error!("delete_certificate {}: {:?}", name, error);
             DeleteCertificateResponses::InternalError
         }
     }

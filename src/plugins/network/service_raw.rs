@@ -170,22 +170,22 @@ impl NetworkService {
         .await
     }
 
-    pub fn get_wifi_driver_debug_level() -> Result<u8> {
+    pub async fn get_wifi_driver_debug_level() -> Result<u8> {
         let path = wifi_driver_debug_param();
-        let value = std::fs::read_to_string(path)?;
+        let value = tokio::fs::read_to_string(path).await?;
         let parsed = value.trim().parse::<u8>()?;
         Ok(if parsed == 0 { 0 } else { 1 })
     }
 
     #[cfg(any(feature = "api-v2", feature = "at-interface"))]
-    pub fn current_wifi_driver_debug_level() -> u8 {
-        Self::get_wifi_driver_debug_level().unwrap_or(0)
+    pub async fn current_wifi_driver_debug_level() -> u8 {
+        Self::get_wifi_driver_debug_level().await.unwrap_or(0)
     }
 
-    pub fn set_wifi_driver_debug_level(level: u8) -> Result<()> {
+    pub async fn set_wifi_driver_debug_level(level: u8) -> Result<()> {
         let path = wifi_driver_debug_param();
         let value = if level == 0 { "0" } else { "1" };
-        std::fs::write(path, value)?;
+        tokio::fs::write(path, value).await?;
         Ok(())
     }
 

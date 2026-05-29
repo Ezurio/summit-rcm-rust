@@ -597,9 +597,12 @@ impl FirmwareUpdateService {
                             };
 
                             let fwupdate_file_path = FirmwareUpdateService::get_fwupdate_file_path();
-                            if Path::new(&fwupdate_file_path).exists() {
-                                let _ = std::fs::remove_file(&fwupdate_file_path);
-                            }
+                            if Path::new(&fwupdate_file_path).exists()
+                                && let Ok(path) = CString::new(fwupdate_file_path.clone()) {
+                                    unsafe {
+                                        libc::unlink(path.as_ptr());
+                                    }
+                                }
 
                             service.stop_progress_monitor_locked(api);
                             break;

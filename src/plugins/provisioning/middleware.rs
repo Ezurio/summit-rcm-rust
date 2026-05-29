@@ -76,14 +76,14 @@ fn is_whitelisted(path: &str) -> bool {
     false
 }
 
-fn validity_payload(tls_info: &ClientTlsInfo) -> TimestampValidityPayload {
+async fn validity_payload(tls_info: &ClientTlsInfo) -> TimestampValidityPayload {
     let mut payload = TimestampValidityPayload {
         time: format_now_utc(),
         not_before: None,
         not_after: None,
     };
 
-    if let Ok((not_before, not_after)) = CertificateProvisioningService::get_validity_period(tls_info) {
+    if let Ok((not_before, not_after)) = CertificateProvisioningService::get_validity_period(tls_info).await {
         payload.not_before = Some(format_utc_datetime(not_before));
         payload.not_after = Some(format_utc_datetime(not_after));
     }
@@ -131,7 +131,10 @@ fn parse_requested_timestamp(path: &str, body: &[u8]) -> Option<i64> {
     None
 }
 
-fn check_for_new_fallback_timestamp(provisioning_state: ProvisioningState, tls_info: &ClientTlsInfo) {
+async fn check_for_new_fallback_timestamp(
+    provisioning_state: ProvisioningState,
+    tls_info: &ClientTlsInfo,
+) {
     if disable_certificate_expiry_verification() {
         return;
     }
@@ -159,13 +162,14 @@ fn check_for_new_fallback_timestamp(provisioning_state: ProvisioningState, tls_i
 
     let fallback_timestamp = CertificateProvisioningService::read_fallback_timestamp().ok().flatten();
     if fallback_timestamp.map(|ts| client_cert_not_before > ts).unwrap_or(true)
-        && let Err(error) = CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before) {
+        && let Err(error) = CertificateProvisioningService::set_fallback_timestamp(client_cert_not_before).await
+    {
             warn!("Couldn't update fallback timestamp from client certificate: {}", error);
         }
 }
 
 pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Response<Body> {
-    let provisioning_state = CertificateProvisioningService::get_provisioning_state();
+    let provisioning_state = CertificateProvisioningService::get_provisioning_state_async().await;
     let enable_client_pairing = enable_client_pairing();
     let path = req.uri().path().to_string();
     let method = req.method().clone();
@@ -175,7 +179,7 @@ pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Respons
         .cloned()
         .unwrap_or_default();
 
-    check_for_new_fallback_timestamp(provisioning_state, &tls_info);
+    check_for_new_fallback_timestamp(provisioning_state, &tls_info).await;
 
     let mut manual_time_set_request = false;
     if !disable_certificate_expiry_verification()
@@ -190,8 +194,8 @@ pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Respons
 
         if let Some(new_timestamp_usec) = parse_requested_timestamp(&path, &body) {
             manual_time_set_request = true;
-            if !CertificateProvisioningService::validate_new_timestamp(new_timestamp_usec, &tls_info) {
-                let payload = validity_payload(&tls_info);
+            if !CertificateProvisioningService::validate_new_timestamp(new_timestamp_usec, &tls_info).await {
+                let payload = validity_payload(&tls_info).await;
                 return invalid_timestamp_response(&path, payload).into_response();
             }
         }
@@ -214,7 +218,10 @@ pub async fn require_provisioning(mut req: Request<Body>, next: Next) -> Respons
     if manual_time_set_request
         && response.status().is_success()
         && provisioning_state == ProvisioningState::PartiallyProvisioned
-        && CertificateProvisioningService::set_provisioning_state(ProvisioningState::FullyProvisioned).is_ok() {
+        && CertificateProvisioningService::set_provisioning_state_async(ProvisioningState::FullyProvisioned)
+            .await
+            .is_ok()
+    {
             tokio::spawn(async {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 let _ = CertificateProvisioningService::restart_summit_rcm().await;

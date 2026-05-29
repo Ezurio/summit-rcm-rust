@@ -10,8 +10,6 @@ use serde::{de::DeserializeOwned, Serialize};
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use std::io::Read;
 use std::path::Path;
 use std::process::Output;
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
@@ -46,8 +44,20 @@ pub fn elapsed_timespec(now: Timespec, earlier: Timespec) -> Duration {
 pub fn random_token_hex(byte_len: usize) -> anyhow::Result<String> {
     let mut bytes = vec![0_u8; byte_len];
     if openssl::rand::rand_bytes(&mut bytes).is_err() {
-        let mut urandom = std::fs::File::open("/dev/urandom")?;
-        urandom.read_exact(&mut bytes)?;
+        let mut offset = 0usize;
+        while offset < bytes.len() {
+            let read = unsafe {
+                libc::getrandom(
+                    bytes[offset..].as_mut_ptr().cast(),
+                    bytes.len() - offset,
+                    0,
+                )
+            };
+            if read < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            offset += read as usize;
+        }
     }
     Ok(hex::encode(bytes))
 }

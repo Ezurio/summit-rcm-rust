@@ -145,7 +145,7 @@ fn do_dispatch(
         serde_json::to_string(&path_params).unwrap_or_else(|_| "{}".to_string());
     let query_json =
         serde_json::to_string(&query_params).unwrap_or_else(|_| "{}".to_string());
-    let body_str = String::from_utf8(body_bytes.to_vec()).ok();
+    let body_str = String::from_utf8(body_bytes.into()).ok();
 
     let path_cstr = match CString::new(path_json) {
         Ok(c) => c,
@@ -332,17 +332,18 @@ fn load_one(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Load all `*.so` plugins from the plugin directory and extend `router`.
-pub fn load_plugins(mut router: Router) -> Router {
+pub async fn load_plugins(mut router: Router) -> Router {
     #[cfg(feature = "api-docs")]
     reset_dynamic_openapi_registry();
 
     let plugin_dir = ServerConfig::get_string("summit-rcm", "plugin_dir", "/usr/lib/summit-rcm/plugins");
 
-    if !std::path::Path::new(&plugin_dir).exists() {
+    let plugin_dir_path = std::path::Path::new(&plugin_dir);
+    if !tokio::fs::try_exists(plugin_dir_path).await.unwrap_or(false) {
         return router;
     }
 
-    let entries = match std::fs::read_dir(&plugin_dir) {
+    let mut entries = match tokio::fs::read_dir(plugin_dir_path).await {
         Ok(e) => e,
         Err(e) => {
             info!("Plugin directory '{}' not accessible: {}", plugin_dir, e);
@@ -350,7 +351,16 @@ pub fn load_plugins(mut router: Router) -> Router {
         }
     };
 
-    for entry in entries.flatten() {
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => break,
+            Err(e) => {
+                info!("Failed to read plugin directory '{}': {}", plugin_dir, e);
+                break;
+            }
+        };
+
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("so") {
             continue;

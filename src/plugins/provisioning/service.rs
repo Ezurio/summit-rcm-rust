@@ -135,33 +135,33 @@ impl CertificateProvisioningService {
         }
     }
 
-    fn rebuild_web_tls_trust_store(ca_crt_path: &str) -> Result<()> {
+    async fn rebuild_web_tls_trust_store(ca_crt_path: &str) -> Result<()> {
         let rodata_ca = rodata_ca_cert_path();
         if rodata_ca.is_empty() || ca_crt_path.is_empty() {
             return Ok(());
         }
 
         let rodata_ca_path = Path::new(&rodata_ca);
-        if !rodata_ca_path.exists() {
+        if !tokio::fs::try_exists(rodata_ca_path).await.unwrap_or(false) {
             log::warn!("rodata CA cert not found: {}", rodata_ca);
             return Ok(());
         }
 
-        let mut trust_store = std::fs::read(rodata_ca_path)?;
+        let mut trust_store = tokio::fs::read(rodata_ca_path).await?;
         let paired_cert = paired_client_cert_path();
         if !paired_cert.is_empty() {
             let paired_cert_path = Path::new(&paired_cert);
-            if paired_cert_path.exists() {
+            if tokio::fs::try_exists(paired_cert_path).await.unwrap_or(false) {
                 trust_store.extend_from_slice(b"\n");
-                trust_store.extend(std::fs::read(paired_cert_path)?);
+                trust_store.extend(tokio::fs::read(paired_cert_path).await?);
             }
         }
 
         let ca_crt = Path::new(ca_crt_path);
         if let Some(parent) = ca_crt.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
-        std::fs::write(ca_crt, trust_store)?;
+        tokio::fs::write(ca_crt, trust_store).await?;
         Ok(())
     }
 
@@ -209,7 +209,7 @@ impl CertificateProvisioningService {
         Ok(hex::encode(digest.as_ref()))
     }
 
-    pub fn get_ca_cert_validity_period() -> Result<(UtcDateTime, UtcDateTime)> {
+    pub async fn get_ca_cert_validity_period() -> Result<(UtcDateTime, UtcDateTime)> {
         let ca_cert_path = {
             let configured = server_ssl_certificate_chain();
             if configured.is_empty() {
@@ -219,21 +219,24 @@ impl CertificateProvisioningService {
             }
         };
 
-        if !Path::new(&ca_cert_path).exists() {
+        if !tokio::fs::try_exists(&ca_cert_path).await.unwrap_or(false) {
             bail!("Could not get CA certificate validity period - file not found");
         }
 
-        let cert = CertificatesService::parse_certificate_file(&ca_cert_path, None)?;
+        let cert_data = tokio::fs::read(&ca_cert_path).await?;
+        let cert = CertificatesService::parse_certificate_bytes(&cert_data, None)?;
         Self::certificate_validity_period(&cert)
     }
 
-    pub fn get_validity_period(tls_info: &ClientTlsInfo) -> Result<(UtcDateTime, UtcDateTime)> {
-        Self::get_client_cert_validity_period(tls_info)
-            .or_else(|_| Self::get_ca_cert_validity_period())
+    pub async fn get_validity_period(tls_info: &ClientTlsInfo) -> Result<(UtcDateTime, UtcDateTime)> {
+        match Self::get_client_cert_validity_period(tls_info) {
+            Ok(validity) => Ok(validity),
+            Err(_) => Self::get_ca_cert_validity_period().await,
+        }
     }
 
-    pub fn validate_new_timestamp(new_timestamp_usec: i64, tls_info: &ClientTlsInfo) -> bool {
-        let Ok((not_before, not_after)) = Self::get_validity_period(tls_info) else {
+    pub async fn validate_new_timestamp(new_timestamp_usec: i64, tls_info: &ClientTlsInfo) -> bool {
+        let Ok((not_before, not_after)) = Self::get_validity_period(tls_info).await else {
             return false;
         };
 
@@ -257,9 +260,12 @@ impl CertificateProvisioningService {
         Ok(Some(timestamp))
     }
 
-    pub fn set_fallback_timestamp(fallback_timestamp: UtcDateTime) -> Result<()> {
-        if !Path::new(FALLBACK_TIMESTAMP_FILE_PATH).exists() {
-            std::fs::write(FALLBACK_TIMESTAMP_FILE_PATH, b"")?;
+    pub async fn set_fallback_timestamp(fallback_timestamp: UtcDateTime) -> Result<()> {
+        if !tokio::fs::try_exists(FALLBACK_TIMESTAMP_FILE_PATH)
+            .await
+            .unwrap_or(false)
+        {
+            tokio::fs::write(FALLBACK_TIMESTAMP_FILE_PATH, b"").await?;
         }
 
         let fallback_timestamp = Timespec {
@@ -276,14 +282,15 @@ impl CertificateProvisioningService {
         Ok(())
     }
 
-    pub fn get_provisioning_state() -> ProvisioningState {
+    pub async fn get_provisioning_state_async() -> ProvisioningState {
         let state_path = Self::provisioning_state_file_path();
         let path = Path::new(&state_path);
-        if !path.exists() {
-            let _ = Self::set_provisioning_state(ProvisioningState::Unprovisioned);
+        if !tokio::fs::try_exists(path).await.unwrap_or(false) {
+            let _ = Self::set_provisioning_state_async(ProvisioningState::Unprovisioned).await;
             return ProvisioningState::Unprovisioned;
         }
-        match std::fs::read_to_string(path)
+        match tokio::fs::read_to_string(path)
+            .await
             .ok()
             .and_then(|s| s.trim().parse::<i32>().ok())
             .and_then(|v| ProvisioningState::try_from(v).ok())
@@ -293,23 +300,23 @@ impl CertificateProvisioningService {
         }
     }
 
-    pub fn set_provisioning_state(state: ProvisioningState) -> Result<()> {
+    pub async fn set_provisioning_state_async(state: ProvisioningState) -> Result<()> {
         let state_path = Self::provisioning_state_file_path();
         let path = Path::new(&state_path);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         } else {
-            std::fs::create_dir_all(PROVISIONING_DIR)?;
+            tokio::fs::create_dir_all(PROVISIONING_DIR).await?;
         }
-        std::fs::write(path, format!("{}", state as i32))?;
+        tokio::fs::write(path, format!("{}", state as i32)).await?;
         Ok(())
     }
 
-    pub fn resolve_web_tls_config(
+    pub async fn resolve_web_tls_config(
         mut config: ProvisioningWebTlsConfig,
     ) -> Result<ProvisioningWebTlsResolution> {
         let enable_client_pairing = enable_client_pairing();
-        let provisioning_state = Self::get_provisioning_state();
+        let provisioning_state = Self::get_provisioning_state_async().await;
 
         let mode_log = match provisioning_state {
             ProvisioningState::Unprovisioned => {
@@ -334,7 +341,7 @@ impl CertificateProvisioningService {
                     config.key_path = key_path;
                     config.require_client_auth = require_client_auth;
                     if rebuild_trust_store {
-                        Self::rebuild_web_tls_trust_store(&config.ca_path)?;
+                        Self::rebuild_web_tls_trust_store(&config.ca_path).await?;
                     }
                     Some("*** RESTRICTED PROVISIONING MODE ***")
                 }
@@ -352,7 +359,7 @@ impl CertificateProvisioningService {
                 config.key_path = key_path;
                 config.require_client_auth = require_client_auth;
                 if rebuild_trust_store {
-                    Self::rebuild_web_tls_trust_store(&config.ca_path)?;
+                    Self::rebuild_web_tls_trust_store(&config.ca_path).await?;
                 }
                 Some("*** PARTIALLY PROVISIONED MODE ***")
             }
@@ -367,12 +374,15 @@ impl CertificateProvisioningService {
     }
 
     pub async fn generate_key_and_csr(openssl_key_gen_args: Option<&str>) -> Result<()> {
-        if !Path::new(CONFIG_FILE_TEMP_PATH).exists() {
+        if !tokio::fs::try_exists(CONFIG_FILE_TEMP_PATH).await.unwrap_or(false) {
             bail!("Config file not found");
         }
-        std::fs::create_dir_all(PROVISIONING_DIR)?;
-        if Path::new(DEVICE_SERVER_KEY_PATH).exists() {
-            let _ = std::fs::remove_file(DEVICE_SERVER_KEY_PATH);
+        tokio::fs::create_dir_all(PROVISIONING_DIR).await?;
+        if tokio::fs::try_exists(DEVICE_SERVER_KEY_PATH)
+            .await
+            .unwrap_or(false)
+        {
+            let _ = tokio::fs::remove_file(DEVICE_SERVER_KEY_PATH).await;
         }
 
         let args: Vec<String> = if let Some(extra) = openssl_key_gen_args.filter(|s| !s.is_empty()) {
@@ -383,7 +393,10 @@ impl CertificateProvisioningService {
             if !out.status.success() {
                 bail!("{}", String::from_utf8_lossy(&out.stderr));
             }
-            if !Path::new(DEVICE_SERVER_KEY_PATH).exists() {
+            if !tokio::fs::try_exists(DEVICE_SERVER_KEY_PATH)
+                .await
+                .unwrap_or(false)
+            {
                 bail!("Key file not found after generation");
             }
             // Now build CSR args using the existing key
@@ -428,15 +441,20 @@ impl CertificateProvisioningService {
     }
 
     pub async fn save_certificate_file() -> std::result::Result<(), ProvisioningSaveError> {
-        if !Path::new(CERT_TEMP_PATH).exists() {
+        if !tokio::fs::try_exists(CERT_TEMP_PATH).await.unwrap_or(false) {
             return Err(ProvisioningSaveError::Internal);
         }
         if !Self::verify_certificate_against_ca(CERT_TEMP_PATH, PROVISIONING_CA_CERT_CHAIN_PATH).await {
             return Err(ProvisioningSaveError::InvalidCertificate);
         }
-        std::fs::create_dir_all(PROVISIONING_DIR).map_err(|_| ProvisioningSaveError::Internal)?;
-        std::fs::rename(CERT_TEMP_PATH, DEVICE_SERVER_CERT_PATH).map_err(|_| ProvisioningSaveError::Internal)?;
-        Self::set_provisioning_state(ProvisioningState::PartiallyProvisioned)
+        tokio::fs::create_dir_all(PROVISIONING_DIR)
+            .await
+            .map_err(|_| ProvisioningSaveError::Internal)?;
+        tokio::fs::rename(CERT_TEMP_PATH, DEVICE_SERVER_CERT_PATH)
+            .await
+            .map_err(|_| ProvisioningSaveError::Internal)?;
+        Self::set_provisioning_state_async(ProvisioningState::PartiallyProvisioned)
+            .await
             .map_err(|_| ProvisioningSaveError::Internal)?;
         Ok(())
     }
@@ -455,33 +473,37 @@ impl CertificateProvisioningService {
     pub async fn save_paired_client_cert(
         temp_path: &str,
     ) -> std::result::Result<(), ProvisioningSaveError> {
-        if !Path::new(temp_path).exists() {
+        if !tokio::fs::try_exists(temp_path).await.unwrap_or(false) {
             return Err(ProvisioningSaveError::Internal);
         }
 
         let dest = paired_client_cert_path();
         if dest.is_empty() {
-            let _ = std::fs::remove_file(temp_path);
+            let _ = tokio::fs::remove_file(temp_path).await;
             return Err(ProvisioningSaveError::Internal);
         }
 
-        let content = match std::fs::read_to_string(temp_path) {
+        let content = match tokio::fs::read_to_string(temp_path).await {
             Ok(content) => content,
             Err(_) => {
-                let _ = std::fs::remove_file(temp_path);
+                let _ = tokio::fs::remove_file(temp_path).await;
                 return Err(ProvisioningSaveError::InvalidCertificate);
             }
         };
 
         if !content.contains("-----BEGIN CERTIFICATE-----") {
-            let _ = std::fs::remove_file(temp_path);
+            let _ = tokio::fs::remove_file(temp_path).await;
             return Err(ProvisioningSaveError::InvalidCertificate);
         }
 
         if let Some(parent) = Path::new(&dest).parent() {
-            std::fs::create_dir_all(parent).map_err(|_| ProvisioningSaveError::Internal)?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|_| ProvisioningSaveError::Internal)?;
         }
-        std::fs::rename(temp_path, &dest).map_err(|_| ProvisioningSaveError::Internal)?;
+        tokio::fs::rename(temp_path, &dest)
+            .await
+            .map_err(|_| ProvisioningSaveError::Internal)?;
         Ok(())
     }
 }

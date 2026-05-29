@@ -58,13 +58,18 @@ impl FilesService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    fn get_log_path() -> &'static str {
-        let volatile_has_entries = std::fs::read_dir(VOLATILE_LOG_PATH)
-            .ok()
-            .and_then(|mut entries| entries.next())
-            .is_some();
+    async fn get_log_path() -> &'static str {
+        let volatile_has_entries = if let Ok(mut entries) = tokio::fs::read_dir(VOLATILE_LOG_PATH).await {
+            entries.next_entry().await.ok().flatten().is_some()
+        } else {
+            false
+        };
 
-        if !Path::new(PERSISTENT_LOG_PATH).exists() || volatile_has_entries {
+        if !tokio::fs::try_exists(PERSISTENT_LOG_PATH)
+            .await
+            .unwrap_or(false)
+            || volatile_has_entries
+        {
             VOLATILE_LOG_PATH
         } else {
             PERSISTENT_LOG_PATH
@@ -108,18 +113,18 @@ impl FilesService {
     /// Write a certificate file to the cert directory.
     /// List files in the directory associated with `file_type`.
     #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
-    pub fn try_list_files(file_type: &str) -> Result<Vec<String>> {
+    pub async fn try_list_files(file_type: &str) -> Result<Vec<String>> {
         let dir = Self::get_file_dir(file_type)
             .ok_or_else(|| anyhow::anyhow!("Unknown file type '{}'", file_type))?;
         let allowed_extensions = Self::extensions_for_type(file_type);
         let mut files = Vec::new();
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
+        let mut entries = tokio::fs::read_dir(dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if entry.file_type().await?.is_file() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if allowed_extensions.is_none_or(|extensions| {
-                    extensions.iter().any(|ext| name.ends_with(ext))
-                }) {
+                if allowed_extensions
+                    .is_none_or(|extensions| extensions.iter().any(|ext| name.ends_with(ext)))
+                {
                     files.push(name);
                 }
             }
@@ -130,51 +135,55 @@ impl FilesService {
 
     /// Retrieve a list of certificate files.
     #[cfg(feature = "at-interface")]
-    pub fn get_cert_files() -> Result<Vec<String>> {
-        Self::try_list_files("cert")
+    pub async fn get_cert_files() -> Result<Vec<String>> {
+        Self::try_list_files("cert").await
     }
 
     /// Retrieve a list of PAC files.
     #[cfg(feature = "at-interface")]
-    pub fn get_pac_files() -> Result<Vec<String>> {
-        Self::try_list_files("pac")
+    pub async fn get_pac_files() -> Result<Vec<String>> {
+        Self::try_list_files("pac").await
     }
 
     /// Retrieve a list of all certificate and PAC files.
     #[cfg(feature = "at-interface")]
-    pub fn get_cert_and_pac_files() -> Result<Vec<String>> {
-        let mut files = Self::get_cert_files()?;
-        files.extend(Self::get_pac_files()?);
+    pub async fn get_cert_and_pac_files() -> Result<Vec<String>> {
+        let mut files = Self::get_cert_files().await?;
+        files.extend(Self::get_pac_files().await?);
         files.sort();
         Ok(files)
     }
 
     /// Retrieve a list of all certificate and PAC files, surfacing filesystem errors.
     #[cfg(feature = "api-v2")]
-    pub fn try_get_cert_and_pac_files() -> Result<Vec<String>> {
-        let mut files = Self::try_list_files("cert")?;
-        files.extend(Self::try_list_files("pac")?);
+    pub async fn try_get_cert_and_pac_files() -> Result<Vec<String>> {
+        let mut files = Self::try_list_files("cert").await?;
+        files.extend(Self::try_list_files("pac").await?);
         files.sort();
         Ok(files)
     }
 
     /// Delete a file from the directory associated with `file_type`.
     #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
-    pub fn delete_file(file_type: &str, name: &str) -> Result<()> {
+    pub async fn delete_file(file_type: &str, name: &str) -> Result<()> {
         let safe_name = Self::sanitize_filename(name)?;
         let dir = Self::get_file_dir(file_type)
             .ok_or_else(|| anyhow::anyhow!("Unknown file type '{}'", file_type))?;
         let path = format!("{}{}", dir, safe_name);
-        std::fs::remove_file(&path)
+        tokio::fs::remove_file(&path)
+            .await
             .with_context(|| format!("Failed to delete '{}'", safe_name))
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
-    pub fn delete_file_typed(file_type: &str, name: &str) -> std::result::Result<(), FileDeleteError> {
+    pub async fn delete_file_typed(
+        file_type: &str,
+        name: &str,
+    ) -> std::result::Result<(), FileDeleteError> {
         let safe_name = Self::sanitize_filename(name).map_err(|_| FileDeleteError::Internal)?;
         let dir = Self::get_file_dir(file_type).ok_or(FileDeleteError::InvalidFileType)?;
         let path = format!("{}{}", dir, safe_name);
-        std::fs::remove_file(&path).map_err(|error| {
+        tokio::fs::remove_file(&path).await.map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 FileDeleteError::NotFound
             } else {
@@ -224,7 +233,13 @@ impl FilesService {
     /// Export logs as a password-protected zip archive.
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn export_logs(password: &str) -> Result<Vec<u8>> {
-        crate::archive::zip_create(password, &["--symlinks", "-9", "-r"], &["."], Self::get_log_path()).await
+        crate::archive::zip_create(
+            password,
+            &["--symlinks", "-9", "-r"],
+            &["."],
+            Self::get_log_path().await,
+        )
+        .await
     }
 
     /// Export system config as a password-protected zip archive.
@@ -255,7 +270,7 @@ impl FilesService {
             "-9",
             "-r",
             temp_zip_str.as_str(),
-            Self::get_log_path(),
+            Self::get_log_path().await,
             NETWORKMANAGER_DIR_FULL,
             SUMMIT_RCM_DIR,
         ];

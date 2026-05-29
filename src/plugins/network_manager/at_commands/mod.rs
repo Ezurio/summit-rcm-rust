@@ -10,6 +10,7 @@ use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::network_manager::service::NetworkService;
 use serde_json::{Value, from_str, to_string};
+use std::fmt::Write as _;
 use log::error;
 
 pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
@@ -21,7 +22,7 @@ pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
                     let uuid = conn.get("uuid").and_then(|x| x.as_str()).unwrap_or("");
                     let id = conn.get("id").and_then(|x| x.as_str()).unwrap_or("");
                     let activated = conn.get("activated").and_then(|x| x.as_bool()).unwrap_or(false) as i32;
-                    out.push_str(&format!("+CONNLIST: {}:{},{}\r\n", uuid, id, activated));
+                    let _ = writeln!(out, "+CONNLIST: {}:{},{}\r", uuid, id, activated);
                 }
             }
             out.push_str("OK");
@@ -166,7 +167,7 @@ pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>
                 if let Some(arr) = v.as_array() {
                     for iface in arr {
                         let n = iface.get("name").and_then(|x| x.as_str()).unwrap_or("");
-                        out.push_str(&format!("+NETIF: {}\r\n", n));
+                        let _ = writeln!(out, "+NETIF: {}\r", n);
                     }
                 }
                 out.push_str("OK");
@@ -196,7 +197,7 @@ pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
             let mut out = String::new();
             if let Some(arr) = v.as_array() {
                 for ap in arr {
-                    out.push_str(&format!("+WLIST: {}\r\n", ap));
+                    let _ = writeln!(out, "+WLIST: {}\r", ap);
                 }
             }
             out.push_str("OK");

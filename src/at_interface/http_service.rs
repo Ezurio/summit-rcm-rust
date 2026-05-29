@@ -8,6 +8,7 @@
 use crate::at_interface::ssl::AtSslConfig;
 use log::error;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Default)]
@@ -80,18 +81,8 @@ impl HttpService {
         self.response_headers_enabled = enabled;
     }
 
-    pub fn configure_ssl(
-        &mut self,
-        auth_mode: i32,
-        check_hostname: Option<bool>,
-        key: &str,
-        cert: &str,
-        ca: &str,
-    ) -> anyhow::Result<()> {
-        let ssl_config = AtSslConfig::new(auth_mode, check_hostname, key, cert, ca)?;
-        ssl_config.validate_for_http()?;
+    pub fn set_ssl_config(&mut self, ssl_config: AtSslConfig) {
         self.ssl_config = Some(ssl_config);
-        Ok(())
     }
 
     pub fn clear_configuration(&mut self) {
@@ -148,7 +139,7 @@ impl HttpService {
             .timeout(std::time::Duration::from_secs(config.timeout_secs));
 
         if let Some(ssl_config) = &config.ssl_config {
-            client_builder = ssl_config.apply_reqwest_tls(client_builder)?;
+            client_builder = ssl_config.apply_reqwest_tls(client_builder).await?;
         }
 
         let client = client_builder.build()?;
@@ -173,9 +164,9 @@ impl HttpService {
         if config.response_headers_enabled {
             let status = resp.status();
             for (key, value) in resp.headers() {
-                resp_str.push_str(&format!("{}: {}\r\n", key, value.to_str().unwrap_or("")));
+                let _ = writeln!(resp_str, "{}: {}\r", key, value.to_str().unwrap_or(""));
             }
-            resp_str.push_str(&format!("Status: {}\r\n", status));
+            let _ = writeln!(resp_str, "Status: {}\r", status);
         }
         let body = resp.text().await.unwrap_or_default();
         resp_str.push_str(&body);

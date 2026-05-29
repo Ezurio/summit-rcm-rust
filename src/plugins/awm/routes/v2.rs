@@ -42,7 +42,7 @@ pub struct AwmPut {
 ))]
 pub async fn get_awm() -> GetAwmResponses {
     AwmState {
-        geolocation_scanning_enabled: current_scan_attempts(),
+        geolocation_scanning_enabled: current_scan_attempts().await,
     }
     .into()
 }
@@ -55,14 +55,14 @@ pub async fn get_awm() -> GetAwmResponses {
     responses(PutAwmResponses)
 ))]
 pub async fn put_awm(Json(body): Json<AwmPut>) -> PutAwmResponses {
-    if AwmConfigService::get_lite_mode_enabled()
+    if AwmConfigService::get_lite_mode_enabled().await
         && let Some(enable) = body.geolocation_scanning_enabled
-            && let Err(error) = AwmConfigService::set_scan_attempts(enable) {
+            && let Err(error) = AwmConfigService::set_scan_attempts(enable).await {
                 error!("Failed to set AWM scan_attempts: {}", error);
                 return PutAwmResponses::InternalError;
             }
     AwmState {
-        geolocation_scanning_enabled: current_scan_attempts(),
+        geolocation_scanning_enabled: current_scan_attempts().await,
     }
     .into()
 }

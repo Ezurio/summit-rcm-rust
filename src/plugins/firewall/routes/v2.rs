@@ -27,7 +27,7 @@ crate::define_ok_internal_json_response_family! {
     responses(GetFirewallResponses)
 ))]
 pub async fn get_firewall() -> GetFirewallResponses {
-    FirewallService::get_forwarded_ports().into()
+    FirewallService::get_forwarded_ports().await.into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -46,7 +46,7 @@ pub async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewal
         }
     }
     for fp in &desired {
-        if !FirewallService::port_is_present(fp) {
+        if !FirewallService::port_is_present(fp).await {
             let (ok, msg) = FirewallService::configure_forwarded_port(ADD_PORT, fp.clone()).await;
             if !ok {
                 error!("Failed to add forwarded port: {}", msg);
@@ -54,11 +54,11 @@ pub async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewal
             }
         }
     }
-    let current = FirewallService::get_forwarded_ports();
+    let current = FirewallService::get_forwarded_ports().await;
     for fp in current {
         if !desired.contains(&fp) {
             FirewallService::configure_forwarded_port(REMOVE_PORT, fp).await;
         }
     }
-    FirewallService::get_forwarded_ports().into()
+    FirewallService::get_forwarded_ports().await.into()
 }

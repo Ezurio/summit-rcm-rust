@@ -71,7 +71,7 @@ pub async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> G
         };
     }
 
-    match FilesService::try_list_files("cert") {
+    match FilesService::try_list_files("cert").await {
         Ok(certs) => LegacyCertificateInfoResponse {
             operation: ok_response("cert files"),
             cert_info: None,

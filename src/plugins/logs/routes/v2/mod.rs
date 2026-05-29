@@ -138,7 +138,7 @@ pub async fn get_logs_config() -> GetLogsConfigResponses {
             return GetLogsConfigResponses::InternalError;
         }
     };
-    let drv = match LogsService::try_get_wifi_driver_debug_level() {
+    let drv = match LogsService::try_get_wifi_driver_debug_level().await {
         Ok(level) => level,
         Err(error) => {
             error!("get_logs_config driver: {}", error);
@@ -182,11 +182,11 @@ pub async fn set_logs_config(Json(body): Json<LogsConfigRequest>) -> SetLogsConf
         error!("set_logs_config supp: {}", e);
         return SetLogsConfigResponses::InternalError;
     }
-    LogsService::set_wifi_driver_debug_level(drv_level);
+    LogsService::set_wifi_driver_debug_level(drv_level).await;
     let new_supp = LogsService::get_supplicant_debug_level().await;
     LogsConfigResponse {
         supp_debug_level: format!("{:?}", new_supp).to_lowercase(),
-        driver_debug_level: LogsService::get_wifi_driver_debug_level() as u8,
+        driver_debug_level: LogsService::get_wifi_driver_debug_level().await as u8,
     }
     .into()
 }
