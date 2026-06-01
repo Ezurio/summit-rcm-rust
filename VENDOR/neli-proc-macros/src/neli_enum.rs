@@ -10,9 +10,11 @@ use crate::shared::remove_bad_attrs;
 fn parse_type_attr(attr: Meta) -> Type {
     if let Meta::NameValue(nv) = attr {
         if nv.path == parse_str::<Path>("serialized_type").unwrap() {
-            if let Lit::Str(ls) = nv.lit {
-                return parse_str::<Type>(&ls.value())
-                    .unwrap_or_else(|_| panic!("Invalid type supplied: {}", ls.value()));
+            if let Expr::Lit(el) = nv.value {
+                if let Lit::Str(ls) = el.lit {
+                    return parse_str::<Type>(&ls.value())
+                        .unwrap_or_else(|_| panic!("Invalid type supplied: {}", ls.value()));
+                }
             }
         }
     }
@@ -118,8 +120,8 @@ pub fn generate_neli_enum(mut enm: ItemEnum, meta: Meta) -> TokenStream2 {
             }
         }
 
-        impl<'lt> neli::FromBytes<'lt> for #enum_name {
-            fn from_bytes(buffer: &mut std::io::Cursor<&'lt [u8]>) -> Result<Self, neli::err::DeError> {
+        impl neli::FromBytes for #enum_name {
+            fn from_bytes(buffer: &mut std::io::Cursor<impl AsRef<[u8]>>) -> Result<Self, neli::err::DeError> {
                 Ok(#enum_name::from(<#ty as neli::FromBytes>::from_bytes(
                     buffer
                 )?))

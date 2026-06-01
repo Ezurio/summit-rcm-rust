@@ -1,17 +1,15 @@
 use std::{any::type_name, collections::HashMap};
 
-use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::{Span, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, ToTokens};
 use syn::{
-    parse,
     parse::Parse,
     parse_str,
     punctuated::Punctuated,
-    token::{Add, Colon2},
+    token::{PathSep, Plus},
     Attribute, Expr, Fields, FieldsNamed, FieldsUnnamed, GenericParam, Generics, Ident, Index,
-    ItemStruct, LifetimeDef, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments,
-    PathSegment, Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, Variant,
+    ItemStruct, LitStr, Meta, MetaNameValue, Path, PathArguments, PathSegment, Token, TraitBound,
+    TraitBoundModifier, Type, TypeParam, TypeParamBound, Variant,
 };
 
 /// Represents a field as either an identifier or an index.
@@ -147,7 +145,7 @@ fn path_from_idents(idents: &[&str]) -> Path {
                 ident: Ident::new(ident, Span::call_site()),
                 arguments: PathArguments::None,
             })
-            .collect::<Punctuated<PathSegment, Colon2>>(),
+            .collect::<Punctuated<PathSegment, PathSep>>(),
     }
 }
 
@@ -225,17 +223,9 @@ pub fn process_impl_generics(
 pub fn remove_bad_attrs(attrs: Vec<Attribute>) -> Vec<Attribute> {
     attrs
         .into_iter()
-        .filter(|attr| {
-            if let Ok(meta) = attr.parse_meta() {
-                match meta {
-                    Meta::NameValue(MetaNameValue { path, .. }) => {
-                        !(path == parse_str::<Path>("doc").expect("doc should be valid path"))
-                    }
-                    _ => true,
-                }
-            } else {
-                panic!("Could not parse provided attribute {}", attr.tokens,)
-            }
+        .filter(|attr| match &attr.meta {
+            Meta::NameValue(MetaNameValue { path, .. }) => !path.is_ident("doc"),
+            _ => true,
         })
         .collect()
 }
@@ -279,10 +269,7 @@ where
 {
     let attrs = remove_bad_attrs(attrs)
         .into_iter()
-        .map(|attr| {
-            attr.parse_meta()
-                .unwrap_or_else(|_| panic!("Failed to parse attribute {}", attr.tokens))
-        })
+        .map(|attr| attr.meta)
         .collect::<Vec<_>>();
     let arm = generate_pat_and_expr(
         enum_name,
@@ -374,17 +361,11 @@ pub fn generate_unnamed_fields(fields: FieldsUnnamed, uses_self: bool) -> Vec<Fi
 /// Returns [`true`] if the given attribute is present in the list.
 fn attr_present(attrs: &[Attribute], attr_name: &str) -> bool {
     for attr in attrs {
-        let meta = attr
-            .parse_meta()
-            .unwrap_or_else(|_| panic!("Failed to parse attribute {}", attr.tokens));
-        if let Meta::List(list) = meta {
-            if list.path == parse_str::<Path>("neli").expect("neli is valid path") {
-                for nested in list.nested {
-                    if let NestedMeta::Meta(Meta::Path(path)) = nested {
-                        if path
-                            == parse_str::<Path>(attr_name)
-                                .unwrap_or_else(|_| panic!("{} should be valid path", attr_name))
-                        {
+        if let Meta::List(list) = &attr.meta {
+            if list.path.is_ident("neli") {
+                for token in list.tokens.clone() {
+                    if let TokenTree::Ident(ident) = token {
+                        if ident == attr_name {
                             return true;
                         }
                     }
@@ -405,40 +386,35 @@ where
 {
     let mut output = Vec::new();
     for attr in attrs {
-        let meta = attr
-            .parse_meta()
-            .unwrap_or_else(|_| panic!("Failed to parse attribute {}", attr.tokens));
-        if let Meta::List(list) = meta {
-            if list.path == parse_str::<Path>("neli").expect("neli is valid path") {
-                for nested in list.nested {
-                    if let NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                        path,
-                        lit: Lit::Str(lit),
-                        ..
-                    })) = nested
-                    {
-                        if path
-                            == parse_str::<Path>(attr_name)
-                                .unwrap_or_else(|_| panic!("{} should be valid path", attr_name))
-                        {
-                            output.push(Some(parse_str::<T>(&lit.value()).unwrap_or_else(|_| {
-                                panic!(
-                                    "{} should be valid tokens of type {}",
-                                    &lit.value(),
-                                    type_name::<T>()
-                                )
+        if attr.path().is_ident("neli") {
+            attr.parse_nested_meta(|meta| {
+                let literal_str = match meta.value() {
+                    Ok(value) => match value.parse::<LitStr>() {
+                        Ok(v) => Some(v.value()),
+                        Err(_) => panic!("Cannot have a bare ="),
+                    },
+                    Err(_) => None,
+                };
+                if meta.path.is_ident(attr_name) {
+                    match literal_str {
+                        Some(l) => {
+                            output.push(Some(parse_str::<T>(&l).unwrap_or_else(|_| {
+                                panic!("{} should be valid tokens of type {}", l, type_name::<T>())
                             })));
                         }
-                    } else if let NestedMeta::Meta(Meta::Path(path)) = nested {
-                        if path
-                            == parse_str::<Path>(attr_name)
-                                .unwrap_or_else(|_| panic!("{} should be valid path", attr_name))
-                        {
+                        None => {
                             output.push(None);
                         }
                     }
                 }
-            }
+                Ok(())
+            })
+            .unwrap_or_else(|e| {
+                panic!(
+                    "{}",
+                    format!("Should be able to parse all nested attributes: {e}")
+                )
+            });
         }
     }
     output
@@ -462,15 +438,34 @@ pub fn process_padding(attrs: &[Attribute]) -> bool {
 /// Returns:
 /// * [`None`] if the attribute is not present
 /// * [`Some(None)`] if the attribute is present and has no
-/// associated expression
+///   associated expression
 /// * [`Some(Some(_))`] if the attribute is present and
-/// has an associated expression
+///   has an associated expression
 pub fn process_input(attrs: &[Attribute]) -> Option<Option<Expr>> {
     let mut exprs = process_attr(attrs, "input");
     if exprs.len() > 1 {
-        panic!("Only one input expression allowed for attribute #[neli(input = \"...\")]");
+        panic!("Only one instance of the attribute allowed for attribute #[neli(input = \"...\")]");
     } else {
         exprs.pop()
+    }
+}
+
+/// Handles the attribute `#[neli(skip_debug)]`
+/// when deriving [`FromBytes`][neli::FromBytes] implementations.
+/// This removes the restriction for the field to have [`TypeSize`][neli::TypeSize]
+/// implemented by skipping buffer trace logging for this field.
+///
+/// Returns:
+/// * [`false`] if the attribute is not present
+/// * [`true`] if the attribute is present
+pub fn process_skip_debug(attrs: &[Attribute]) -> bool {
+    let exprs = process_attr::<Expr>(attrs, "skip_debug");
+    if exprs.is_empty() {
+        false
+    } else if exprs.iter().any(|expr| expr.is_some()) {
+        panic!("No input expressions allowed for #[neli(skip_debug)]")
+    } else {
+        true
     }
 }
 
@@ -479,7 +474,7 @@ pub fn process_input(attrs: &[Attribute]) -> Option<Option<Expr>> {
 ///
 /// Returns:
 /// * [`None`] if the attribute is not present
-/// associated expression
+///   associated expression
 /// * [`Some(_)`] if the attribute is present and has an associated expression
 pub fn process_size(attrs: &[Attribute]) -> Option<Expr> {
     let mut exprs = process_attr(attrs, "size");
@@ -489,28 +484,6 @@ pub fn process_size(attrs: &[Attribute]) -> Option<Expr> {
         exprs
             .pop()
             .map(|opt| opt.expect("#[neli(size = \"...\")] must have associated expression"))
-    }
-}
-
-/// If the first type parameter of a list of type parameters is a lifetime,
-/// extract it for use in other parts of the procedural macro code.
-///
-/// # Example
-/// `impl<'a, I, P>` would return `'a`.
-pub fn process_lifetime(generics: &mut Generics) -> LifetimeDef {
-    if let Some(GenericParam::Lifetime(lt)) = generics.params.first() {
-        lt.clone()
-    } else {
-        let mut punc = Punctuated::new();
-        let lt = parse::<LifetimeDef>(TokenStream::from(quote! {
-            'lifetime
-        }))
-        .expect("'lifetime should be valid lifetime");
-        punc.push(GenericParam::Lifetime(lt.clone()));
-        punc.push_punct(Token![,](Span::call_site()));
-        punc.extend(generics.params.iter().cloned());
-        generics.params = punc;
-        lt
     }
 }
 
@@ -540,7 +513,7 @@ pub fn process_lifetime(generics: &mut Generics) -> LifetimeDef {
 /// ```
 fn override_trait_bounds_on_generics(generics: &mut Generics, trait_bound_overrides: &[TypeParam]) {
     let mut overrides = trait_bound_overrides.iter().cloned().fold(
-        HashMap::<Ident, Punctuated<TypeParamBound, Add>>::new(),
+        HashMap::<Ident, Punctuated<TypeParamBound, Plus>>::new(),
         |mut map, param| {
             if let Some(bounds) = map.get_mut(&param.ident) {
                 bounds.extend(param.bounds);

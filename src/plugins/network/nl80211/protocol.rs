@@ -1,0 +1,272 @@
+// SPDX-License-Identifier: LicenseRef-Ezurio-Clause
+// Copyright (C) 2026 Ezurio LLC.
+//
+
+use anyhow::{Context, Result, anyhow};
+use neli::attr::{AttrHandle, Attribute};
+use neli::consts::{
+    genl::{Cmd, NlAttrType},
+    nl::{NlmF, Nlmsg},
+};
+use neli::genl::{
+    AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
+};
+use neli::nl::{NlPayload, Nlmsghdr, NlmsghdrBuilder};
+use neli::types::{Buffer, GenlBuffer, NlBuffer};
+use neli_proc_macros::neli_enum;
+
+pub(super) const NL_80211_GENL_NAME: &str = "nl80211";
+const NL_80211_GENL_VERSION: u8 = 1;
+
+pub(super) type Nl80211Payload = Genlmsghdr<Nl80211Cmd, Nl80211Attr>;
+pub(super) type Nl80211Response = Nlmsghdr<Nlmsg, Nl80211Payload>;
+pub(super) type Nl80211Responses = NlBuffer<Nlmsg, Nl80211Payload>;
+
+#[neli_enum(serialized_type = "u8")]
+pub(super) enum Nl80211Cmd {
+    CmdUnspec = 0,
+    CmdGetWiphy = 1,
+    CmdNewWiphy = 3,
+    CmdGetInterface = 5,
+    CmdNewInterface = 7,
+    CmdDelInterface = 8,
+    CmdGetStation = 17,
+    CmdNewStation = 19,
+    CmdGetReg = 31,
+}
+
+impl Cmd for Nl80211Cmd {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211Attr {
+    AttrUnspec = 0,
+    AttrWiphy = 1,
+    AttrWiphyName = 2,
+    AttrIfindex = 3,
+    AttrIfname = 4,
+    AttrIftype = 5,
+    AttrMac = 6,
+    AttrStaInfo = 21,
+    AttrWiphyBands = 22,
+    AttrRegAlpha2 = 33,
+    AttrRegRules = 34,
+    AttrWiphyFreq = 38,
+    AttrSplitWiphyDump = 174,
+}
+
+impl NlAttrType for Nl80211Attr {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211Iftype {
+    IftypeUnspecified = 0,
+    IftypeStation = 2,
+}
+
+impl NlAttrType for Nl80211Iftype {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211StaInfo {
+    StaInfoInvalid = 0,
+    StaInfoInactiveTime = 1,
+    StaInfoTxBitrate = 8,
+    StaInfoRxPackets = 9,
+    StaInfoTxPackets = 10,
+    StaInfoTxRetries = 11,
+    StaInfoTxFailed = 12,
+    StaInfoRxBitrate = 14,
+    StaInfoBssParam = 15,
+    StaInfoConnectedTime = 16,
+    StaInfoBeaconLoss = 18,
+    StaInfoSignal = 7,
+    StaInfoRxBytes64 = 23,
+    StaInfoTxBytes64 = 24,
+    StaInfoRxDropMisc = 28,
+    StaInfoBeaconRx = 29,
+    StaInfoRxDuration = 32,
+}
+
+impl NlAttrType for Nl80211StaInfo {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211StaBssParam {
+    StaBssParamInvalid = 0,
+    StaBssParamDtimPeriod = 4,
+    StaBssParamBeaconInterval = 5,
+}
+
+impl NlAttrType for Nl80211StaBssParam {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211RateInfo {
+    RateInfoInvalid = 0,
+    RateInfoBitrate = 1,
+    RateInfo40MhzWidth = 3,
+    RateInfoBitrate32 = 5,
+    RateInfo80MhzWidth = 8,
+    RateInfo80p80MhzWidth = 9,
+    RateInfo160MhzWidth = 10,
+    RateInfo10MhzWidth = 11,
+    RateInfo5MhzWidth = 12,
+}
+
+impl NlAttrType for Nl80211RateInfo {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211BandAttr {
+    BandAttrInvalid = 0,
+    BandAttrFreqs = 1,
+}
+
+impl NlAttrType for Nl80211BandAttr {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211FrequencyAttr {
+    FrequencyAttrInvalid = 0,
+    FrequencyAttrFreq = 1,
+    FrequencyAttrDisabled = 2,
+}
+
+impl NlAttrType for Nl80211FrequencyAttr {}
+
+#[neli_enum(serialized_type = "u16")]
+pub(super) enum Nl80211RegRuleAttr {
+    RegRuleAttrInvalid = 0,
+    AttrRegRuleFlags = 1,
+    AttrFreqRangeStart = 2,
+    AttrFreqRangeEnd = 3,
+}
+
+impl NlAttrType for Nl80211RegRuleAttr {}
+
+pub(super) fn genl_buffer<K>(attrs: Vec<Nlattr<K, Buffer>>) -> GenlBuffer<K, Buffer>
+where
+    K: NlAttrType,
+{
+    let mut buffer = GenlBuffer::new();
+    for attr in attrs {
+        buffer.push(attr);
+    }
+    buffer
+}
+
+pub(super) fn nlattr<K, P>(key: K, payload: P) -> Result<Nlattr<K, Buffer>>
+where
+    K: Copy + NlAttrType + neli::Size,
+    P: neli::Size + neli::ToBytes,
+{
+    NlattrBuilder::default()
+        .nla_type(
+            AttrTypeBuilder::default()
+                .nla_type(key)
+                .build()
+                .map_err(|error| anyhow!(error))?,
+        )
+        .nla_payload(payload)
+        .build()
+        .map_err(|error| anyhow!(error))
+}
+
+pub(super) fn build_genl_message(
+    cmd: Nl80211Cmd,
+    attrs: GenlBuffer<Nl80211Attr, Buffer>,
+) -> Result<Nl80211Payload> {
+    GenlmsghdrBuilder::default()
+        .cmd(cmd)
+        .version(NL_80211_GENL_VERSION)
+        .attrs(attrs)
+        .build()
+        .map_err(|error| anyhow!(error))
+}
+
+pub(super) fn build_nl_request(
+    family_id: u16,
+    flags: NlmF,
+    seq: Option<u32>,
+    payload: Nl80211Payload,
+) -> Result<Nlmsghdr<u16, Nl80211Payload>> {
+    let mut builder = NlmsghdrBuilder::default()
+        .nl_type(family_id)
+        .nl_flags(flags)
+        .nl_payload(NlPayload::Payload(payload));
+    if let Some(seq) = seq {
+        builder = builder.nl_seq(seq);
+    }
+    builder.build().map_err(|error| anyhow!(error))
+}
+
+pub(super) fn get_required_attr<T, K>(
+    handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
+    key: K,
+) -> Result<T>
+where
+    T: neli::FromBytes,
+    K: Copy + NlAttrType,
+{
+    handle
+        .get_attribute(key)
+        .context("missing netlink attribute")?
+        .get_payload_as()
+        .map_err(|error| anyhow!(error))
+}
+
+pub(super) fn get_optional_attr<T, K>(
+    handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
+    key: K,
+) -> Result<Option<T>>
+where
+    T: neli::FromBytes,
+    K: Copy + NlAttrType,
+{
+    handle
+        .get_attribute(key)
+        .map(|attr| attr.get_payload_as().map_err(|error| anyhow!(error)))
+        .transpose()
+}
+
+pub(super) fn get_required_attr_bytes<K>(
+    handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
+    key: K,
+) -> Result<Vec<u8>>
+where
+    K: Copy + NlAttrType,
+{
+    handle
+        .get_attribute(key)
+        .context("missing netlink bytes attribute")?
+        .get_payload_as_with_len()
+        .map_err(|error| anyhow!(error))
+}
+
+pub(super) fn trim_c_string(value: Vec<u8>) -> Result<String> {
+    let value = value.into_iter().take_while(|byte| *byte != 0).collect::<Vec<_>>();
+    String::from_utf8(value).map_err(|error| anyhow!(error))
+}
+
+pub(super) fn c_string_bytes(value: &str) -> Vec<u8> {
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    bytes
+}
+
+pub(super) fn format_mac(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{c_string_bytes, format_mac, trim_c_string};
+
+    #[test]
+    fn trim_c_string_strips_trailing_nul() {
+        assert_eq!(trim_c_string(c_string_bytes("wlan0")).unwrap(), "wlan0");
+    }
+
+    #[test]
+    fn format_mac_uses_lower_hex_octets() {
+        assert_eq!(format_mac(&[0xc0, 0xee, 0x40, 0x43, 0xc4, 0x14]), "c0:ee:40:43:c4:14");
+    }
+}

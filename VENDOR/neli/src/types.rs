@@ -6,28 +6,53 @@
 //! cases to allow the internal representation to change without
 //! resulting in a breaking change.
 
-use crate as neli;
-
 use std::{
     fmt::{self, Debug},
+    io::{Read, Write},
     iter::FromIterator,
-    marker::PhantomData,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not},
     slice::{Iter, IterMut},
 };
 
 use crate::{
-    attr::{AttrHandle, AttrHandleMut},
+    self as neli,
+    attr::AttrHandle,
     consts::{genl::NlAttrType, nl::NlType, rtnl::RtaType},
-    genl::Nlattr,
+    err::DeError,
+    genl::{AttrTypeBuilder, GenlAttrHandle, Nlattr, NlattrBuilder},
     nl::Nlmsghdr,
-    rtnl::Rtattr,
-    FromBytes, FromBytesWithInput, Size, ToBytes, TypeSize,
+    rtnl::{RtAttrHandle, Rtattr},
+    FromBytesWithInput, Size, ToBytes,
 };
 
 /// A buffer of bytes.
-#[derive(PartialEq, Eq, Size, FromBytesWithInput, ToBytes)]
-pub struct Buffer(#[neli(input)] Vec<u8>);
+#[derive(Clone, PartialEq, Eq, Size)]
+pub struct Buffer(Vec<u8>);
+
+impl FromBytesWithInput for Buffer {
+    type Input = usize;
+
+    fn from_bytes_with_input(
+        buffer: &mut std::io::Cursor<impl AsRef<[u8]>>,
+        input: Self::Input,
+    ) -> Result<Self, DeError> {
+        if buffer.position() as usize + input > buffer.get_ref().as_ref().len() {
+            return Err(DeError::InvalidInput(input));
+        }
+
+        let mut vec = vec![0u8; input];
+
+        buffer.read_exact(&mut vec)?;
+
+        Ok(Self::from(vec))
+    }
+}
+
+impl ToBytes for Buffer {
+    fn to_bytes(&self, buffer: &mut std::io::Cursor<Vec<u8>>) -> Result<(), crate::err::SerError> {
+        buffer.write_all(self.0.as_slice())?;
+        Ok(())
+    }
+}
 
 impl Debug for Buffer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -56,6 +81,12 @@ impl<'a> From<&'a [u8]> for Buffer {
 impl From<Vec<u8>> for Buffer {
     fn from(vec: Vec<u8>) -> Self {
         Buffer(vec)
+    }
+}
+
+impl From<Buffer> for Vec<u8> {
+    fn from(buf: Buffer) -> Self {
+        buf.0
     }
 }
 
@@ -90,7 +121,7 @@ impl Default for Buffer {
 /// A buffer of netlink messages.
 #[derive(Debug, PartialEq, Eq, Size, FromBytesWithInput, ToBytes)]
 #[neli(from_bytes_bound = "T: NlType")]
-#[neli(from_bytes_bound = "P: FromBytesWithInput<Input = usize>")]
+#[neli(from_bytes_bound = "P: Size + FromBytesWithInput<Input = usize>")]
 pub struct NlBuffer<T, P>(#[neli(input)] Vec<Nlmsghdr<T, P>>);
 
 impl<T, P> FromIterator<Nlmsghdr<T, P>> for NlBuffer<T, P> {
@@ -163,7 +194,7 @@ impl<T, P> Default for NlBuffer<T, P> {
 }
 
 /// A buffer of generic netlink attributes.
-#[derive(Debug, PartialEq, Eq, ToBytes, FromBytesWithInput)]
+#[derive(Clone, Debug, PartialEq, Eq, ToBytes, FromBytesWithInput)]
 #[neli(to_bytes_bound = "T: NlAttrType")]
 #[neli(from_bytes_bound = "T: NlAttrType")]
 #[neli(from_bytes_bound = "P: FromBytesWithInput<Input = usize>")]
@@ -182,14 +213,36 @@ where
 impl<T> GenlBuffer<T, Buffer> {
     /// Get a data structure with an immutable reference to the
     /// underlying [`Nlattr`]s.
-    pub fn get_attr_handle(&self) -> AttrHandle<Self, Nlattr<T, Buffer>> {
+    pub fn get_attr_handle(&self) -> AttrHandle<'_, Self, Nlattr<T, Buffer>> {
         AttrHandle::new_borrowed(self.0.as_ref())
     }
+}
 
-    /// Get a data structure with a mutable reference to the
-    /// underlying [`Nlattr`]s.
-    pub fn get_attr_handle_mut(&mut self) -> AttrHandleMut<Self, Nlattr<T, Buffer>> {
-        AttrHandleMut::new_borrowed(self.0.as_mut())
+impl GenlBuffer<u16, Buffer> {
+    /// Convert a [`GenlBuffer`] that can represent all types to a buffer that
+    /// is of a particular type.
+    pub fn get_typed_attr_handle<T>(&self) -> Result<GenlAttrHandle<'_, T>, DeError>
+    where
+        T: NlAttrType,
+    {
+        Ok(AttrHandle::new({
+            let mut attrs = GenlBuffer::new();
+            for attr in self.0.iter() {
+                attrs.push(
+                    NlattrBuilder::default()
+                        .nla_type(
+                            AttrTypeBuilder::default()
+                                .nla_type(T::from(*attr.nla_type().nla_type()))
+                                .nla_nested(*attr.nla_type().nla_nested())
+                                .nla_network_order(*attr.nla_type().nla_network_order())
+                                .build()?,
+                        )
+                        .nla_payload(attr.nla_payload().clone())
+                        .build()?,
+                );
+            }
+            attrs
+        }))
     }
 }
 
@@ -269,7 +322,7 @@ impl<T, P> Default for GenlBuffer<T, P> {
 }
 
 /// A buffer of rtnetlink attributes.
-#[derive(Debug, FromBytesWithInput, ToBytes)]
+#[derive(Clone, Debug, FromBytesWithInput, ToBytes)]
 #[neli(from_bytes_bound = "T: RtaType")]
 #[neli(from_bytes_bound = "P: FromBytesWithInput<Input = usize>")]
 pub struct RtBuffer<T, P>(#[neli(input)] Vec<Rtattr<T, P>>);
@@ -287,14 +340,8 @@ where
 impl<T> RtBuffer<T, Buffer> {
     /// Get a data structure with an immutable reference to the
     /// underlying [`Rtattr`]s.
-    pub fn get_attr_handle(&self) -> AttrHandle<Self, Rtattr<T, Buffer>> {
+    pub fn get_attr_handle(&self) -> RtAttrHandle<'_, T> {
         AttrHandle::new_borrowed(self.0.as_ref())
-    }
-
-    /// Get a data structure with a mutable reference to the
-    /// underlying [`Rtattr`]s.
-    pub fn get_attr_handle_mut(&mut self) -> AttrHandleMut<Self, Rtattr<T, Buffer>> {
-        AttrHandleMut::new_borrowed(self.0.as_mut())
     }
 }
 
@@ -373,88 +420,50 @@ impl<T, P> Default for RtBuffer<T, P> {
     }
 }
 
-/// A buffer of flag constants.
-// FIXME: Fix the debug implementation for flags to actually display which flags
-// have been set.
-#[derive(Debug, PartialEq, Eq, Size, ToBytes, FromBytes)]
-#[neli(from_bytes_bound = "B: FromBytes + TypeSize + Debug")]
-pub struct FlagBuffer<B, T>(B, PhantomData<T>);
-
-impl<'a, B, T> From<&'a [T]> for FlagBuffer<B, T>
-where
-    B: Default + BitOr<B, Output = B> + From<&'a T>,
-{
-    fn from(slice: &'a [T]) -> Self {
-        FlagBuffer(
-            slice
-                .iter()
-                .fold(B::default(), |inner, flag| inner | B::from(flag)),
-            PhantomData,
-        )
-    }
-}
-
-impl<B, T> TypeSize for FlagBuffer<B, T>
-where
-    B: TypeSize,
-{
-    fn type_size() -> usize {
-        B::type_size()
-    }
-}
-
-impl<'a, B, T> FlagBuffer<B, T>
-where
-    B: Default
-        + BitAnd<B, Output = B>
-        + BitAndAssign<B>
-        + BitOr<B, Output = B>
-        + BitOrAssign<B>
-        + Not<Output = B>
-        + From<&'a T>
-        + PartialEq
-        + Copy,
-    T: 'a,
-{
-    /// Create an empty set of flags.
-    pub fn empty() -> Self {
-        FlagBuffer(B::default(), PhantomData)
-    }
-
-    /// Create a [`FlagBuffer`] from a bitmask.
-    pub fn from_bitmask(bitmask: B) -> Self {
-        FlagBuffer(bitmask, PhantomData)
-    }
-
-    /// Check whether the set of flags contains the given flag.
-    pub fn contains(&self, elem: &'a T) -> bool {
-        (self.0 & elem.into()) == elem.into()
-    }
-
-    /// Add a flag to the set of flags.
-    pub fn set(&mut self, flag: &'a T) {
-        self.0 |= B::from(flag)
-    }
-
-    /// Remove a flag from the set of flags.
-    pub fn unset(&mut self, flag: &'a T) {
-        self.0 &= !B::from(flag)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
-    use crate::consts::{genl::Index, rtnl::Ifa};
+    use crate::{
+        consts::{genl::Index, rtnl::Ifa},
+        genl::{AttrTypeBuilder, NlattrBuilder},
+        rtnl::RtattrBuilder,
+    };
 
     #[test]
     fn test_genlbuffer_align() {
         assert_eq!(
             vec![
-                Nlattr::new(false, false, Index::from(0), 0u8,).unwrap(),
-                Nlattr::new(false, false, Index::from(1), 1u8,).unwrap(),
-                Nlattr::new(false, false, Index::from(2), 2u8,).unwrap(),
+                NlattrBuilder::default()
+                    .nla_type(
+                        AttrTypeBuilder::default()
+                            .nla_type(Index::from(0))
+                            .build()
+                            .unwrap(),
+                    )
+                    .nla_payload(0u8)
+                    .build()
+                    .unwrap(),
+                NlattrBuilder::default()
+                    .nla_type(
+                        AttrTypeBuilder::default()
+                            .nla_type(Index::from(1))
+                            .build()
+                            .unwrap(),
+                    )
+                    .nla_payload(1u8)
+                    .build()
+                    .unwrap(),
+                NlattrBuilder::default()
+                    .nla_type(
+                        AttrTypeBuilder::default()
+                            .nla_type(Index::from(2))
+                            .build()
+                            .unwrap(),
+                    )
+                    .nla_payload(2u8)
+                    .build()
+                    .unwrap(),
             ]
             .into_iter()
             .collect::<GenlBuffer<Index, Buffer>>()
@@ -467,9 +476,21 @@ mod test {
     fn test_rtbuffer_align() {
         assert_eq!(
             vec![
-                Rtattr::new(None, Ifa::Unspec, 0u8,).unwrap(),
-                Rtattr::new(None, Ifa::Address, 1u8,).unwrap(),
-                Rtattr::new(None, Ifa::Local, 2u8,).unwrap(),
+                RtattrBuilder::default()
+                    .rta_type(Ifa::Unspec)
+                    .rta_payload(0u8)
+                    .build()
+                    .unwrap(),
+                RtattrBuilder::default()
+                    .rta_type(Ifa::Address)
+                    .rta_payload(1u8)
+                    .build()
+                    .unwrap(),
+                RtattrBuilder::default()
+                    .rta_type(Ifa::Local)
+                    .rta_payload(2u8)
+                    .build()
+                    .unwrap(),
             ]
             .into_iter()
             .collect::<RtBuffer<Ifa, Buffer>>()
