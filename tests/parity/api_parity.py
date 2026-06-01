@@ -2637,7 +2637,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "mode",
         choices=["openapi", "responses", "weblcm", "coverage", "scaffold", "schema", "auto", "provisioning_tls", "all"],
-        help="Which parity checks to run. Use 'weblcm' for legacy-only WebLCM response parity; it skips OpenAPI and /api/v2 coverage by design.",
+        help="Which parity checks to run. Use 'openapi' to compare the Python generate_docs.py output against the Rust generate_openapi binary. Use 'weblcm' for legacy-only WebLCM response parity; it skips OpenAPI and /api/v2 coverage by design.",
     )
     parser.add_argument(
         "--python-repo",

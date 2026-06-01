@@ -102,6 +102,7 @@ mod runtime {
                     }
                     _ = shutdown_signal() => {
                         log::info!("Shutdown signal received");
+                        summit_rcm::utils::signal_shutdown();
                         let _ = shutdown_tx.send(true);
                         tasks_future.await?;
                     }

@@ -24,3 +24,5 @@ if [[ $# -gt 0 ]]; then
 else
     cargo check --features "api-v2 api-legacy at-interface" --lib --bins
 fi
+
+cargo clippy --all-features -- -D warnings

@@ -5,7 +5,7 @@
 
 //! Raw network helpers that do not depend on NetworkManager.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use super::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
 use crate::dbus;
 use crate::utils::{path_exists, path_exists_sync, read_sysfs};
@@ -31,7 +31,6 @@ pub enum RawNetworkError {
 const WPA_OBJ: &str = "/fi/w1/wpa_supplicant1";
 const WPA_IFACE: &str = "fi.w1.wpa_supplicant1";
 const SUPPLICANT_INTERFACE_IFACE: &str = "fi.w1.wpa_supplicant1.Interface";
-
 fn parse_country_codes(info: &str) -> Option<InterfaceDriverInfo> {
     let line = info
         .lines()
@@ -55,19 +54,6 @@ pub(crate) fn wifi_driver_debug_param() -> &'static str {
 }
 
 impl NetworkService {
-    async fn with_nl80211<T, F>(operation: F) -> Result<T>
-    where
-        T: Send + 'static,
-        F: FnOnce(&mut Nl80211Client) -> Result<T> + Send + 'static,
-    {
-        tokio::task::spawn_blocking(move || {
-            let mut client = Nl80211Client::connect()?;
-            operation(&mut client)
-        })
-        .await
-        .map_err(|error| anyhow!("nl80211 task failed: {}", error))?
-    }
-
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     fn station_rate_info(rate: Option<NlStationRateInfo>) -> Option<StationRateInfo> {
         rate.map(|rate| StationRateInfo {
@@ -269,23 +255,27 @@ impl NetworkService {
     }
 
     pub async fn get_reg_domain_info() -> Result<String> {
-        Self::with_nl80211(|client| client.get_reg_domain_primary()).await
+        let mut client = Nl80211Client::connect()?;
+        client.get_reg_domain_primary().await
     }
 
     pub async fn get_frequency_info(interface_name: &str) -> Result<u32> {
         let interface_name = interface_name.to_string();
-        Self::with_nl80211(move |client| client.get_frequency_info(&interface_name)).await
+        let mut client = Nl80211Client::connect()?;
+        client.get_frequency_info(&interface_name).await
     }
 
     pub async fn get_active_ap_rssi(interface_name: &str) -> Result<f64> {
         let interface_name = interface_name.to_string();
-        Self::with_nl80211(move |client| client.get_active_ap_rssi(&interface_name)).await
+        let mut client = Nl80211Client::connect()?;
+        client.get_active_ap_rssi(&interface_name).await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_interface_available_ap_channels(ifname: &str) -> Result<Vec<AvailableApChannel>> {
         let ifname = ifname.to_string();
-        let channels = Self::with_nl80211(move |client| client.get_available_ap_channels(&ifname)).await?;
+        let mut client = Nl80211Client::connect()?;
+        let channels = client.get_available_ap_channels(&ifname).await?;
         Ok(channels
             .into_iter()
             .map(|channel| AvailableApChannel {
@@ -296,12 +286,14 @@ impl NetworkService {
     }
 
     pub async fn add_virtual_interface() -> Result<bool> {
-        Self::with_nl80211(|client| client.add_virtual_interface("wlan1")).await?;
+        let mut client = Nl80211Client::connect()?;
+        client.add_virtual_interface("wlan1").await?;
         Ok(true)
     }
 
     pub async fn remove_virtual_interface() -> Result<bool> {
-        Self::with_nl80211(|client| client.remove_virtual_interface("wlan1")).await
+        let mut client = Nl80211Client::connect()?;
+        client.remove_virtual_interface("wlan1").await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -347,7 +339,8 @@ impl NetworkService {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_station_dump(ifname: &str) -> Result<BTreeMap<String, Station>> {
         let ifname = ifname.to_string();
-        let raw_stations = Self::with_nl80211(move |client| client.get_station_dump(&ifname)).await?;
+        let mut client = Nl80211Client::connect()?;
+        let raw_stations = client.get_station_dump(&ifname).await?;
         let mut stations = BTreeMap::new();
         for (mac, station) in raw_stations {
             stations.insert(mac, Self::station_info(station));

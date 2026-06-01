@@ -80,7 +80,7 @@ at-interface = ["dep:tokio-serial", "dep:reqwest", "dep:surge-ping", "tokio/net"
 network-manager = []
 
 # Network-facing routes, AT commands, and non-NetworkManager helpers.
-network = ["dep:neli", "dep:neli-proc-macros"]
+network = ["dep:neli", "dep:neli-proc-macros", "neli/async"]
 date-time = []
 login = ["dep:rustix"]
 system = []

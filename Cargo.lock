@@ -1033,6 +1033,7 @@ dependencies = [
  "libc",
  "log",
  "neli-proc-macros",
+ "tokio",
 ]
 
 [[package]]

@@ -14,13 +14,16 @@ use neli::consts::{
 };
 use neli::genl::{AttrType, Genlmsghdr, Nlattr};
 use neli::nl::{NlPayload, Nlmsghdr};
-use neli::socket::NlSocketHandle;
-use neli::types::{Buffer, GenlBuffer};
+use neli::socket::{tokio::NlSocket, NlSocketHandle};
+use neli::types::{Buffer, GenlBuffer, NlBuffer};
 use neli_proc_macros::neli_enum;
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
+use tokio::time::sleep;
 
 const NL_80211_GENL_NAME: &str = "nl80211";
 const NL_80211_GENL_VERSION: u8 = 1;
+const NL_80211_RECV_TIMEOUT: Duration = Duration::from_secs(10);
 const PRIMARY_WIPHY: u32 = 0;
 const NO_IR_FLAG: u32 = 1 << 7;
 const DFS_FLAG: u32 = 1 << 4;
@@ -74,7 +77,7 @@ struct RegulatoryRule {
 }
 
 pub struct Nl80211Client {
-    sock: NlSocketHandle,
+    sock: NlSocket,
     family_id: u16,
 }
 
@@ -202,10 +205,36 @@ impl Nl80211Client {
         let family_id = sock
             .resolve_genl_family(NL_80211_GENL_NAME)
             .map_err(|error| anyhow!(error))?;
+        let sock = NlSocket::new(sock).map_err(|error| anyhow!(error))?;
         Ok(Self { sock, family_id })
     }
 
-    pub fn list_interfaces(&mut self) -> Result<Vec<Nl80211Interface>> {
+    async fn recv_messages(
+        &mut self,
+    ) -> Result<NlBuffer<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>> {
+        let mut buffer = Vec::new();
+        self.sock
+            .recv::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(&mut buffer)
+            .await
+            .map_err(|error| anyhow!(error))
+    }
+
+    async fn recv_messages_with_timeout(
+        &mut self,
+    ) -> Result<NlBuffer<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>> {
+        let recv_messages = self.recv_messages();
+        tokio::pin!(recv_messages);
+        let timeout = sleep(NL_80211_RECV_TIMEOUT);
+        tokio::pin!(timeout);
+
+        tokio::select! {
+            result = &mut recv_messages => result,
+            _ = &mut timeout => Err(anyhow!("nl80211 recv timed out after {}s", NL_80211_RECV_TIMEOUT.as_secs())),
+            _ = crate::utils::wait_for_shutdown() => Err(anyhow!("nl80211 recv cancelled")),
+        }
+    }
+
+    pub async fn list_interfaces(&mut self) -> Result<Vec<Nl80211Interface>> {
         let genl = Genlmsghdr::<Nl80211Cmd, Nl80211Attr>::new(
             Nl80211Cmd::CmdGetInterface,
             NL_80211_GENL_VERSION,
@@ -220,54 +249,65 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
         let mut interfaces = Vec::new();
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
+                    }
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => {
+                            bail!("nl80211 GET_INTERFACE failed: {}", error)
+                        }
+                        NlPayload::Payload(payload) => {
+                            bail!("unexpected payload: {:?}", payload)
+                        }
+                        NlPayload::Empty => bail!("empty netlink payload"),
+                    },
+                    _ => {}
+                }
 
-        for response in iter {
-            let response = response.map_err(|error| anyhow!(error))?;
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => bail!("nl80211 GET_INTERFACE failed"),
-                _ => {}
+                let Some(payload) = response.nl_payload.get_payload() else {
+                    continue;
+                };
+                if payload.cmd != Nl80211Cmd::CmdNewInterface {
+                    continue;
+                }
+
+                let handle = payload.get_attr_handle();
+                let wiphy = get_required_attr::<u32, _>(&handle, Nl80211Attr::AttrWiphy)?;
+                let ifindex = get_required_attr::<u32, _>(&handle, Nl80211Attr::AttrIfindex)?;
+                let ifname = trim_c_string(get_required_attr_bytes(&handle, Nl80211Attr::AttrIfname)?)?;
+                let frequency = get_optional_attr::<u32, _>(&handle, Nl80211Attr::AttrWiphyFreq)?;
+
+                interfaces.push(Nl80211Interface {
+                    ifindex,
+                    wiphy,
+                    name: ifname,
+                    frequency,
+                });
             }
-
-            let Some(payload) = response.nl_payload.get_payload() else {
-                continue;
-            };
-            if payload.cmd != Nl80211Cmd::CmdNewInterface {
-                continue;
-            }
-
-            let handle = payload.get_attr_handle();
-            let wiphy = get_required_attr::<u32, _>(&handle, Nl80211Attr::AttrWiphy)?;
-            let ifindex = get_required_attr::<u32, _>(&handle, Nl80211Attr::AttrIfindex)?;
-            let ifname = trim_c_string(get_required_attr_bytes(&handle, Nl80211Attr::AttrIfname)?)?;
-            let frequency = get_optional_attr::<u32, _>(&handle, Nl80211Attr::AttrWiphyFreq)?;
-
-            interfaces.push(Nl80211Interface {
-                ifindex,
-                wiphy,
-                name: ifname,
-                frequency,
-            });
         }
 
         Ok(interfaces)
     }
 
-    pub fn get_interface(&mut self, ifname: &str) -> Result<Nl80211Interface> {
-        self.list_interfaces()?
+    pub async fn get_interface(&mut self, ifname: &str) -> Result<Nl80211Interface> {
+        self.list_interfaces().await?
             .into_iter()
             .find(|interface| interface.name == ifname)
             .ok_or_else(|| anyhow!("interface not found"))
     }
 
-    pub fn get_reg_domain_primary(&mut self) -> Result<String> {
+    pub async fn get_reg_domain_primary(&mut self) -> Result<String> {
         let attrs = genl_buffer(vec![
             Nlattr::new(false, false, Nl80211Attr::AttrWiphy, PRIMARY_WIPHY)
                 .map_err(|error| anyhow!(error))?,
@@ -286,50 +326,62 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
-        for response in iter {
-            let response = response.map_err(|error| anyhow!(error))?;
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => bail!("nl80211 GET_REG failed"),
-                _ => {}
-            }
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
+                    }
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => {
+                            bail!("nl80211 GET_REG failed: {}", error)
+                        }
+                        NlPayload::Payload(payload) => {
+                            bail!("unexpected payload: {:?}", payload)
+                        }
+                        NlPayload::Empty => bail!("empty netlink payload"),
+                    },
+                    _ => {}
+                }
 
-            let Some(payload) = response.nl_payload.get_payload() else {
-                continue;
-            };
-            let handle = payload.get_attr_handle();
-            if let Ok(alpha2) = get_required_attr_bytes(&handle, Nl80211Attr::AttrRegAlpha2)
-                .and_then(trim_c_string)
-            {
-                return Ok(alpha2);
+                let Some(payload) = response.nl_payload.get_payload() else {
+                    continue;
+                };
+                let handle = payload.get_attr_handle();
+                if let Ok(alpha2) = get_required_attr_bytes(&handle, Nl80211Attr::AttrRegAlpha2)
+                    .and_then(trim_c_string)
+                {
+                    return Ok(alpha2);
+                }
             }
         }
 
         bail!("primary regulatory domain not found")
     }
 
-    pub fn get_frequency_info(&mut self, ifname: &str) -> Result<u32> {
-        self.get_interface(ifname)?
+    pub async fn get_frequency_info(&mut self, ifname: &str) -> Result<u32> {
+        self.get_interface(ifname).await?
             .frequency
             .ok_or_else(|| anyhow!("interface frequency not found"))
     }
 
-    pub fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<f64> {
-        let stations = self.get_station_dump(ifname)?;
+    pub async fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<f64> {
+        let stations = self.get_station_dump(ifname).await?;
         stations
             .into_values()
             .find_map(|station| station.signal.map(|value| value as f64))
             .ok_or_else(|| anyhow!("station signal not found"))
     }
 
-    pub fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
-        let interface = self.get_interface(ifname)?;
+    pub async fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
+        let interface = self.get_interface(ifname).await?;
         let attrs = genl_buffer(vec![
             Nlattr::new(false, false, Nl80211Attr::AttrIfindex, interface.ifindex)
                 .map_err(|error| anyhow!(error))?,
@@ -348,49 +400,61 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
         let mut stations = BTreeMap::new();
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
-        for response in iter {
-            let response = response.map_err(|error| anyhow!(error))?;
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => bail!("nl80211 GET_STATION failed"),
-                _ => {}
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
+                    }
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => {
+                            bail!("nl80211 GET_STATION failed: {}", error)
+                        }
+                        NlPayload::Payload(payload) => {
+                            bail!("unexpected payload: {:?}", payload)
+                        }
+                        NlPayload::Empty => bail!("empty netlink payload"),
+                    },
+                    _ => {}
+                }
+
+                let Some(payload) = response.nl_payload.get_payload() else {
+                    continue;
+                };
+                if payload.cmd != Nl80211Cmd::CmdNewStation {
+                    continue;
+                }
+
+                let handle = payload.get_attr_handle();
+                let mac = format_mac(&get_required_attr_bytes(&handle, Nl80211Attr::AttrMac)?);
+                let sta_attr = handle
+                    .get_attribute(Nl80211Attr::AttrStaInfo)
+                    .context("station response missing STA_INFO")?;
+                let sta_handle: AttrHandle<
+                    '_,
+                    GenlBuffer<Nl80211StaInfo, Buffer>,
+                    Nlattr<Nl80211StaInfo, Buffer>,
+                > = sta_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+
+                stations.insert(mac, parse_station_info(&sta_handle)?);
             }
-
-            let Some(payload) = response.nl_payload.get_payload() else {
-                continue;
-            };
-            if payload.cmd != Nl80211Cmd::CmdNewStation {
-                continue;
-            }
-
-            let handle = payload.get_attr_handle();
-            let mac = format_mac(&get_required_attr_bytes(&handle, Nl80211Attr::AttrMac)?);
-            let sta_attr = handle
-                .get_attribute(Nl80211Attr::AttrStaInfo)
-                .context("station response missing STA_INFO")?;
-            let sta_handle: AttrHandle<
-                '_,
-                GenlBuffer<Nl80211StaInfo, Buffer>,
-                Nlattr<Nl80211StaInfo, Buffer>,
-            > = sta_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
-
-            stations.insert(mac, parse_station_info(&sta_handle)?);
         }
 
         Ok(stations)
     }
 
-    pub fn get_available_ap_channels(&mut self, ifname: &str) -> Result<Vec<AvailableApChannel>> {
-        let interface = self.get_interface(ifname)?;
-        let mut supported = self.get_supported_frequencies(interface.wiphy)?;
-        let reg_rules = self.get_regulatory_rules(interface.wiphy)?;
+    pub async fn get_available_ap_channels(&mut self, ifname: &str) -> Result<Vec<AvailableApChannel>> {
+        let interface = self.get_interface(ifname).await?;
+        let mut supported = self.get_supported_frequencies(interface.wiphy).await?;
+        let reg_rules = self.get_regulatory_rules(interface.wiphy).await?;
 
         supported.retain(|frequency| {
             !reg_rules.iter().any(|rule| {
@@ -409,7 +473,7 @@ impl Nl80211Client {
             .collect())
     }
 
-    pub fn add_virtual_interface(&mut self, ifname: &str) -> Result<()> {
+    pub async fn add_virtual_interface(&mut self, ifname: &str) -> Result<()> {
         let attrs = genl_buffer(vec![
             Nlattr::new(false, false, Nl80211Attr::AttrWiphy, PRIMARY_WIPHY)
                 .map_err(|error| anyhow!(error))?,
@@ -428,11 +492,11 @@ impl Nl80211Client {
             )
             .map_err(|error| anyhow!(error))?,
         ]);
-        self.send_ack_command(Nl80211Cmd::CmdNewInterface, attrs)
+        self.send_ack_command(Nl80211Cmd::CmdNewInterface, attrs).await
     }
 
-    pub fn remove_virtual_interface(&mut self, ifname: &str) -> Result<bool> {
-        let interface = match self.get_interface(ifname) {
+    pub async fn remove_virtual_interface(&mut self, ifname: &str) -> Result<bool> {
+        let interface = match self.get_interface(ifname).await {
             Ok(interface) => interface,
             Err(_) => return Ok(false),
         };
@@ -440,11 +504,11 @@ impl Nl80211Client {
             Nlattr::new(false, false, Nl80211Attr::AttrIfindex, interface.ifindex)
                 .map_err(|error| anyhow!(error))?,
         ]);
-        self.send_ack_command(Nl80211Cmd::CmdDelInterface, attrs)?;
+        self.send_ack_command(Nl80211Cmd::CmdDelInterface, attrs).await?;
         Ok(true)
     }
 
-    fn get_supported_frequencies(&mut self, wiphy: u32) -> Result<Vec<u32>> {
+    async fn get_supported_frequencies(&mut self, wiphy: u32) -> Result<Vec<u32>> {
         let attrs = genl_buffer(vec![
             Nlattr::new(false, false, Nl80211Attr::AttrWiphy, wiphy)
                 .map_err(|error| anyhow!(error))?,
@@ -472,66 +536,78 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
         let mut frequencies = BTreeSet::new();
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
-        for response in iter {
-            let response = response.map_err(|error| anyhow!(error))?;
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => bail!("nl80211 GET_WIPHY failed"),
-                _ => {}
-            }
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
+                    }
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => {
+                            bail!("nl80211 GET_WIPHY failed: {}", error)
+                        }
+                        NlPayload::Payload(payload) => {
+                            bail!("unexpected payload: {:?}", payload)
+                        }
+                        NlPayload::Empty => bail!("empty netlink payload"),
+                    },
+                    _ => {}
+                }
 
-            let Some(payload) = response.nl_payload.get_payload() else {
-                continue;
-            };
-            if payload.cmd != Nl80211Cmd::CmdNewWiphy {
-                continue;
-            }
-
-            let handle = payload.get_attr_handle();
-            for attr in handle.iter() {
-                if attr.nla_type.nla_type != Nl80211Attr::AttrWiphyBands {
+                let Some(payload) = response.nl_payload.get_payload() else {
+                    continue;
+                };
+                if payload.cmd != Nl80211Cmd::CmdNewWiphy {
                     continue;
                 }
 
-                let band_handle: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
-                    attr.get_attr_handle().map_err(|error| anyhow!(error))?;
-                for band in band_handle.get_attrs() {
-                    let nested: AttrHandle<
-                        '_,
-                        GenlBuffer<Nl80211BandAttr, Buffer>,
-                        Nlattr<Nl80211BandAttr, Buffer>,
-                    > = band.get_attr_handle().map_err(|error| anyhow!(error))?;
-                    for band_attr in nested.get_attrs() {
-                        if band_attr.nla_type.nla_type != Nl80211BandAttr::BandAttrFreqs {
-                            continue;
-                        }
+                let handle = payload.get_attr_handle();
+                for attr in handle.iter() {
+                    if attr.nla_type.nla_type != Nl80211Attr::AttrWiphyBands {
+                        continue;
+                    }
 
-                        let freq_list: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
-                            band_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
-                        for freq in freq_list.get_attrs() {
-                            let freq_handle: AttrHandle<
-                                '_,
-                                GenlBuffer<Nl80211FrequencyAttr, Buffer>,
-                                Nlattr<Nl80211FrequencyAttr, Buffer>,
-                            > = freq.get_attr_handle().map_err(|error| anyhow!(error))?;
-                            let frequency = get_optional_attr::<u32, _>(
-                                &freq_handle,
-                                Nl80211FrequencyAttr::FrequencyAttrFreq,
-                            )?;
-                            let disabled = get_optional_attr::<u8, _>(
-                                &freq_handle,
-                                Nl80211FrequencyAttr::FrequencyAttrDisabled,
-                            )?
-                            .is_some();
-                            if let Some(frequency) = frequency.filter(|_| !disabled) {
-                                frequencies.insert(frequency);
+                    let band_handle: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
+                        attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+                    for band in band_handle.get_attrs() {
+                        let nested: AttrHandle<
+                            '_,
+                            GenlBuffer<Nl80211BandAttr, Buffer>,
+                            Nlattr<Nl80211BandAttr, Buffer>,
+                        > = band.get_attr_handle().map_err(|error| anyhow!(error))?;
+                        for band_attr in nested.get_attrs() {
+                            if band_attr.nla_type.nla_type != Nl80211BandAttr::BandAttrFreqs {
+                                continue;
+                            }
+
+                            let freq_list: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
+                                band_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+                            for freq in freq_list.get_attrs() {
+                                let freq_handle: AttrHandle<
+                                    '_,
+                                    GenlBuffer<Nl80211FrequencyAttr, Buffer>,
+                                    Nlattr<Nl80211FrequencyAttr, Buffer>,
+                                > = freq.get_attr_handle().map_err(|error| anyhow!(error))?;
+                                let frequency = get_optional_attr::<u32, _>(
+                                    &freq_handle,
+                                    Nl80211FrequencyAttr::FrequencyAttrFreq,
+                                )?;
+                                let disabled = get_optional_attr::<u8, _>(
+                                    &freq_handle,
+                                    Nl80211FrequencyAttr::FrequencyAttrDisabled,
+                                )?
+                                .is_some();
+                                if let Some(frequency) = frequency.filter(|_| !disabled) {
+                                    frequencies.insert(frequency);
+                                }
                             }
                         }
                     }
@@ -542,7 +618,7 @@ impl Nl80211Client {
         Ok(frequencies.into_iter().collect())
     }
 
-    fn get_regulatory_rules(&mut self, wiphy: u32) -> Result<Vec<RegulatoryRule>> {
+    async fn get_regulatory_rules(&mut self, wiphy: u32) -> Result<Vec<RegulatoryRule>> {
         let attrs = genl_buffer(vec![
             Nlattr::new(false, false, Nl80211Attr::AttrWiphy, wiphy)
                 .map_err(|error| anyhow!(error))?,
@@ -561,61 +637,73 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
         let mut rules = Vec::new();
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(false);
-        for response in iter {
-            let response = response.map_err(|error| anyhow!(error))?;
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => bail!("nl80211 GET_REG failed"),
-                _ => {}
-            }
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
+                    }
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => {
+                            bail!("nl80211 GET_REG failed: {}", error)
+                        }
+                        NlPayload::Payload(payload) => {
+                            bail!("unexpected payload: {:?}", payload)
+                        }
+                        NlPayload::Empty => bail!("empty netlink payload"),
+                    },
+                    _ => {}
+                }
 
-            let Some(payload) = response.nl_payload.get_payload() else {
-                continue;
-            };
-            let handle = payload.get_attr_handle();
-            let Some(reg_rules_attr) = handle.get_attribute(Nl80211Attr::AttrRegRules) else {
-                continue;
-            };
+                let Some(payload) = response.nl_payload.get_payload() else {
+                    continue;
+                };
+                let handle = payload.get_attr_handle();
+                let Some(reg_rules_attr) = handle.get_attribute(Nl80211Attr::AttrRegRules) else {
+                    continue;
+                };
 
-            let reg_rules: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
-                reg_rules_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
-            for reg_rule in reg_rules.get_attrs() {
-                let rule_handle: AttrHandle<
-                    '_,
-                    GenlBuffer<Nl80211RegRuleAttr, Buffer>,
-                    Nlattr<Nl80211RegRuleAttr, Buffer>,
-                > = reg_rule.get_attr_handle().map_err(|error| anyhow!(error))?;
-                let start_khz = get_required_attr::<u32, _>(
-                    &rule_handle,
-                    Nl80211RegRuleAttr::AttrFreqRangeStart,
-                )?;
-                let end_khz = get_required_attr::<u32, _>(
-                    &rule_handle,
-                    Nl80211RegRuleAttr::AttrFreqRangeEnd,
-                )?;
-                let flags = get_required_attr::<u32, _>(
-                    &rule_handle,
-                    Nl80211RegRuleAttr::AttrRegRuleFlags,
-                )?;
-                rules.push(RegulatoryRule {
-                    start_mhz: start_khz / 1000,
-                    end_mhz: end_khz / 1000,
-                    flags,
-                });
+                let reg_rules: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
+                    reg_rules_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+                for reg_rule in reg_rules.get_attrs() {
+                    let rule_handle: AttrHandle<
+                        '_,
+                        GenlBuffer<Nl80211RegRuleAttr, Buffer>,
+                        Nlattr<Nl80211RegRuleAttr, Buffer>,
+                    > = reg_rule.get_attr_handle().map_err(|error| anyhow!(error))?;
+                    let start_khz = get_required_attr::<u32, _>(
+                        &rule_handle,
+                        Nl80211RegRuleAttr::AttrFreqRangeStart,
+                    )?;
+                    let end_khz = get_required_attr::<u32, _>(
+                        &rule_handle,
+                        Nl80211RegRuleAttr::AttrFreqRangeEnd,
+                    )?;
+                    let flags = get_required_attr::<u32, _>(
+                        &rule_handle,
+                        Nl80211RegRuleAttr::AttrRegRuleFlags,
+                    )?;
+                    rules.push(RegulatoryRule {
+                        start_mhz: start_khz / 1000,
+                        end_mhz: end_khz / 1000,
+                        flags,
+                    });
+                }
             }
         }
 
         Ok(rules)
     }
 
-    fn send_ack_command(
+    async fn send_ack_command(
         &mut self,
         cmd: Nl80211Cmd,
         attrs: GenlBuffer<Nl80211Attr, Buffer>,
@@ -630,24 +718,28 @@ impl Nl80211Client {
             NlPayload::Payload(genl),
         );
 
-        self.sock.send(msg).map_err(|error| anyhow!(error))?;
+        self.sock.send(&msg).await.map_err(|error| anyhow!(error))?;
 
-        let iter = self
-            .sock
-            .iter::<Nlmsg, Genlmsghdr<Nl80211Cmd, Nl80211Attr>>(true);
-        for response in iter.flatten() {
-            match response.nl_type {
-                Nlmsg::Noop => continue,
-                Nlmsg::Done => break,
-                Nlmsg::Error => match response.nl_payload {
-                    NlPayload::Ack(_) => continue,
-                    NlPayload::Err(error) => return Err(anyhow!(error.to_string())),
-                    NlPayload::Payload(payload) => {
-                        return Err(anyhow!(format!("unexpected payload: {payload:?}")));
+        let mut done = false;
+        while !done {
+            let responses = self.recv_messages_with_timeout().await?;
+            for response in responses {
+                match response.nl_type {
+                    Nlmsg::Noop => continue,
+                    Nlmsg::Done => {
+                        done = true;
+                        continue;
                     }
-                    NlPayload::Empty => return Err(anyhow!("empty netlink payload")),
-                },
-                _ => {}
+                    Nlmsg::Error => match response.nl_payload {
+                        NlPayload::Ack(_) => continue,
+                        NlPayload::Err(error) => return Err(anyhow!(error.to_string())),
+                        NlPayload::Payload(payload) => {
+                            return Err(anyhow!(format!("unexpected payload: {payload:?}")));
+                        }
+                        NlPayload::Empty => return Err(anyhow!("empty netlink payload")),
+                    },
+                    _ => {}
+                }
             }
         }
         Ok(())

@@ -21,6 +21,7 @@ use tokio::{
     net::{TcpListener, tcp::{OwnedReadHalf, OwnedWriteHalf}},
     sync::mpsc,
     task::JoinHandle,
+    time::sleep,
 };
 use tokio_udev::{AsyncMonitorSocket, Enumerator, EventType, MonitorBuilder};
 
@@ -31,6 +32,7 @@ const MAX_BARCODE_LEN: usize = 4096;
 const CR_CHAR: u8 = 40;
 const SHIFT_CHAR: u8 = 2;
 const HID_CHAR_MAP_SIZE: usize = 57;
+const HID_UDEV_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 const HID_LOWERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
     None,
@@ -583,7 +585,7 @@ async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf)
 }
 
 async fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
-    let candidates = {
+    let scan = async {
         let mut enumerator = Enumerator::new()?;
         enumerator.match_subsystem("hidraw")?;
 
@@ -594,8 +596,22 @@ async fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
             };
             candidates.push((device.syspath().to_path_buf(), devnode.to_path_buf()));
         }
-        candidates
+        Ok::<_, anyhow::Error>(candidates)
     };
+
+    tokio::pin!(scan);
+    let timeout = sleep(HID_UDEV_LOOKUP_TIMEOUT);
+    tokio::pin!(timeout);
+
+    let candidates = tokio::select! {
+        result = &mut scan => result,
+        _ = &mut timeout => {
+            return Err(anyhow::anyhow!("hidraw udev scan timed out after {}s", HID_UDEV_LOOKUP_TIMEOUT.as_secs()));
+        }
+        _ = crate::utils::wait_for_shutdown() => {
+            return Err(anyhow::anyhow!("hidraw udev scan cancelled"));
+        }
+    }?;
 
     for (syspath, devnode) in candidates {
         let Some(address) = hid_device_get_bt_address(syspath.as_path()).await else {

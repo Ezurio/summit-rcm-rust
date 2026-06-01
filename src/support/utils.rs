@@ -11,9 +11,16 @@ use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Output;
+use std::sync::LazyLock;
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use std::time::Duration;
 use tokio::process::Command;
+use tokio::sync::watch;
+
+static SHUTDOWN_TX: LazyLock<watch::Sender<bool>> = LazyLock::new(|| {
+    let (tx, _rx) = watch::channel(false);
+    tx
+});
 
 /// Return the current CLOCK_BOOTTIME timestamp.
 #[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
@@ -154,6 +161,23 @@ pub async fn path_exists(path: impl AsRef<Path>) -> bool {
 
 pub fn path_exists_sync(path: impl AsRef<Path>) -> bool {
     path.as_ref().exists()
+}
+
+pub fn signal_shutdown() {
+    let _ = SHUTDOWN_TX.send(true);
+}
+
+pub async fn wait_for_shutdown() {
+    let mut rx = SHUTDOWN_TX.subscribe();
+    if *rx.borrow() {
+        return;
+    }
+
+    while rx.changed().await.is_ok() {
+        if *rx.borrow() {
+            return;
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
