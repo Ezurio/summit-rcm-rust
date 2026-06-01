@@ -4,11 +4,11 @@
 //
 //! iptables-based firewall port forwarding service
 
-use crate::utils::{command_output, read_text_sync};
+use crate::utils::command_output;
 use log::error;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, RwLock};
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";
@@ -33,8 +33,9 @@ pub struct ForwardedPort {
 }
 
 static FORWARDED_PORTS: LazyLock<RwLock<Vec<ForwardedPort>>> =
-    LazyLock::new(|| RwLock::new(load_ports()));
+    LazyLock::new(|| RwLock::new(Vec::new()));
 static PORTS_INTERLOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
+static PORTS_LOADED: LazyLock<OnceCell<()>> = LazyLock::new(OnceCell::new);
 
 async fn with_ports_read<R>(f: impl FnOnce(&Vec<ForwardedPort>) -> R) -> R {
     let ports = FORWARDED_PORTS.read().await;
@@ -46,27 +47,34 @@ async fn with_ports<R>(f: impl FnOnce(&mut Vec<ForwardedPort>) -> R) -> R {
     f(&mut ports)
 }
 
-fn load_ports() -> Vec<ForwardedPort> {
-    if let Ok(data) = read_text_sync(FORWARDED_PORTS_FILE)
-        && let Ok(v) = serde_json::from_str::<Vec<ForwardedPort>>(&data)
-    {
-        return v;
-    }
-    Vec::new()
+async fn ensure_ports_loaded() {
+    PORTS_LOADED
+        .get_or_init(|| async {
+            let loaded = match tokio::fs::read_to_string(FORWARDED_PORTS_FILE).await {
+                Ok(data) => serde_json::from_str::<Vec<ForwardedPort>>(&data).unwrap_or_default(),
+                Err(_) => Vec::new(),
+            };
+            let mut ports = FORWARDED_PORTS.write().await;
+            *ports = loaded;
+        })
+        .await;
 }
 
 pub struct FirewallService;
 
 impl FirewallService {
     pub async fn get_forwarded_ports() -> Vec<ForwardedPort> {
+        ensure_ports_loaded().await;
         with_ports_read(|ports| ports.clone()).await
     }
 
     pub async fn port_is_present(port: &ForwardedPort) -> bool {
+        ensure_ports_loaded().await;
         with_ports_read(|ports| ports.contains(port)).await
     }
 
     pub async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
+        ensure_ports_loaded().await;
         let _interlock = PORTS_INTERLOCK.lock().await;
         let present = with_ports_read(|ports| ports.contains(&fp)).await;
 

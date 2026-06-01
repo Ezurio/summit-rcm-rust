@@ -13,8 +13,8 @@ mod transitions;
 use anyhow::Result;
 use crate::dbus;
 use serde_json::{json, Value};
-use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, LazyLock, Mutex}, time::Duration};
-use tokio::{sync::{OnceCell, RwLock}, task::JoinHandle};
+use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, LazyLock}, time::Duration};
+use tokio::{sync::{Mutex, OnceCell, RwLock}, task::JoinHandle};
 use zbus::{zvariant::{OwnedValue, Value as DbusValue}, Connection};
 
 pub const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";

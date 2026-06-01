@@ -55,9 +55,6 @@ pub(super) struct SwupdateApi {
     handle: *mut c_void,
     pub swupdate_prepare_req: unsafe extern "C" fn(*mut SwupdateRequest),
     pub ipc_inst_start_ext: unsafe extern "C" fn(*mut c_void, isize) -> libc::c_int,
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub ipc_send_data:
-        unsafe extern "C" fn(libc::c_int, *mut libc::c_char, libc::c_int) -> libc::c_int,
     pub ipc_end: unsafe extern "C" fn(libc::c_int),
     pub get_prog_socket: unsafe extern "C" fn() -> *mut libc::c_char,
 }
@@ -93,8 +90,6 @@ impl SwupdateApi {
             handle,
             swupdate_prepare_req: unsafe { Self::symbol(handle, "swupdate_prepare_req") }?,
             ipc_inst_start_ext: unsafe { Self::symbol(handle, "ipc_inst_start_ext") }?,
-            #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-            ipc_send_data: unsafe { Self::symbol(handle, "ipc_send_data") }?,
             ipc_end: unsafe { Self::symbol(handle, "ipc_end") }?,
             get_prog_socket: unsafe { Self::symbol(handle, "get_prog_socket") }?,
         })

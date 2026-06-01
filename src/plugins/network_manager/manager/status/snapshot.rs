@@ -944,13 +944,13 @@ async fn refresh_status_cache() -> Result<()> {
     }
 
     async fn stop_status_watcher() {
-        if let Some(handle) = NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().take() {
+        if let Some(handle) = NETWORK_STATUS_SIGNAL_TASK.lock().await.take() {
             handle.abort();
         }
     }
 
     async fn ensure_nm_status_watcher() -> Result<()> {
-        if NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().is_some() {
+        if NETWORK_STATUS_SIGNAL_TASK.lock().await.is_some() {
             return Ok(());
         }
 
@@ -995,10 +995,10 @@ async fn refresh_status_cache() -> Result<()> {
                 }
             }
 
-            NETWORK_STATUS_SIGNAL_TASK.lock().unwrap().take();
+            NETWORK_STATUS_SIGNAL_TASK.lock().await.take();
         });
 
-        let mut watcher = NETWORK_STATUS_SIGNAL_TASK.lock().unwrap();
+        let mut watcher = NETWORK_STATUS_SIGNAL_TASK.lock().await;
         if watcher.is_some() {
             handle.abort();
         } else {

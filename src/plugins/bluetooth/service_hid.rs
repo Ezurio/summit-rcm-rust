@@ -23,7 +23,7 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
-use tokio_udev::{AsyncMonitorSocket, Enumerator, EventType, MonitorBuilder};
+use tokio_udev::{AsyncMonitorSocket, EventType, MonitorBuilder};
 
 const TCP_PORT_MIN: u16 = 1025;
 const TCP_PORT_MAX: u16 = 49151;
@@ -586,16 +586,21 @@ async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf)
 
 async fn find_hid_device(device_uuid: &str) -> anyhow::Result<Option<PathBuf>> {
     let scan = async {
-        let mut enumerator = Enumerator::new()?;
-        enumerator.match_subsystem("hidraw")?;
-
         let mut candidates = Vec::new();
-        for device in enumerator.scan_devices()? {
-            let Some(devnode) = device.devnode() else {
+        let mut entries = tokio::fs::read_dir("/sys/class/hidraw").await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let class_path = entry.path();
+            let Ok(syspath) = tokio::fs::canonicalize(&class_path).await else {
                 continue;
             };
-            candidates.push((device.syspath().to_path_buf(), devnode.to_path_buf()));
+            let Some(name) = class_path.file_name() else {
+                continue;
+            };
+            let devnode = PathBuf::from("/dev").join(name);
+            candidates.push((syspath, devnode));
         }
+
         Ok::<_, anyhow::Error>(candidates)
     };
 

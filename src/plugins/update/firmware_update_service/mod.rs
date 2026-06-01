@@ -226,11 +226,7 @@ impl FirmwareUpdateService {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
             Some(StreamMode::Pipe) => update_pipe::handle_stream(data).await,
-            Some(StreamMode::Ipc) => {
-                tokio::task::spawn_blocking(move || update_ipc::handle_stream(data))
-                    .await
-                    .map_err(|_| UpdateStreamError::Internal)?
-            }
+            Some(StreamMode::Ipc) => update_ipc::handle_stream(data).await,
             Some(StreamMode::Url) | None => Err(UpdateStreamError::NoUpdateInProgress),
         }
     }

@@ -241,11 +241,7 @@ async fn call_plugin(
     query_params: HashMap<String, String>,
     body_bytes: Bytes,
 ) -> axum::response::Response {
-    tokio::task::spawn_blocking(move || {
-        do_dispatch(state, path_params, query_params, body_bytes)
-    })
-    .await
-    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    do_dispatch(state, path_params, query_params, body_bytes)
 }
 
 // ─── Route builder ────────────────────────────────────────────────────────────
