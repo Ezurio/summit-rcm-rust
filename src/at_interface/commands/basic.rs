@@ -10,13 +10,9 @@ use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
 use anyhow::{Context, anyhow};
 use log::error;
-use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
-use surge_ping::{Client, Config, ICMP, PingIdentifier, PingSequence};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 10;
-const ICMP_ECHO_SEQUENCE: u16 = 1;
-const ICMP_PAYLOAD: &[u8] = b"summit-rcm-ping";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PingProtocol {
@@ -46,29 +42,17 @@ async fn ping_target(target: &str, timeout_secs: u64, protocol: PingProtocol) ->
             PingProtocol::V6 => address.ip().is_ipv6(),
         })
         .ok_or_else(|| anyhow!("No address found for target {target}"))?;
-    let config = ping_config(address.ip());
-    let client = Client::new(&config).context("Failed to create ICMP client")?;
-    let mut pinger = client
-        .pinger(address.ip(), PingIdentifier(ICMP_ECHO_SEQUENCE))
-        .await;
-
-    if let SocketAddr::V6(address_v6) = address {
-        pinger.scope_id(address_v6.scope_id());
-    }
-
-    pinger.timeout(Duration::from_secs(timeout_secs));
-    let (_, duration) = pinger
-        .ping(PingSequence(ICMP_ECHO_SEQUENCE), ICMP_PAYLOAD)
-        .await
-        .with_context(|| format!("Failed to ping {address}"))?;
-    Ok(duration)
-}
-
-fn ping_config(address: IpAddr) -> Config {
-    match address {
-        IpAddr::V4(_) => Config::default(),
-        IpAddr::V6(_) => Config::builder().kind(ICMP::V6).build(),
-    }
+    let ip = address.ip();
+    let timeout = Duration::from_secs(timeout_secs);
+    let result = tokio::task::spawn_blocking(move || {
+        let mut p = ping::Ping::new(ip);
+        p.timeout(timeout);
+        p.send()
+    })
+    .await
+    .context("ping task panicked")?
+    .with_context(|| format!("Failed to ping {address}"))?;
+    Ok(result.rtt)
 }
 
 fn format_ping_millis(duration: Duration) -> String {

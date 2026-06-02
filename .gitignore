@@ -8,3 +8,7 @@ __pycache__/
 *.tmp
 *.txt
 .venv*
+*.code*
+.vscode*
+!VENDOR/
+!VENDOR/**

@@ -1,0 +1,15 @@
+[package]
+name = "generate-nl80211"
+version = "0.1.0"
+edition = "2024"
+description = "Host tool: generates src/plugins/network/nl80211/generated.rs via bindgen"
+authors = ["Ezurio LLC"]
+license = "LicenseRef-Ezurio-Clause"
+publish = false
+
+[[bin]]
+name = "generate_nl80211_bindings"
+path = "src/main.rs"
+
+[dependencies]
+bindgen = "0.72"

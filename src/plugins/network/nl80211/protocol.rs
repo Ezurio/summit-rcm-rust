@@ -2,156 +2,52 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+// Generated bindgen constants — allow dead_code since only a subset of the full
+// nl80211 enum space is referenced at any given time.
+#[allow(dead_code)]
+mod nl80211_bindings {
+    include!("generated.rs");
+}
+pub(super) use nl80211_bindings::*;
+
 use anyhow::{Context, Result, anyhow};
 use neli::attr::{AttrHandle, Attribute};
 use neli::consts::{
-    genl::{Cmd, NlAttrType},
+    genl::NlAttrType,
 };
 use neli::genl::{
     AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
 };
 use neli::types::{Buffer, GenlBuffer};
-use neli_proc_macros::neli_enum;
 
 pub(super) const NL_80211_GENL_NAME: &str = "nl80211";
 const NL_80211_GENL_VERSION: u8 = 1;
 
+pub(super) type Nl80211Cmd = u8;
+pub(super) type Nl80211Attr = u16;
+pub(super) type Nl80211Iftype = u16;
+pub(super) type Nl80211StaInfo = u16;
+pub(super) type Nl80211StaBssParam = u16;
+pub(super) type Nl80211RateInfo = u16;
+pub(super) type Nl80211BandAttr = u16;
+pub(super) type Nl80211FrequencyAttr = u16;
+pub(super) type Nl80211RegRuleAttr = u16;
+
 pub(super) type Nl80211Payload = Genlmsghdr<Nl80211Cmd, Nl80211Attr>;
 pub(super) type Nl80211RawPayload = Genlmsghdr<Nl80211Cmd, u16>;
 
-#[neli_enum(serialized_type = "u8")]
-pub(super) enum Nl80211Cmd {
-    CmdUnspec = 0,
-    CmdGetWiphy = 1,
-    CmdNewWiphy = 3,
-    CmdGetInterface = 5,
-    CmdNewInterface = 7,
-    CmdDelInterface = 8,
-    CmdGetStation = 17,
-    CmdNewStation = 19,
-    CmdGetReg = 31,
+#[inline]
+pub(super) fn nl80211_cmd(value: u32) -> Nl80211Cmd {
+    value as u8
 }
 
-impl Cmd for Nl80211Cmd {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211Attr {
-    AttrUnspec = 0,
-    AttrWiphy = 1,
-    AttrWiphyName = 2,
-    AttrIfindex = 3,
-    AttrIfname = 4,
-    AttrIftype = 5,
-    AttrMac = 6,
-    AttrStaInfo = 21,
-    AttrWiphyBands = 22,
-    AttrRegAlpha2 = 33,
-    AttrRegRules = 34,
-    AttrWiphyFreq = 38,
-    AttrGeneration = 46,
-    Attr4addr = 83,
-    AttrWdev = 153,
-    AttrSplitWiphyDump = 174,
-    AttrVifRadioMask = 333,
+#[inline]
+pub(super) fn nl80211_attr<K>(value: u32) -> K
+where
+    K: From<u16>,
+{
+    K::from(value as u16)
 }
-
-impl NlAttrType for Nl80211Attr {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211Iftype {
-    IftypeUnspecified = 0,
-    IftypeStation = 2,
-}
-
-impl NlAttrType for Nl80211Iftype {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211StaInfo {
-    StaInfoInvalid = 0,
-    StaInfoInactiveTime = 1,
-    StaInfoRxBytes = 2,
-    StaInfoTxBytes = 3,
-    StaInfoTxBitrate = 8,
-    StaInfoRxPackets = 9,
-    StaInfoTxPackets = 10,
-    StaInfoTxRetries = 11,
-    StaInfoTxFailed = 12,
-    StaInfoSignalAvg = 13,
-    StaInfoRxBitrate = 14,
-    StaInfoBssParam = 15,
-    StaInfoConnectedTime = 16,
-    StaInfoStaFlags = 17,
-    StaInfoBeaconLoss = 18,
-    StaInfoSignal = 7,
-    StaInfoRxBytes64 = 23,
-    StaInfoTxBytes64 = 24,
-    StaInfoChainSignal = 25,
-    StaInfoRxDropMisc = 28,
-    StaInfoBeaconRx = 29,
-    StaInfoBeaconSignalAvg = 30,
-    StaInfoTidStats = 31,
-    StaInfoRxDuration = 32,
-    StaInfoTxDuration = 39,
-    StaInfoAssocAtBoottime = 42,
-    StaInfoConnectedToAs = 43,
-}
-
-impl NlAttrType for Nl80211StaInfo {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211StaBssParam {
-    StaBssParamInvalid = 0,
-    StaBssParamDtimPeriod = 4,
-    StaBssParamBeaconInterval = 5,
-}
-
-impl NlAttrType for Nl80211StaBssParam {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211RateInfo {
-    RateInfoInvalid = 0,
-    RateInfoBitrate = 1,
-    RateInfo40MhzWidth = 3,
-    RateInfoBitrate32 = 5,
-    RateInfo80MhzWidth = 8,
-    RateInfo80p80MhzWidth = 9,
-    RateInfo160MhzWidth = 10,
-    RateInfo10MhzWidth = 11,
-    RateInfo5MhzWidth = 12,
-    RateInfoHeMcs = 13,
-    RateInfoHeNss = 14,
-    RateInfoHeGi = 15,
-    RateInfoHeDcm = 16,
-}
-
-impl NlAttrType for Nl80211RateInfo {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211BandAttr {
-    BandAttrInvalid = 0,
-    BandAttrFreqs = 1,
-}
-
-impl NlAttrType for Nl80211BandAttr {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211FrequencyAttr {
-    FrequencyAttrInvalid = 0,
-    FrequencyAttrFreq = 1,
-    FrequencyAttrDisabled = 2,
-}
-
-impl NlAttrType for Nl80211FrequencyAttr {}
-
-#[neli_enum(serialized_type = "u16")]
-pub(super) enum Nl80211RegRuleAttr {
-    RegRuleAttrInvalid = 0,
-    AttrRegRuleFlags = 1,
-    AttrFreqRangeStart = 2,
-    AttrFreqRangeEnd = 3,
-}
-
-impl NlAttrType for Nl80211RegRuleAttr {}
 
 pub(super) fn genl_buffer<K>(attrs: Vec<Nlattr<K, Buffer>>) -> GenlBuffer<K, Buffer>
 where

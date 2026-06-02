@@ -31,7 +31,8 @@ use self::protocol::{
     NL_80211_GENL_NAME, Nl80211Attr, Nl80211Cmd, Nl80211Iftype, Nl80211RawPayload,
     Nl80211StaInfo, build_genl_message, c_string_bytes,
     format_mac, genl_buffer, get_optional_attr_raw, get_required_attr_bytes_raw, get_required_attr_raw, nlattr,
-    trim_c_string,
+    nl80211_attrs, nl80211_commands, nl80211_iftype,
+    nl80211_attr, nl80211_cmd, trim_c_string,
 };
 
 const NL_80211_RECV_TIMEOUT: Duration = Duration::from_secs(10);
@@ -124,7 +125,10 @@ impl Nl80211Client {
     }
 
     pub async fn list_interfaces(&mut self) -> Result<Vec<Nl80211Interface>> {
-        let genl = build_genl_message(Nl80211Cmd::CmdGetInterface, GenlBuffer::new())?;
+        let genl = build_genl_message(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_INTERFACE),
+            GenlBuffer::new(),
+        )?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST | NlmF::DUMP, NlPayload::Payload(genl))
@@ -140,23 +144,35 @@ impl Nl80211Client {
             let Some(payload) = response_payload(&response, "GET_INTERFACE", &mut done)? else {
                 continue;
             };
-            if *payload.cmd() != Nl80211Cmd::CmdNewInterface {
+            if *payload.cmd() != nl80211_cmd(nl80211_commands::NL80211_CMD_NEW_INTERFACE) {
                 continue;
             }
 
             let handle = payload.attrs().get_attr_handle();
 
-            let Ok(wiphy) = get_required_attr_raw::<u32, _>(&handle, Nl80211Attr::AttrWiphy) else {
+            let Ok(wiphy) = get_required_attr_raw::<u32, _>(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+            ) else {
                 continue;
             };
-            let Ok(ifindex) = get_required_attr_raw::<u32, _>(&handle, Nl80211Attr::AttrIfindex) else {
+            let Ok(ifindex) = get_required_attr_raw::<u32, _>(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
+            ) else {
                 continue;
             };
-            let Ok(ifname_raw) = get_required_attr_bytes_raw(&handle, Nl80211Attr::AttrIfname) else {
+            let Ok(ifname_raw) = get_required_attr_bytes_raw(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFNAME),
+            ) else {
                 continue;
             };
             let ifname = trim_c_string(ifname_raw)?;
-            let frequency = get_optional_attr_raw::<u32, _>(&handle, Nl80211Attr::AttrWiphyFreq)?;
+            let frequency = get_optional_attr_raw::<u32, _>(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY_FREQ),
+            )?;
 
             interfaces.push(Nl80211Interface {
                 ifindex,
@@ -179,9 +195,15 @@ impl Nl80211Client {
 
     pub async fn get_reg_domain_primary(&mut self) -> Result<String> {
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrWiphy, PRIMARY_WIPHY)?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+                PRIMARY_WIPHY,
+            )?,
         ]);
-        let genl = build_genl_message(Nl80211Cmd::CmdGetReg, attrs)?;
+        let genl = build_genl_message(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG),
+            attrs,
+        )?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST, NlPayload::Payload(genl))
@@ -198,7 +220,11 @@ impl Nl80211Client {
             };
             let handle = payload.attrs().get_attr_handle();
             if let Ok(alpha2) =
-                get_required_attr_bytes_raw(&handle, Nl80211Attr::AttrRegAlpha2).and_then(trim_c_string)
+                get_required_attr_bytes_raw(
+                    &handle,
+                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_ALPHA2),
+                )
+                .and_then(trim_c_string)
             {
                 return Ok(alpha2);
             }
@@ -225,9 +251,15 @@ impl Nl80211Client {
     pub async fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
         let interface = self.get_interface(ifname).await?;
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrIfindex, interface.ifindex)?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
+                interface.ifindex,
+            )?,
         ]);
-        let genl = build_genl_message(Nl80211Cmd::CmdGetStation, attrs)?;
+        let genl = build_genl_message(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_STATION),
+            attrs,
+        )?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST | NlmF::DUMP, NlPayload::Payload(genl))
@@ -245,18 +277,24 @@ impl Nl80211Client {
                 continue;
             };
 
-            if *payload.cmd() != Nl80211Cmd::CmdNewStation {
+            if *payload.cmd() != nl80211_cmd(nl80211_commands::NL80211_CMD_NEW_STATION) {
                 continue;
             }
 
             let handle = payload.attrs().get_attr_handle();
             let mac = format_mac(
-                &get_required_attr_bytes_raw(&handle, Nl80211Attr::AttrMac)
+                &get_required_attr_bytes_raw(
+                    &handle,
+                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_MAC),
+                )
                     .context("GET_STATION missing NL80211_ATTR_MAC")?,
             );
 
             let sta_attr = handle
-                .get_attribute(u16::from(Nl80211Attr::AttrStaInfo))
+                .get_attribute(
+                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_STA_INFO)
+                        .into(),
+                )
                 .context("GET_STATION missing NL80211_ATTR_STA_INFO")?;
             let sta_handle: AttrHandle<
                 '_,
@@ -301,14 +339,25 @@ impl Nl80211Client {
 
     pub async fn add_virtual_interface(&mut self, ifname: &str) -> Result<()> {
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrWiphy, PRIMARY_WIPHY)?,
-            nlattr(Nl80211Attr::AttrIfname, c_string_bytes(ifname))?,
             nlattr(
-                Nl80211Attr::AttrIftype,
-                u32::from(u16::from(Nl80211Iftype::IftypeStation)),
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+                PRIMARY_WIPHY,
+            )?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFNAME),
+                c_string_bytes(ifname),
+            )?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFTYPE),
+                nl80211_attr::<Nl80211Iftype>(nl80211_iftype::NL80211_IFTYPE_STATION)
+                    as u32,
             )?,
         ]);
-        self.send_ack_command(Nl80211Cmd::CmdNewInterface, attrs).await
+        self.send_ack_command(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_NEW_INTERFACE),
+            attrs,
+        )
+        .await
     }
 
     pub async fn remove_virtual_interface(&mut self, ifname: &str) -> Result<bool> {
@@ -317,18 +366,31 @@ impl Nl80211Client {
             Err(_) => return Ok(false),
         };
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrIfindex, interface.ifindex)?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
+                interface.ifindex,
+            )?,
         ]);
-        self.send_ack_command(Nl80211Cmd::CmdDelInterface, attrs).await?;
+        self.send_ack_command(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_DEL_INTERFACE),
+            attrs,
+        )
+        .await?;
         Ok(true)
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supported_frequencies(&mut self, wiphy: u32) -> Result<Vec<u32>> {
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrSplitWiphyDump, ())?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_SPLIT_WIPHY_DUMP),
+                (),
+            )?,
         ]);
-        let genl = build_genl_message(Nl80211Cmd::CmdGetWiphy, attrs)?;
+        let genl = build_genl_message(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_WIPHY),
+            attrs,
+        )?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(
@@ -349,12 +411,15 @@ impl Nl80211Client {
             let Some(payload) = response_payload(&response, "GET_WIPHY", &mut done)? else {
                 continue;
             };
-            if *payload.cmd() != Nl80211Cmd::CmdNewWiphy {
+            if *payload.cmd() != nl80211_cmd(nl80211_commands::NL80211_CMD_NEW_WIPHY) {
                 continue;
             }
 
             let handle = payload.attrs().get_attr_handle();
-            let Ok(response_wiphy) = get_required_attr_raw::<u32, _>(&handle, Nl80211Attr::AttrWiphy) else {
+            let Ok(response_wiphy) = get_required_attr_raw::<u32, _>(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+            ) else {
                 continue;
             };
             if response_wiphy != wiphy {
@@ -370,9 +435,15 @@ impl Nl80211Client {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_regulatory_rules(&mut self, wiphy: u32) -> Result<Vec<RegulatoryRule>> {
         let attrs = genl_buffer(vec![
-            nlattr(Nl80211Attr::AttrWiphy, wiphy)?,
+            nlattr(
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+                wiphy,
+            )?,
         ]);
-        let genl = build_genl_message(Nl80211Cmd::CmdGetReg, attrs)?;
+        let genl = build_genl_message(
+            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG),
+            attrs,
+        )?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST, NlPayload::Payload(genl))

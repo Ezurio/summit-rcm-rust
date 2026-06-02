@@ -21,7 +21,7 @@ pub async fn execute_http_configure_transaction(_fsm: &FsmHandle, params: &CsvPa
     let url = params.trimmed(3);
     let timeout = params.parse_or(4, 30u64);
 
-    let mut svc = HttpService::instance().lock().unwrap();
+    let mut svc = HttpService::instance().lock().await;
     svc.configure_transaction(host, port, method, url, timeout);
     CommandOutcome::Ok
 }
@@ -56,7 +56,7 @@ pub async fn execute_http_add_header(_fsm: &FsmHandle, params: &CsvParams<'_>) -
     let value = value_parts.join(",");
     let value = value.as_str();
 
-    let mut svc = HttpService::instance().lock().unwrap();
+    let mut svc = HttpService::instance().lock().await;
     svc.add_header(key, value);
     CommandOutcome::Ok
 }
@@ -67,13 +67,13 @@ pub async fn execute_http_enable_response_header(_fsm: &FsmHandle, params: &CsvP
     };
     let enabled = flag != 0;
 
-    let mut svc = HttpService::instance().lock().unwrap();
+    let mut svc = HttpService::instance().lock().await;
     svc.enable_response_headers(enabled);
     CommandOutcome::Ok
 }
 
 pub async fn execute_http_clear_configuration(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
-    let mut svc = HttpService::instance().lock().unwrap();
+    let mut svc = HttpService::instance().lock().await;
     svc.clear_configuration();
     CommandOutcome::Ok
 }
@@ -127,7 +127,7 @@ pub async fn execute_http_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>
                 return CommandOutcome::Error;
             }
 
-            let mut svc = HttpService::instance().lock().unwrap();
+            let mut svc = HttpService::instance().lock().await;
             svc.set_ssl_config(ssl_config);
             CommandOutcome::Ok
         }
@@ -155,4 +155,3 @@ pub(crate) const COMMANDS: &[PublishedCommand] = &[
         execute_http_configure_ssl
     ),
 ];
-

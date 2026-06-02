@@ -6,25 +6,18 @@
 //! AT-interface HTTP transaction service
 
 use crate::at_interface::ssl::AtSslConfig;
-use log::error;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::sync::{LazyLock, Mutex};
+use std::pin::Pin;
+use std::sync::LazyLock;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use tokio_openssl::SslStream;
 
 #[derive(Debug, Default)]
 pub struct HttpService {
-    host: String,
-    port: u16,
-    method: String,
-    url: String,
-    timeout_secs: u64,
-    headers: HashMap<String, String>,
-    response_headers_enabled: bool,
-    ssl_config: Option<AtSslConfig>,
-}
-
-#[derive(Debug, Clone)]
-struct HttpRequestConfig {
     host: String,
     port: u16,
     method: String,
@@ -47,19 +40,6 @@ impl HttpService {
 
     pub fn instance() -> &'static Mutex<HttpService> {
         &INSTANCE
-    }
-
-    fn request_config(&self) -> HttpRequestConfig {
-        HttpRequestConfig {
-            host: self.host.clone(),
-            port: self.port,
-            method: self.method.clone(),
-            url: self.url.clone(),
-            timeout_secs: self.timeout_secs,
-            headers: self.headers.clone(),
-            response_headers_enabled: self.response_headers_enabled,
-            ssl_config: self.ssl_config.clone(),
-        }
     }
 
     pub fn configure_transaction(&mut self, host: &str, port: u16, method: &str, url: &str, timeout: u64) {
@@ -99,24 +79,14 @@ impl HttpService {
     pub async fn execute_transaction(length: usize) -> anyhow::Result<(String, i32)> {
         use crate::at_interface::fsm::FsmHandle;
 
-        let config = {
-            let service = Self::instance().lock().unwrap();
-            service.request_config()
-        };
-
-        let scheme = if config.ssl_config.is_some() { "https" } else { "http" };
-        let base_url = if config.port > 0 {
-            format!("{}://{}:{}{}", scheme, config.host, config.port, config.url)
-        } else {
-            format!("{}://{}{}", scheme, config.host, config.url)
-        };
+        let svc = Self::instance().lock().await;
 
         let body_bytes: Vec<u8> = if length > 0 {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
             let listener_id = FsmHandle::register_listener(tx);
             let mut buf = Vec::new();
             while let Ok(Some(data)) = tokio::time::timeout(
-                std::time::Duration::from_secs(config.timeout_secs + 5),
+                std::time::Duration::from_secs(svc.timeout_secs + 5),
                 rx.recv(),
             )
             .await
@@ -134,43 +104,144 @@ impl HttpService {
         };
 
         let sent = body_bytes.len() as i32;
+        let is_tls = svc.ssl_config.is_some();
+        let default_port: u16 = if is_tls { 443 } else { 80 };
+        let connect_port = if svc.port > 0 { svc.port } else { default_port };
+        let connect_addr = format!("{}:{}", svc.host, connect_port);
+        let timeout = Duration::from_secs(svc.timeout_secs);
 
-        let mut client_builder = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_secs));
+        let tcp = tokio::time::timeout(timeout, TcpStream::connect(&connect_addr))
+            .await
+            .map_err(|_| anyhow::anyhow!("Connection timed out to {}", connect_addr))?
+            .map_err(|e| anyhow::anyhow!("Failed to connect to {}: {}", connect_addr, e))?;
 
-        if let Some(ssl_config) = &config.ssl_config {
-            client_builder = ssl_config.apply_reqwest_tls(client_builder).await?;
+        let method = if svc.method.is_empty() { "GET" } else { &svc.method }.to_uppercase();
+        let host_header = if svc.port > 0 {
+            format!("{}:{}", svc.host, svc.port)
+        } else {
+            svc.host.clone()
+        };
+
+        enum EitherIo {
+            Plain(TcpStream),
+            Tls(SslStream<TcpStream>),
         }
 
-        let client = client_builder.build()?;
-
-        let method = reqwest::Method::from_bytes(config.method.to_uppercase().as_bytes())
-            .unwrap_or(reqwest::Method::GET);
-
-        let mut req = client.request(method, &base_url);
-        for (key, value) in &config.headers {
-            req = req.header(key, value);
-        }
-        if !body_bytes.is_empty() {
-            req = req.body(body_bytes);
-        }
-
-        let resp = req.send().await.map_err(|error| {
-            error!("HTTP execute error: {}", error);
-            anyhow::anyhow!(error)
-        })?;
-
-        let mut resp_str = String::new();
-        if config.response_headers_enabled {
-            let status = resp.status();
-            for (key, value) in resp.headers() {
-                let _ = writeln!(resp_str, "{}: {}\r", key, value.to_str().unwrap_or(""));
+        impl tokio::io::AsyncRead for EitherIo {
+            fn poll_read(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+                match self.get_mut() {
+                    EitherIo::Plain(s) => Pin::new(s).poll_read(cx, buf),
+                    EitherIo::Tls(s) => Pin::new(s).poll_read(cx, buf),
+                }
             }
-            let _ = writeln!(resp_str, "Status: {}\r", status);
         }
-        let body = resp.text().await.unwrap_or_default();
-        resp_str.push_str(&body);
 
-        Ok((resp_str, sent))
+        impl tokio::io::AsyncWrite for EitherIo {
+            fn poll_write(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
+                match self.get_mut() {
+                    EitherIo::Plain(s) => Pin::new(s).poll_write(cx, buf),
+                    EitherIo::Tls(s) => Pin::new(s).poll_write(cx, buf),
+                }
+            }
+            fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+                match self.get_mut() {
+                    EitherIo::Plain(s) => Pin::new(s).poll_flush(cx),
+                    EitherIo::Tls(s) => Pin::new(s).poll_flush(cx),
+                }
+            }
+            fn poll_shutdown(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+                match self.get_mut() {
+                    EitherIo::Plain(s) => Pin::new(s).poll_shutdown(cx),
+                    EitherIo::Tls(s) => Pin::new(s).poll_shutdown(cx),
+                }
+            }
+        }
+
+        let io = if let Some(ref ssl_config) = svc.ssl_config {
+            let connector = ssl_config.build_openssl_connector()?;
+            let ssl = connector.configure()?.into_ssl(&svc.host)?;
+            let mut ssl_stream = SslStream::new(ssl, tcp)?;
+            tokio::time::timeout(timeout, Pin::new(&mut ssl_stream).connect())
+                .await
+                .map_err(|_| anyhow::anyhow!("TLS handshake timed out"))??;
+            EitherIo::Tls(ssl_stream)
+        } else {
+            EitherIo::Plain(tcp)
+        };
+        let resp = send_http1_request(
+            io,
+            &method,
+            &svc.url,
+            &host_header,
+            &svc.headers,
+            &body_bytes,
+            timeout,
+            svc.response_headers_enabled,
+        )
+        .await?;
+
+        Ok((resp, sent))
     }
+}
+
+async fn send_http1_request<IO>(
+    io: IO,
+    method: &str,
+    uri: &str,
+    host: &str,
+    extra_headers: &HashMap<String, String>,
+    body: &[u8],
+    timeout: Duration,
+    include_response_headers: bool,
+) -> anyhow::Result<String>
+where
+    IO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let uri = if uri.is_empty() { "/" } else { uri };
+
+    // Serialize request
+    let mut request = format!("{} {} HTTP/1.1\r\nHost: {}\r\n", method, uri, host);
+    for (k, v) in extra_headers {
+        let _ = writeln!(request, "{}: {}\r", k, v);
+    }
+    if !body.is_empty() {
+        let _ = writeln!(request, "Content-Length: {}\r", body.len());
+    }
+    request.push_str("Connection: close\r\n\r\n");
+
+    let mut io = io;
+    tokio::time::timeout(timeout, async {
+        io.write_all(request.as_bytes()).await?;
+        if !body.is_empty() {
+            io.write_all(body).await?;
+        }
+        io.flush().await
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Request write timed out"))??;
+
+    // Read entire response (server closes after Connection: close)
+    let mut raw = Vec::new();
+    tokio::time::timeout(timeout, io.read_to_end(&mut raw))
+        .await
+        .map_err(|_| anyhow::anyhow!("Response read timed out"))??;
+
+    // Parse status + headers
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut resp = httparse::Response::new(&mut headers);
+    let header_len = match resp.parse(&raw)? {
+        httparse::Status::Complete(n) => n,
+        httparse::Status::Partial => anyhow::bail!("Incomplete HTTP response"),
+    };
+
+    let mut resp_str = String::new();
+    if include_response_headers {
+        for h in resp.headers.iter() {
+            let _ = writeln!(resp_str, "{}: {}\r", h.name, String::from_utf8_lossy(h.value));
+        }
+        let _ = writeln!(resp_str, "Status: {}\r", resp.code.unwrap_or(0));
+    }
+    resp_str.push_str(&String::from_utf8_lossy(&raw[header_len..]));
+
+    Ok(resp_str)
 }

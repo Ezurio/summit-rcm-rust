@@ -10,6 +10,13 @@ use crate::utils::random_token_hex;
 use openssl::hash::{hash, MessageDigest};
 use std::collections::HashMap;
 
+fn hash_password(password: &str) -> Option<(String, String)> {
+    let salt = random_token_hex(16).ok()?;
+    let data = [salt.as_bytes(), password.as_bytes()].concat();
+    let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
+    Some((salt, hex::encode(digest)))
+}
+
 pub struct UserService;
 
 impl UserService {
@@ -36,12 +43,9 @@ impl UserService {
 
     pub fn add_user(username: &str, password: &str, permission: Option<&str>) -> bool {
         if SummitRcmConfigManage::add_section(username) {
-            let Ok(salt) = random_token_hex(16) else {
+            let Some((salt, hashed)) = hash_password(password) else {
                 return false;
             };
-            let data = [salt.as_bytes(), password.as_bytes()].concat();
-            let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-            let hashed = hex::encode(digest);
 
             let mut entries: Vec<(&str, &str)> = vec![("salt", &salt), ("password", &hashed)];
             if let Some(perm) = permission {
@@ -55,12 +59,9 @@ impl UserService {
 
     pub fn update_password(username: &str, password: &str) -> bool {
         if SummitRcmConfigManage::has_section(username) {
-            let Ok(salt) = random_token_hex(16) else {
+            let Some((salt, hashed)) = hash_password(password) else {
                 return false;
             };
-            let data = [salt.as_bytes(), password.as_bytes()].concat();
-            let digest = hash(MessageDigest::sha256(), &data).expect("SHA256 hash failed");
-            let hashed = hex::encode(digest);
 
             SummitRcmConfigManage::set_many(username, &[("salt", &salt), ("password", &hashed)]);
             return SummitRcmConfigManage::save().is_ok();

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "crates/generate-nl80211",
     "crates/plugin-api",
     "crates/plugin-example",
     "crates/swupdate-ipc",
@@ -75,7 +76,7 @@ api-legacy = [
     "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
 ]
 # Serial AT command interface — independent of any REST API
-at-interface = ["dep:tokio-serial", "dep:reqwest", "dep:surge-ping", "tokio/net", "network", "network-manager", "date-time", "system", "logs", "files", "update"]
+at-interface = ["dep:tokio-serial", "dep:ping", "dep:httparse", "tokio/net", "network", "network-manager", "date-time", "system", "logs", "files", "update"]
 
 # NetworkManager-backed implementation used by the network plugin.
 network-manager = []
@@ -140,7 +141,7 @@ openssl = "0.10"
 openssl-sys = "0.9"
 tokio-openssl = "0.6"
 hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"], optional = true }
-surge-ping = { version = "0.8.4", optional = true }
+ping           = { version = "0.7", optional = true }
 summit-rcm-plugin-api = { path = "crates/plugin-api" }
 swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
 neli = { version = "0.7.4", default-features = false, features = ["async"], optional = true }
@@ -149,13 +150,12 @@ tokio-udev = { version = "0.10.0", optional = true }
 
 # REST API dependencies (enabled by api-v2 and/or api-legacy)
 axum           = { version = "0.8.9", features = ["multipart"], optional = true }
-# Keep reqwest on the native-tls path so Linux builds stay on OpenSSL rather than rustls.
-reqwest        = { version = "0.13.4", default-features = false, features = ["charset", "native-tls"], optional = true }
 libloading     = { version = "0.9.0", optional = true }
 tower-sessions = { version = "0.15.0", optional = true }
 
 # AT interface (feature = "at-interface")
 tokio-serial   = { version = "5", optional = true }
+httparse       = { version = "1", optional = true }
 
 utoipa         = { version = "5.5.0", features = ["axum_extras"], optional = true }
 

@@ -11,7 +11,7 @@ Refresh the checked-in VENDOR tree.
 Modes:
     default    Temporarily disable vendored source replacement, run cargo update,
                          then re-vendor.
-  --resolve  Temporarily disable vendored source replacement, resolve Cargo.lock
+    --resolve  Temporarily disable vendored source replacement, resolve Cargo.lock
                          for the full workspace with all features enabled, then re-vendor.
     --full-upgrade
                          Temporarily disable vendored source replacement, run cargo upgrade,

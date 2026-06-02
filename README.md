@@ -100,6 +100,7 @@ cargo check --features "api-v2 api-legacy at-interface" --all-targets
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"
 cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"
+cargo check -p generate-nl80211
 ```
 
 Example production-style web build with only v2 routes:
@@ -173,20 +174,51 @@ Notes:
   `src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in` and
   `src/libnmc-setting/settings-docs.h.in`.
 
+## Host code generators
+
+### nl80211 bindings
+
+`crates/generate-nl80211` regenerates `src/plugins/network/nl80211/generated.rs` from a
+`linux/nl80211.h` header using bindgen with the `prettyplease` formatter.
+
+Regenerate against the host system headers:
+
+```bash
+cargo run -p generate-nl80211
+```
+
+Regenerate against a cross sysroot (Buildroot `STAGING_DIR`, Yocto `SDKTARGETSYSROOT`, etc.):
+
+```bash
+STAGING_DIR=/path/to/sysroot cargo run -p generate-nl80211
+# or any of: NL80211_INCLUDE_DIR  BR2_SYSROOT  SDKTARGETSYSROOT  OECORE_TARGET_SYSROOT
+```
+
+An explicit output path can be passed as a positional argument:
+
+```bash
+cargo run -p generate-nl80211 -- /tmp/nl80211_generated.rs
+```
+
+The generator searches for `linux/nl80211.h` under the sysroot in this order:
+`usr/include/linux-backports/include`, `usr/include/uapi`, `usr/include`.
+
 ## OpenAPI and Swagger UI
 
 With `api-docs` enabled, the running service exposes generated OpenAPI JSON at `/api-docs/openapi.json`.
+With `swagger-ui` enabled, it also serves Swagger UI at `/swagger-ui/`.
 
-With `swagger-ui` enabled, the running service also serves Swagger UI at `/swagger-ui/`.
-
-You can also generate the OpenAPI document without starting the server:
+Generate the document without starting the server (pass the same `--features` as the target build,
+plus `api-docs`):
 
 ```bash
 SUMMIT_RCM_OPENAPI_OUTPUT=./openapi.json \
-  cargo run --bin generate_openapi --no-default-features --features api-v2,api-docs
+  cargo run --bin generate_openapi --no-default-features \
+  --features api-v2,api-legacy,all-plugins,api-docs
 ```
 
-The `generate_openapi` helper binary is only built when `api-docs` is enabled, and it is the same Rust-side generator used by `tests/parity/api_parity.py openapi`.
+The `generate_openapi` binary is built only when `api-docs` is enabled and is the same
+generator used by `tests/parity/api_parity.py openapi`.
 
 ## Running
 

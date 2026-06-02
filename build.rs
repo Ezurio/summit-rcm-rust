@@ -17,6 +17,7 @@ fn main() {
     if let Err(error) = generate_builtin_plugin_registry() {
         panic!("failed to generate builtin plugin registry: {error}");
     }
+
 }
 
 fn emit_rerun_for_dir(dir: &Path) {

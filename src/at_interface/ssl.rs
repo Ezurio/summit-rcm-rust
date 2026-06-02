@@ -113,9 +113,7 @@ impl AtSslConfig {
     }
 
     pub(crate) async fn validate_for_http(&self) -> Result<()> {
-        let builder = self.apply_reqwest_tls(reqwest::Client::builder()).await?;
-        let _ = builder.build()?;
-        Ok(())
+        self.build_openssl_connector().map(|_| ())
     }
 
     pub(crate) fn build_openssl_connector(&self) -> Result<SslConnector> {
@@ -162,58 +160,6 @@ impl AtSslConfig {
         }
 
         Ok(builder.build())
-    }
-
-    pub(crate) async fn apply_reqwest_tls(
-        &self,
-        mut builder: reqwest::ClientBuilder,
-    ) -> Result<reqwest::ClientBuilder> {
-        if !self.mode.requires_server_verification() {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-
-        if !self.check_hostname {
-            builder = builder.danger_accept_invalid_hostnames(true);
-        }
-
-        if self.mode.requires_ca_certificate() {
-            let ca_path = self
-                .ca_path()
-                .ok_or_else(|| anyhow::anyhow!("SSL CA certificate is required"))?;
-            let ca_pem = tokio::fs::read(&ca_path)
-                .await
-                .map_err(|error| anyhow::anyhow!("failed to read CA certificate '{}': {}", ca_path, error))?;
-            let certificate = reqwest::Certificate::from_pem(&ca_pem)
-                .map_err(|error| anyhow::anyhow!("failed to parse CA certificate '{}': {}", ca_path, error))?;
-            builder = builder.add_root_certificate(certificate);
-        }
-
-        if self.mode.requires_client_identity() {
-            let cert_path = self
-                .cert_path()
-                .ok_or_else(|| anyhow::anyhow!("SSL client certificate is required"))?;
-            let key_path = self
-                .key_path()
-                .ok_or_else(|| anyhow::anyhow!("SSL client key is required"))?;
-
-            let cert_pem = tokio::fs::read(&cert_path).await.map_err(|error| {
-                anyhow::anyhow!("failed to read client certificate '{}': {}", cert_path, error)
-            })?;
-            let key_pem = tokio::fs::read(&key_path)
-                .await
-                .map_err(|error| anyhow::anyhow!("failed to read client key '{}': {}", key_path, error))?;
-            let identity = reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem).map_err(|error| {
-                anyhow::anyhow!(
-                    "failed to parse client identity from '{}' and '{}': {}",
-                    cert_path,
-                    key_path,
-                    error
-                )
-            })?;
-            builder = builder.identity(identity);
-        }
-
-        Ok(builder)
     }
 
     fn resolve_ssl_file_path(value: &str) -> Option<String> {
