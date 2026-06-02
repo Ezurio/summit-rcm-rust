@@ -10,7 +10,9 @@ use anyhow::Result;
 #[cfg(any(feature = "stunnel", feature = "log-forwarding"))]
 use anyhow::{bail, Context};
 use log::error;
+use std::collections::HashMap;
 use zbus::zvariant::OwnedObjectPath;
+use zbus::zvariant::OwnedValue;
 
 pub const SYSTEMD_BUS_NAME: &str = "org.freedesktop.systemd1";
 const SYSTEMD_MAIN_OBJ: &str = "/org/freedesktop/systemd1";
@@ -77,11 +79,15 @@ impl SystemdUnit {
         self.query_active_state().await
     }
 
+    fn active_state_from_properties(unit_properties: &HashMap<String, OwnedValue>) -> String {
+        dbus::property::<String>(unit_properties, "ActiveState").unwrap_or_default()
+    }
+
     async fn query_active_state(&self) -> Result<String> {
         let conn = dbus::system_bus().await?;
         let unit_path = self.unit_path_with_conn(conn.as_ref()).await?;
 
-        let unit_properties: std::collections::HashMap<String, zbus::zvariant::OwnedValue> =
+        let unit_properties: HashMap<String, OwnedValue> =
             dbus::call_method_deserialize_with_timeout(
                 conn.as_ref(),
                 Some(SYSTEMD_BUS_NAME),
@@ -93,16 +99,7 @@ impl SystemdUnit {
             )
             .await?;
 
-        // Match Python baseline behavior: if systemd cannot load the unit,
-        // surface this as an unknown state instead of inactive.
-        let load_state = dbus::property::<String>(&unit_properties, "LoadState").unwrap_or_default();
-        if load_state == "not-found" {
-            return Ok("unknown".to_string());
-        }
-
-        let state = dbus::property::<String>(&unit_properties, "ActiveState").unwrap_or_default();
-
-        Ok(state)
+        Ok(Self::active_state_from_properties(&unit_properties))
     }
 
     #[cfg(any(
@@ -159,3 +156,7 @@ impl SystemdUnit {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/systemd_unit.rs"]
+mod tests;

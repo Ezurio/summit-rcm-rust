@@ -4,8 +4,8 @@
 //
 //! GET /api/v2/network/status – overall network status
 
-use crate::plugins::network_manager::routes::shared::NetworkStatusResponse;
 use crate::plugins::network_manager::service::NetworkService;
+use crate::plugins::network_manager::routes::v2::types::NetworkStatusResponse;
 
 crate::define_ok_internal_json_response_family! {
     pub enum GetNetworkStatusResponses(NetworkStatusResponse);
@@ -18,7 +18,7 @@ crate::define_ok_internal_json_response_family! {
     responses(GetNetworkStatusResponses)
 ))]
 pub async fn get_network_status() -> GetNetworkStatusResponses {
-    match NetworkService::get_status_model(false).await {
+    match NetworkService::get_status_model().await {
         Ok(value) => value.into(),
         Err(error) => {
             log::error!("get_network_status: {}", error);

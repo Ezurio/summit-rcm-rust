@@ -7,6 +7,7 @@ pub mod certificates;
 pub mod connections;
 pub mod interfaces;
 pub mod status;
+pub mod types;
 pub mod wifi;
 
 #[cfg(feature = "api-docs")]
@@ -48,11 +49,10 @@ pub mod wifi;
             crate::plugins::network_manager::routes::shared::DhcpLeasesResponse,
             crate::plugins::network_manager::routes::shared::Ipv4DhcpLease,
             crate::plugins::network_manager::routes::shared::Ipv6DhcpLease,
-            crate::plugins::network_manager::routes::shared::NetworkStatusResponse,
+            crate::plugins::network_manager::routes::v2::types::NetworkStatusResponse,
             crate::plugins::network_manager::routes::v2::wifi::WifiRequest,
             crate::plugins::network_manager::routes::shared::WifiStatus
         )
     )
 )]
 pub(crate) struct ApiDoc;
-

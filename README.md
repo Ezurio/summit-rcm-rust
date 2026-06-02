@@ -83,8 +83,8 @@ extern "C" PluginHandle *summit_rcm_plugin_create(void);
 
 The workspace is configured for offline-friendly Cargo builds:
 
-- `.cargo/config.toml` sets `target-dir = "build"`, so build outputs land under `build/` instead of `target/`.
-- `.cargo/config.toml` also sets `rustflags = ["-Dwarnings"]`, so warnings fail the build.
+- Cargo uses the default `target/` output directory.
+- `.cargo/config.toml` sets `rustflags = ["-Dwarnings"]`, so warnings fail the build.
 - Cargo resolves third-party crates from the checked-in `VENDOR/` directory.
 
 Standard release build:
@@ -130,10 +130,10 @@ To verify offline dependency resolution explicitly:
 cargo metadata --locked --offline --format-version=1
 ```
 
-Generate SBOMs with the standard generator; the helper writes both formats under `build/release/`:
+Generate SBOMs with the standard generator; the helper writes both formats under `target/release/`:
 
-- SPDX JSON at `build/release/summit-rcm.spdx.json`
-- CycloneDX JSON at `build/release/summit-rcm.cdx.json`
+- SPDX JSON at `target/release/summit-rcm.spdx.json`
+- CycloneDX JSON at `target/release/summit-rcm.cdx.json`
 
 Install the generator first:
 
@@ -194,8 +194,8 @@ The web runtime starts when either `api-v2` or `api-legacy` is compiled in.
 It binds to `0.0.0.0:8080` by default and reads the bind address from `SUMMIT_RCM_BIND` when present.
 
 ```bash
-SUMMIT_RCM_BIND=0.0.0.0:8080 ./build/release/summit-rcm
-RUST_LOG=summit_rcm=debug,tower_http=info ./build/release/summit-rcm
+SUMMIT_RCM_BIND=0.0.0.0:8080 ./target/release/summit-rcm
+RUST_LOG=summit_rcm=debug,tower_http=info ./target/release/summit-rcm
 ```
 
 The AT interface starts when `at-interface` is enabled and the server config provides both `serial_port` and `baud_rate` under `[summit-rcm]`:

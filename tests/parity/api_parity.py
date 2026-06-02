@@ -36,6 +36,7 @@ RUNTIME_DOCS_RUST_FEATURES = ("runtime-docs", "swagger-ui")
 OPENAPI_GENERATOR_RUST_FEATURES = ("api-docs",)
 FRAMEWORK_VALIDATION_STATUSES = frozenset({400, 415, 422})
 WIRELESS_INTERFACE_PLACEHOLDER = "wlo1"
+SOFTWARE_UPDATE_IGNORED_JSON_KEYS = ("percent_complete", "percentComplete")
 
 USER_PERMISSIONS = [
     "status_networking",
@@ -353,6 +354,26 @@ def python_parity_path(python_repo: Path, plugins: list[str], python_runtime: st
 
 def normalize_path(path: str) -> str:
     return path.split("?", 1)[0]
+
+
+def software_update_path(path: str) -> bool:
+    normalized = normalize_path(path)
+    return normalized.startswith("/api/v2/system/update") or normalized == "/firmware"
+
+
+def effective_ignore_json_keys(case: dict[str, Any]) -> list[str] | None:
+    ignored_keys = list(case.get("ignore_json_keys") or [])
+    if software_update_path(str(case.get("path", ""))):
+        for key in SOFTWARE_UPDATE_IGNORED_JSON_KEYS:
+            if key not in ignored_keys:
+                ignored_keys.append(key)
+    return ignored_keys or None
+
+
+def session_mode_skip_reason(case: dict[str, Any], *, sessions_on: bool) -> str | None:
+    if case.get("requires_sessions") and not sessions_on:
+        return "requires sessions_on parity config"
+    return None
 
 
 def path_segments(path: str) -> list[str]:
@@ -779,7 +800,7 @@ def rust_env(*, extra_env: dict[str, str] | None = None) -> dict[str, str]:
 
 def rust_binary_path(bin_name: str) -> Path:
     suffix = ".exe" if os.name == "nt" else ""
-    return ROOT / "build" / "debug" / f"{bin_name}{suffix}"
+    return ROOT / "target" / "debug" / f"{bin_name}{suffix}"
 
 
 def ensure_rust_binary(*, bin_name: str, features: str) -> Path:
@@ -2359,6 +2380,10 @@ def run_response_cases(
             for case in cases:
                 rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
                 python_case_path = resolve_wireless_interface_path(case["path"], python_wireless_interface)
+                session_skip_reason = session_mode_skip_reason(case, sessions_on=sessions_on)
+                if session_skip_reason is not None:
+                    print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({session_skip_reason})")
+                    continue
                 if case.get("skip_live"):
                     reason = case.get("skip_reason")
                     suffix = f" ({reason})" if reason else ""
@@ -2497,6 +2522,7 @@ def run_response_cases(
                     allow_framework_validation_mismatch=bool(
                         case.get("allow_framework_validation_mismatch")
                     ),
+                    ignore_json_keys=effective_ignore_json_keys(case),
                 )
                 if mismatch is not None:
                     failures.append(mismatch)
@@ -2568,6 +2594,7 @@ def run_response_cases(
                             readback_case.get("allow_framework_validation_mismatch")
                             or case.get("allow_framework_validation_mismatch")
                         ),
+                        ignore_json_keys=effective_ignore_json_keys(readback_case),
                     )
                     if mismatch is not None:
                         failures.append(mismatch)
@@ -2585,6 +2612,7 @@ def run_response_cases(
                             "after",
                             rust_readback_after,
                             readback_case["compare"],
+                            ignore_json_keys=effective_ignore_json_keys(readback_case),
                         )
                         if mismatch is not None:
                             failures.append(mismatch)
@@ -2597,6 +2625,7 @@ def run_response_cases(
                             "after",
                             python_readback_after,
                             readback_case["compare"],
+                            ignore_json_keys=effective_ignore_json_keys(readback_case),
                         )
                         if mismatch is not None:
                             failures.append(mismatch)

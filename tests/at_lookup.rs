@@ -21,4 +21,16 @@ fn at_lookup_resolves_core_and_plugin_usage_commands() {
         .expect("AT+DATETIME? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
+
+    let (spec, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry("AT+FWRUN?")
+        .expect("AT+FWRUN? should resolve");
+    assert!(params.is_empty());
+    assert!(print_usage);
+    assert_eq!(spec.usage, "AT+FWRUN=<mode>[,<image>[,<url>]]");
+
+    let (spec, params, print_usage) = summit_rcm::at_interface::commands::lookup_command_in_registry("AT+FWSENDDIRECT?")
+        .expect("AT+FWSENDDIRECT? should resolve");
+    assert!(params.is_empty());
+    assert!(print_usage);
+    assert_eq!(spec.usage, "AT+FWSENDDIRECT=<length>,<image>");
 }

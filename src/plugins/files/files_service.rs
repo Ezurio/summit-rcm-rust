@@ -10,6 +10,7 @@ use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
     utils::command_output_checked,
 };
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::path_exists;
 #[cfg(feature = "at-interface")]
 use crate::definition::{

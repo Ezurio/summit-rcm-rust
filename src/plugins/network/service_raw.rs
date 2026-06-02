@@ -6,17 +6,21 @@
 //! Raw network helpers that do not depend on NetworkManager.
 
 use anyhow::Result;
-use super::nl80211::{Nl80211Client, StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
+use super::nl80211::Nl80211Client;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use super::nl80211::{StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
 use crate::dbus;
 use crate::utils::{path_exists, path_exists_sync, read_sysfs};
-use crate::plugins::network::types::{
-    AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, StationRateInfo, SummitStatus,
-};
+use crate::plugins::network::types::{InterfaceDriverInfo, InterfaceStats};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use crate::plugins::network::types::{AvailableApChannel, Station, StationRateInfo, SummitStatus};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::BTreeMap;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::HashMap;
-use zbus::zvariant::{OwnedObjectPath, Value as DbusValue};
+use zbus::zvariant::{Value as DbusValue};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use zbus::zvariant::OwnedObjectPath;
 
 pub struct NetworkService;
 
@@ -30,6 +34,7 @@ pub enum RawNetworkError {
 
 const WPA_OBJ: &str = "/fi/w1/wpa_supplicant1";
 const WPA_IFACE: &str = "fi.w1.wpa_supplicant1";
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 const SUPPLICANT_INTERFACE_IFACE: &str = "fi.w1.wpa_supplicant1.Interface";
 fn parse_country_codes(info: &str) -> Option<InterfaceDriverInfo> {
     let line = info
@@ -94,6 +99,7 @@ impl NetworkService {
         path_exists(format!("/sys/class/net/{name}")).await
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
         let conn = dbus::system_bus().await?;
         dbus::get_property_with_timeout(
@@ -107,6 +113,7 @@ impl NetworkService {
         .await
     }
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supplicant_interface_name(interface_obj_path: &str) -> Result<String> {
         let conn = dbus::system_bus().await?;
         dbus::get_property_with_timeout(
@@ -255,26 +262,26 @@ impl NetworkService {
     }
 
     pub async fn get_reg_domain_info() -> Result<String> {
-        let mut client = Nl80211Client::connect()?;
+        let mut client = Nl80211Client::connect().await?;
         client.get_reg_domain_primary().await
     }
 
     pub async fn get_frequency_info(interface_name: &str) -> Result<u32> {
         let interface_name = interface_name.to_string();
-        let mut client = Nl80211Client::connect()?;
+        let mut client = Nl80211Client::connect().await?;
         client.get_frequency_info(&interface_name).await
     }
 
     pub async fn get_active_ap_rssi(interface_name: &str) -> Result<f64> {
         let interface_name = interface_name.to_string();
-        let mut client = Nl80211Client::connect()?;
+        let mut client = Nl80211Client::connect().await?;
         client.get_active_ap_rssi(&interface_name).await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_interface_available_ap_channels(ifname: &str) -> Result<Vec<AvailableApChannel>> {
         let ifname = ifname.to_string();
-        let mut client = Nl80211Client::connect()?;
+        let mut client = Nl80211Client::connect().await?;
         let channels = client.get_available_ap_channels(&ifname).await?;
         Ok(channels
             .into_iter()
@@ -285,15 +292,15 @@ impl NetworkService {
             .collect())
     }
 
-    pub async fn add_virtual_interface() -> Result<bool> {
-        let mut client = Nl80211Client::connect()?;
-        client.add_virtual_interface("wlan1").await?;
+    pub async fn add_virtual_interface(name: &str) -> Result<bool> {
+        let mut client = Nl80211Client::connect().await?;
+        client.add_virtual_interface(name).await?;
         Ok(true)
     }
 
-    pub async fn remove_virtual_interface() -> Result<bool> {
-        let mut client = Nl80211Client::connect()?;
-        client.remove_virtual_interface("wlan1").await
+    pub async fn remove_virtual_interface(name: &str) -> Result<bool> {
+        let mut client = Nl80211Client::connect().await?;
+        client.remove_virtual_interface(name).await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -339,7 +346,7 @@ impl NetworkService {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_station_dump(ifname: &str) -> Result<BTreeMap<String, Station>> {
         let ifname = ifname.to_string();
-        let mut client = Nl80211Client::connect()?;
+        let mut client = Nl80211Client::connect().await?;
         let raw_stations = client.get_station_dump(&ifname).await?;
         let mut stations = BTreeMap::new();
         for (mac, station) in raw_stations {

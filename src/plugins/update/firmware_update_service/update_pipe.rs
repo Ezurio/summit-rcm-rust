@@ -6,14 +6,13 @@
 //! The helper expects the image mode without any side suffix.
 
 use anyhow::{anyhow, Result};
-use axum::body::Bytes;
+use bytes::Bytes;
 use std::process::Stdio;
 use std::sync::Mutex;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use log::{error, warn};
 
-use super::swupdate_api::swupdate_api;
 use super::{STATE, UpdateStreamError, FW_UPDATE_SCRIPT};
 use super::spawn_child_watcher;
 
@@ -26,9 +25,6 @@ pub(super) fn clear() {
 }
 
 pub(super) async fn start(image_mode: &str, _inactive_side: Option<&str>) -> Result<()> {
-    if swupdate_api().is_err() {
-        warn!("libswupdate unavailable, continuing without SWUpdate progress IPC");
-    }
     let mut child = Command::new(FW_UPDATE_SCRIPT)
         .args(["-x", "r", "-m", image_mode, FW_UPDATE_PIPE_SOURCE])
         .stdin(Stdio::piped())

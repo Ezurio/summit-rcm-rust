@@ -13,13 +13,13 @@ if ! cargo sbom --help >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p build/release
+mkdir -p target/release
 
-cargo sbom --project-directory "$repo_root" > build/release/summit-rcm.spdx.json
-cargo sbom --project-directory "$repo_root" --output-format cyclone_dx_json_1_5 > build/release/summit-rcm.cdx.json
+cargo sbom --project-directory "$repo_root" > target/release/summit-rcm.spdx.json
+cargo sbom --project-directory "$repo_root" --output-format cyclone_dx_json_1_5 > target/release/summit-rcm.cdx.json
 
-spdx_bom="$repo_root/build/release/summit-rcm.spdx.json"
-release_bom="$repo_root/build/release/summit-rcm.cdx.json"
+spdx_bom="$repo_root/target/release/summit-rcm.spdx.json"
+release_bom="$repo_root/target/release/summit-rcm.cdx.json"
 
 if [ ! -f "$spdx_bom" ]; then
     echo "cargo sbom did not produce $spdx_bom" >&2

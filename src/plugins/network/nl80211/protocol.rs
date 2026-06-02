@@ -6,21 +6,18 @@ use anyhow::{Context, Result, anyhow};
 use neli::attr::{AttrHandle, Attribute};
 use neli::consts::{
     genl::{Cmd, NlAttrType},
-    nl::{NlmF, Nlmsg},
 };
 use neli::genl::{
     AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
 };
-use neli::nl::{NlPayload, Nlmsghdr, NlmsghdrBuilder};
-use neli::types::{Buffer, GenlBuffer, NlBuffer};
+use neli::types::{Buffer, GenlBuffer};
 use neli_proc_macros::neli_enum;
 
 pub(super) const NL_80211_GENL_NAME: &str = "nl80211";
 const NL_80211_GENL_VERSION: u8 = 1;
 
 pub(super) type Nl80211Payload = Genlmsghdr<Nl80211Cmd, Nl80211Attr>;
-pub(super) type Nl80211Response = Nlmsghdr<Nlmsg, Nl80211Payload>;
-pub(super) type Nl80211Responses = NlBuffer<Nlmsg, Nl80211Payload>;
+pub(super) type Nl80211RawPayload = Genlmsghdr<Nl80211Cmd, u16>;
 
 #[neli_enum(serialized_type = "u8")]
 pub(super) enum Nl80211Cmd {
@@ -51,7 +48,11 @@ pub(super) enum Nl80211Attr {
     AttrRegAlpha2 = 33,
     AttrRegRules = 34,
     AttrWiphyFreq = 38,
+    AttrGeneration = 46,
+    Attr4addr = 83,
+    AttrWdev = 153,
     AttrSplitWiphyDump = 174,
+    AttrVifRadioMask = 333,
 }
 
 impl NlAttrType for Nl80211Attr {}
@@ -68,21 +69,31 @@ impl NlAttrType for Nl80211Iftype {}
 pub(super) enum Nl80211StaInfo {
     StaInfoInvalid = 0,
     StaInfoInactiveTime = 1,
+    StaInfoRxBytes = 2,
+    StaInfoTxBytes = 3,
     StaInfoTxBitrate = 8,
     StaInfoRxPackets = 9,
     StaInfoTxPackets = 10,
     StaInfoTxRetries = 11,
     StaInfoTxFailed = 12,
+    StaInfoSignalAvg = 13,
     StaInfoRxBitrate = 14,
     StaInfoBssParam = 15,
     StaInfoConnectedTime = 16,
+    StaInfoStaFlags = 17,
     StaInfoBeaconLoss = 18,
     StaInfoSignal = 7,
     StaInfoRxBytes64 = 23,
     StaInfoTxBytes64 = 24,
+    StaInfoChainSignal = 25,
     StaInfoRxDropMisc = 28,
     StaInfoBeaconRx = 29,
+    StaInfoBeaconSignalAvg = 30,
+    StaInfoTidStats = 31,
     StaInfoRxDuration = 32,
+    StaInfoTxDuration = 39,
+    StaInfoAssocAtBoottime = 42,
+    StaInfoConnectedToAs = 43,
 }
 
 impl NlAttrType for Nl80211StaInfo {}
@@ -107,6 +118,10 @@ pub(super) enum Nl80211RateInfo {
     RateInfo160MhzWidth = 10,
     RateInfo10MhzWidth = 11,
     RateInfo5MhzWidth = 12,
+    RateInfoHeMcs = 13,
+    RateInfoHeNss = 14,
+    RateInfoHeGi = 15,
+    RateInfoHeDcm = 16,
 }
 
 impl NlAttrType for Nl80211RateInfo {}
@@ -178,22 +193,6 @@ pub(super) fn build_genl_message(
         .map_err(|error| anyhow!(error))
 }
 
-pub(super) fn build_nl_request(
-    family_id: u16,
-    flags: NlmF,
-    seq: Option<u32>,
-    payload: Nl80211Payload,
-) -> Result<Nlmsghdr<u16, Nl80211Payload>> {
-    let mut builder = NlmsghdrBuilder::default()
-        .nl_type(family_id)
-        .nl_flags(flags)
-        .nl_payload(NlPayload::Payload(payload));
-    if let Some(seq) = seq {
-        builder = builder.nl_seq(seq);
-    }
-    builder.build().map_err(|error| anyhow!(error))
-}
-
 pub(super) fn get_required_attr<T, K>(
     handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
     key: K,
@@ -204,6 +203,21 @@ where
 {
     handle
         .get_attribute(key)
+        .context("missing netlink attribute")?
+        .get_payload_as()
+        .map_err(|error| anyhow!(error))
+}
+
+pub(super) fn get_required_attr_raw<T, K>(
+    handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
+    key: K,
+) -> Result<T>
+where
+    T: neli::FromBytes,
+    K: Copy + Into<u16>,
+{
+    handle
+        .get_attribute(key.into())
         .context("missing netlink attribute")?
         .get_payload_as()
         .map_err(|error| anyhow!(error))
@@ -223,15 +237,39 @@ where
         .transpose()
 }
 
-pub(super) fn get_required_attr_bytes<K>(
+pub(super) fn has_attr<K>(
     handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
     key: K,
-) -> Result<Vec<u8>>
+) -> bool
 where
     K: Copy + NlAttrType,
 {
+    handle.get_attribute(key).is_some()
+}
+
+pub(super) fn get_optional_attr_raw<T, K>(
+    handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
+    key: K,
+) -> Result<Option<T>>
+where
+    T: neli::FromBytes,
+    K: Copy + Into<u16>,
+{
     handle
-        .get_attribute(key)
+        .get_attribute(key.into())
+        .map(|attr| attr.get_payload_as().map_err(|error| anyhow!(error)))
+        .transpose()
+}
+
+pub(super) fn get_required_attr_bytes_raw<K>(
+    handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
+    key: K,
+) -> Result<Vec<u8>>
+where
+    K: Copy + Into<u16>,
+{
+    handle
+        .get_attribute(key.into())
         .context("missing netlink bytes attribute")?
         .get_payload_as_with_len()
         .map_err(|error| anyhow!(error))

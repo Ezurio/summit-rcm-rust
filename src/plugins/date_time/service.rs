@@ -9,9 +9,7 @@ use crate::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
 use crate::utils::read_text;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, util};
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use time::PrimitiveDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime, util};
 
 const TIMEDATE1_BUS_NAME: &str = "org.freedesktop.timedate1";
 const TIMEDATE1_MAIN_OBJ: &str = "/org/freedesktop/timedate1";

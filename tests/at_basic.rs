@@ -42,6 +42,15 @@ fn ping_rejects_invalid_protocol() {
     assert!(matches!(response, CommandOutcome::Error));
 }
 
+#[test]
+fn fwstatus_reports_numeric_status_only() {
+    let response = run_command("AT+FWSTATUS");
+    match response {
+        CommandOutcome::WithData(data) => assert_eq!(data, "+FWSTATUS: 2"),
+        _ => panic!("AT+FWSTATUS should return data"),
+    }
+}
+
 #[tokio::test]
 async fn ping_loopback_returns_rtt() {
     let (spec, params, _) = lookup_command_in_registry("AT+PING=127.0.0.1,1,4")

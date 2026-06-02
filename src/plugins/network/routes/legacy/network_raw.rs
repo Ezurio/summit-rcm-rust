@@ -195,7 +195,7 @@ pub async fn post_interfaces_legacy(Json(body): Json<InterfaceAddBody>) -> Legac
         return fail_response(format!("Invalid type {}. Supported type: STA", interface_type)).into();
     }
 
-    match NetworkService::add_virtual_interface().await {
+    match NetworkService::add_virtual_interface(interface).await {
         Ok(true) => ok_response(format!("Virtual interface {} added", interface)).into(),
         Ok(false) => fail_response(format!("Unable to add virtual interface {}.", interface)).into(),
         Err(error) => fail_response(format!("Unable to add virtual interface {} - {}", interface, error)).into(),
@@ -215,7 +215,7 @@ pub async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) -> Legacy
         return fail_response(format!("Unable to remove interface {}", interface)).into();
     }
 
-    match NetworkService::remove_virtual_interface().await {
+    match NetworkService::remove_virtual_interface(interface).await {
         Ok(true) => ok_response(format!("Virtual interface {} removed", interface)).into(),
         Ok(false) => fail_response(format!("Unable to remove interface {}", interface)).into(),
         Err(error) => fail_response(format!("Unable to remove interface {} - {}", interface, error)).into(),

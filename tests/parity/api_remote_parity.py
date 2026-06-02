@@ -26,6 +26,7 @@ from api_parity import (
     ParityError,
     create_parity_ssl_context,
     detect_wireless_interface,
+    effective_ignore_json_keys,
     find_readback_case,
     filter_cases_for_python_runtime,
     maybe_prime_datetime_for_case,
@@ -37,6 +38,7 @@ from api_parity import (
     response_cookie,
     response_pair_mismatch,
     run_checked,
+    session_mode_skip_reason,
     selected_plugins,
     should_read_body,
     should_verify_readback,
@@ -1327,6 +1329,10 @@ def run_remote_response_cases(
     terminal_cases: list[dict[str, Any]] = []
 
     for case in cases:
+        session_skip_reason = session_mode_skip_reason(case, sessions_on=sessions_on)
+        if session_skip_reason is not None:
+            print(f"SKIP {case['id']}: {case['method']} {case['path']} ({session_skip_reason})")
+            continue
         skip_reason = skip_reason_for_remote_case(
             case,
             respect_skip_live=respect_skip_live,
@@ -1587,7 +1593,7 @@ def run_remote_response_cases(
                         allow_framework_validation_mismatch=bool(
                             case.get("allow_framework_validation_mismatch")
                         ),
-                        ignore_json_keys=case.get("ignore_json_keys"),
+                        ignore_json_keys=effective_ignore_json_keys(case),
                     )
                     if mismatch is not None:
                         failures.append(mismatch)
@@ -1645,7 +1651,7 @@ def run_remote_response_cases(
                             python_readback_after,
                             readback_case["compare"],
                             expected_status=readback_case.get("expected_status"),
-                            ignore_json_keys=readback_case.get("ignore_json_keys"),
+                            ignore_json_keys=effective_ignore_json_keys(readback_case),
                         )
                         if mismatch is not None:
                             failures.append(mismatch)
@@ -1663,7 +1669,7 @@ def run_remote_response_cases(
                                 "after",
                                 rust_readback_after,
                                 readback_case["compare"],
-                                ignore_json_keys=readback_case.get("ignore_json_keys"),
+                                ignore_json_keys=effective_ignore_json_keys(readback_case),
                             )
                             if mismatch is not None:
                                 failures.append(mismatch)
@@ -1676,7 +1682,7 @@ def run_remote_response_cases(
                                 "after",
                                 python_readback_after,
                                 readback_case["compare"],
-                                ignore_json_keys=readback_case.get("ignore_json_keys"),
+                                ignore_json_keys=effective_ignore_json_keys(readback_case),
                             )
                             if mismatch is not None:
                                 failures.append(mismatch)
@@ -1743,6 +1749,11 @@ def run_direct_response_cases(
 
     for case in cases:
         cookie_key = case.get("use_cookie_from") or default_cookie_key_for_case(case)
+        session_skip_reason = session_mode_skip_reason(case, sessions_on=sessions_on)
+        if session_skip_reason is not None:
+            rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
+            print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({session_skip_reason})")
+            continue
         if path_uses_wireless_interface_placeholder(case["path"]) and (
             rust_wireless_interface is None or python_wireless_interface is None
         ):
@@ -2143,7 +2154,7 @@ def run_direct_response_cases(
             ignore_content_type=bool(case.get("ignore_content_type")),
             ignore_body=bool(case.get("ignore_body")),
             allow_framework_validation_mismatch=bool(case.get("allow_framework_validation_mismatch")),
-            ignore_json_keys=case.get("ignore_json_keys"),
+            ignore_json_keys=effective_ignore_json_keys(case),
         )
         if mismatch is not None:
             failures.append(mismatch)
@@ -2206,7 +2217,7 @@ def run_direct_response_cases(
                     readback_case.get("ignore_content_type") or case.get("ignore_content_type")
                 ),
                 ignore_body=bool(readback_case.get("ignore_body") or case.get("ignore_body")),
-                ignore_json_keys=readback_case.get("ignore_json_keys"),
+                ignore_json_keys=effective_ignore_json_keys(readback_case),
             )
             if mismatch is not None:
                 failures.append(mismatch)
@@ -2224,7 +2235,7 @@ def run_direct_response_cases(
                     "after",
                     rust_readback_after,
                     readback_case["compare"],
-                    ignore_json_keys=readback_case.get("ignore_json_keys"),
+                    ignore_json_keys=effective_ignore_json_keys(readback_case),
                 )
                 if mismatch is not None:
                     failures.append(mismatch)
@@ -2237,7 +2248,7 @@ def run_direct_response_cases(
                     "after",
                     python_readback_after,
                     readback_case["compare"],
-                    ignore_json_keys=readback_case.get("ignore_json_keys"),
+                    ignore_json_keys=effective_ignore_json_keys(readback_case),
                 )
                 if mismatch is not None:
                     failures.append(mismatch)

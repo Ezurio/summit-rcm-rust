@@ -10,7 +10,7 @@
 //! # Building
 //! ```
 //! cargo build --release
-//! # produces: build/release/libsummit_rcm_plugin_example.so
+//! # produces: target/release/libsummit_rcm_plugin_example.so
 //! ```
 //!
 //! # Installing

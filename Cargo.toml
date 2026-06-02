@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/plugin-api",
     "crates/plugin-example",
+    "crates/swupdate-ipc",
 ]
 
 [package]
@@ -86,7 +87,7 @@ login = ["dep:rustix"]
 system = []
 logs = []
 files = []
-update = []
+update = ["dep:swupdate-ipc", "swupdate-ipc/async"]
 
 # Optional plugins — fully independent; no interface implied.
 # Routes are wired only when the matching interface feature is also active:
@@ -119,6 +120,7 @@ swagger-ui = ["runtime-docs"]
 [dependencies]
 # Always required
 tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+bytes = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 configparser = { version = "3", features = ["async-std"] }
@@ -129,7 +131,7 @@ systemd-journal-logger = "2.2.2"
 tracing = { version = "0.1.44", default-features = false, features = ["release_max_level_off"] }
 anyhow = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
-zbus = { version = "5.15.0", default-features = false, features = ["tokio"] }
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
 base64 = "0.22"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
 libc = "0.2"
@@ -140,14 +142,15 @@ tokio-openssl = "0.6"
 hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"], optional = true }
 surge-ping = { version = "0.8.4", optional = true }
 summit-rcm-plugin-api = { path = "crates/plugin-api" }
-neli = { version = "0.7.4", optional = true }
+swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
+neli = { version = "0.7.4", default-features = false, features = ["async"], optional = true }
 neli-proc-macros = { version = "0.2.2", optional = true }
 tokio-udev = { version = "0.10.0", optional = true }
 
 # REST API dependencies (enabled by api-v2 and/or api-legacy)
 axum           = { version = "0.8.9", features = ["multipart"], optional = true }
 # Keep reqwest on the native-tls path so Linux builds stay on OpenSSL rather than rustls.
-reqwest        = { version = "0.13.3", default-features = false, features = ["charset", "json", "native-tls"], optional = true }
+reqwest        = { version = "0.13.4", default-features = false, features = ["charset", "native-tls"], optional = true }
 libloading     = { version = "0.9.0", optional = true }
 tower-sessions = { version = "0.15.0", optional = true }
 

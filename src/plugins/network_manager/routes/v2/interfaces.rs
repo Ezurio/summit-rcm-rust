@@ -5,7 +5,8 @@
 
 //! NetworkManager-owned network interface endpoints.
 
-use crate::plugins::network_manager::routes::shared::{DhcpLeasesResponse, NetworkInterfaceResponse};
+use crate::plugins::network_manager::routes::shared::DhcpLeasesResponse;
+use crate::plugins::network_manager::routes::v2::types::NetworkInterfaceResponse;
 use crate::plugins::network_manager::service::{InterfaceError, NetworkService};
 use axum::extract::Path;
 use log::error;

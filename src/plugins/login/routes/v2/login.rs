@@ -30,6 +30,7 @@ crate::define_status_response_family! {
 
 crate::define_status_response_family! {
     pub enum LogoutResponses {
+        BadRequest => 400,
         Ok => 200,
         InternalError => 500
     }
@@ -171,9 +172,9 @@ pub async fn logout(session: Session) -> LogoutResponses {
         }
     };
 
-    if username.is_none() {
-        return LogoutResponses::InternalError;
-    }
+    let Some(username) = username else {
+        return LogoutResponses::BadRequest;
+    };
 
     let session_id = match session.id().map(|id| id.0) {
         Some(id) => id,
@@ -185,5 +186,6 @@ pub async fn logout(session: Session) -> LogoutResponses {
         log::error!("failed to flush session {} during logout: {}", session_id, error);
         return LogoutResponses::InternalError;
     }
-    info!("Session {} logged out", session_id);    LogoutResponses::Ok
+    info!("Session {} logged out for user {}", session_id, username);
+    LogoutResponses::Ok
 }

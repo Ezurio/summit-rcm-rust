@@ -1,9 +1,9 @@
 [build]
-target-dir = "build"
 rustflags = ["-Dwarnings"]
 
 [source.crates-io]
-replace-with = "vendored-sources"
+registry = "sparse+https://index.crates.io/"
+#replace-with = "vendored-sources"
 
 [source.vendored-sources]
 directory = "VENDOR"

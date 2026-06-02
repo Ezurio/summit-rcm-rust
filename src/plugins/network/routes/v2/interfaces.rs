@@ -63,7 +63,7 @@ pub async fn put_interface(Path(name): Path<String>) -> PutInterfaceResponses {
         return PutInterfaceResponses::BadRequest;
     }
 
-    match NetworkService::add_virtual_interface().await {
+    match NetworkService::add_virtual_interface(&name).await {
         Ok(true) => VirtualInterfaceResponse { name }.into(),
         Ok(false) => PutInterfaceResponses::InternalError,
         Err(error) => {
@@ -89,7 +89,7 @@ pub async fn delete_interface(Path(name): Path<String>) -> DeleteInterfaceRespon
         return DeleteInterfaceResponses::NotFound;
     }
 
-    match NetworkService::remove_virtual_interface().await {
+    match NetworkService::remove_virtual_interface(&name).await {
         Ok(true) => DeleteInterfaceResponses::Ok,
         Ok(false) => DeleteInterfaceResponses::InternalError,
         Err(error) => {

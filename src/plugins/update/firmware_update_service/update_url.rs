@@ -11,7 +11,6 @@ use std::sync::Mutex;
 use tokio::process::Command;
 use log::{error, warn};
 
-use super::swupdate_api::swupdate_api;
 use super::FW_UPDATE_SCRIPT;
 use super::spawn_child_watcher;
 
@@ -31,9 +30,6 @@ pub(super) fn kill() {
 
 pub(super) async fn start(image_mode: &str, _inactive_side: Option<&str>, url: &str) -> Result<()> {
     *URL_CHILD_PID.lock().unwrap() = None; // clear any stale PID from a previous run
-    if swupdate_api().is_err() {
-        warn!("libswupdate unavailable, continuing without SWUpdate progress IPC");
-    }
     let child = Command::new(FW_UPDATE_SCRIPT)
         .args(["-x", "r", "-m", image_mode, url])
         .stdout(Stdio::null())

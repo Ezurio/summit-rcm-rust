@@ -5,14 +5,13 @@
 #![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 //! Service for managing firmware updates via fw_update and the SWUpdate client API.
 
-mod swupdate_api;
 mod progress;
 mod update_pipe;
 mod update_ipc;
 mod update_url;
 
 use anyhow::{anyhow, Result};
-use axum::body::Bytes;
+use bytes::Bytes;
 use crate::utils::get_boot_rootfs_info;
 use std::sync::RwLock;
 use log::error;
@@ -187,7 +186,7 @@ impl FirmwareUpdateService {
         match stream_mode {
             StreamMode::Url  => update_url::start(image_mode, inactive_side.as_deref(), url).await?,
             StreamMode::Pipe => update_pipe::start(image_mode, inactive_side.as_deref()).await?,
-            StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref())?,
+            StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref()).await?,
         }
 
         let abort_handle = tokio::spawn(progress::run_progress_listener()).abort_handle();

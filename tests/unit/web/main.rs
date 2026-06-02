@@ -252,6 +252,21 @@ async fn sessions_disabled_allows_protected_v2_route_without_login() {
 }
 
 #[tokio::test]
+async fn logout_without_session_returns_bad_request_when_sessions_enabled() {
+    test_env!();
+
+    let app: Router = build_router();
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri("/api/v2/login")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn sessions_disabled_create_duplicate_user_returns_conflict() {
     test_env!(("/", "tools.sessions.on", "false"));
 

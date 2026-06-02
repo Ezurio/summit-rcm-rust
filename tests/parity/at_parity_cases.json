@@ -340,7 +340,7 @@
   {
     "id": "at_fwrun_usage",
     "command": "AT+FWRUN?",
-    "expected_rust_response": "AT+FWRUN=<url>,<image>",
+    "expected_rust_response": "AT+FWRUN=<mode>[,<image>[,<url>]]",
     "expected_python_response": "ERROR"
   },
   {

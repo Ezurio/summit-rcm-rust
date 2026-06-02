@@ -6,14 +6,20 @@ use anyhow::{Result, anyhow};
 use neli::attr::AttrHandle;
 use neli::genl::Nlattr;
 use neli::types::{Buffer, GenlBuffer};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::BTreeSet;
 
 use super::{StationInfo, StationRateInfo};
 use super::protocol::{
-    Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr, Nl80211RateInfo, Nl80211RegRuleAttr,
-    Nl80211StaBssParam, Nl80211StaInfo, get_optional_attr, get_required_attr,
+    Nl80211RateInfo, Nl80211StaBssParam, Nl80211StaInfo, get_optional_attr, has_attr,
+};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use super::protocol::{
+    Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr, Nl80211RegRuleAttr,
+    get_required_attr,
 };
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct RegulatoryRule {
     pub(super) start_mhz: u32,
@@ -40,17 +46,29 @@ pub(super) fn parse_station_info(
         .transpose()
         .map_err(|error| anyhow!(error))?;
 
+    let signal = get_optional_attr::<i8, _>(handle, Nl80211StaInfo::StaInfoSignal)?.map(i64::from);
+    let inactive = get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoInactiveTime)?.map(i64::from);
+    let connected_time = get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoConnectedTime)?.map(i64::from);
+    let rx_bytes = optional_i64_from_u64_or_u32(
+        get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoRxBytes64)?,
+        get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoRxBytes)?,
+    )?;
+    let tx_bytes = optional_i64_from_u64_or_u32(
+        get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoTxBytes64)?,
+        get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoTxBytes)?,
+    )?;
+
     Ok(StationInfo {
-        signal: get_optional_attr::<i8, _>(handle, Nl80211StaInfo::StaInfoSignal)?.map(i64::from),
-        inactive: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoInactiveTime)?.map(i64::from),
-        connected_time: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoConnectedTime)?.map(i64::from),
+        signal,
+        inactive,
+        connected_time,
         rx_packets: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoRxPackets)?.map(i64::from),
         tx_packets: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoTxPackets)?.map(i64::from),
-        beacon_rx: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoBeaconRx)?.map(i64::from),
+        beacon_rx: optional_i64_from_u64(get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoBeaconRx)?)?,
         rx_rate: rx_rate.as_ref().map(parse_rate_info).transpose()?,
         tx_rate: tx_rate.as_ref().map(parse_rate_info).transpose()?,
-        rx_bytes: optional_i64_from_u64(get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoRxBytes64)?)?,
-        tx_bytes: optional_i64_from_u64(get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoTxBytes64)?)?,
+        rx_bytes,
+        tx_bytes,
         rx_duration: optional_i64_from_u64(get_optional_attr::<u64, _>(handle, Nl80211StaInfo::StaInfoRxDuration)?)?,
         tx_retries: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoTxRetries)?.map(i64::from),
         tx_failed: get_optional_attr::<u32, _>(handle, Nl80211StaInfo::StaInfoTxFailed)?.map(i64::from),
@@ -71,13 +89,14 @@ pub(super) fn parse_station_info(
     })
 }
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) fn parse_supported_frequencies(
-    handle: &AttrHandle<'_, GenlBuffer<Nl80211Attr, Buffer>, Nlattr<Nl80211Attr, Buffer>>,
+    handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
 ) -> Result<BTreeSet<u32>> {
     let mut frequencies = BTreeSet::new();
 
     for attr in handle.iter() {
-        if *attr.nla_type().nla_type() != Nl80211Attr::AttrWiphyBands {
+        if *attr.nla_type().nla_type() != u16::from(Nl80211Attr::AttrWiphyBands) {
             continue;
         }
 
@@ -101,11 +120,7 @@ pub(super) fn parse_supported_frequencies(
                     > = freq.get_attr_handle().map_err(|error| anyhow!(error))?;
                     let frequency =
                         get_optional_attr::<u32, _>(&freq_handle, Nl80211FrequencyAttr::FrequencyAttrFreq)?;
-                    let disabled = get_optional_attr::<u8, _>(
-                        &freq_handle,
-                        Nl80211FrequencyAttr::FrequencyAttrDisabled,
-                    )?
-                    .is_some();
+                    let disabled = has_attr(&freq_handle, Nl80211FrequencyAttr::FrequencyAttrDisabled);
 
                     if let Some(frequency) = frequency.filter(|_| !disabled) {
                         frequencies.insert(frequency);
@@ -118,10 +133,11 @@ pub(super) fn parse_supported_frequencies(
     Ok(frequencies)
 }
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) fn parse_regulatory_rules(
-    handle: &AttrHandle<'_, GenlBuffer<Nl80211Attr, Buffer>, Nlattr<Nl80211Attr, Buffer>>,
+    handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
 ) -> Result<Vec<RegulatoryRule>> {
-    let Some(reg_rules_attr) = handle.get_attribute(Nl80211Attr::AttrRegRules) else {
+    let Some(reg_rules_attr) = handle.get_attribute(u16::from(Nl80211Attr::AttrRegRules)) else {
         return Ok(Vec::new());
     };
 
@@ -150,22 +166,22 @@ pub(super) fn parse_regulatory_rules(
 fn parse_rate_info(
     handle: &AttrHandle<'_, GenlBuffer<Nl80211RateInfo, Buffer>, Nlattr<Nl80211RateInfo, Buffer>>,
 ) -> Result<StationRateInfo> {
-    let rate = if let Some(rate) = get_optional_attr::<u32, _>(handle, Nl80211RateInfo::RateInfoBitrate32)? {
-        Some(i64::from(rate) * 100)
-    } else {
-        get_optional_attr::<u16, _>(handle, Nl80211RateInfo::RateInfoBitrate)?.map(|rate| i64::from(rate) * 100)
-    };
+    let rate = optional_i64_from_u32_or_u16(
+        get_optional_attr::<u32, _>(handle, Nl80211RateInfo::RateInfoBitrate32)?,
+        get_optional_attr::<u16, _>(handle, Nl80211RateInfo::RateInfoBitrate)?,
+    )?
+    .map(|rate| rate * 100);
 
-    let channel_width = if get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo5MhzWidth)?.is_some() {
+    let channel_width = if has_attr(handle, Nl80211RateInfo::RateInfo5MhzWidth) {
         Some(5)
-    } else if get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo10MhzWidth)?.is_some() {
+    } else if has_attr(handle, Nl80211RateInfo::RateInfo10MhzWidth) {
         Some(10)
-    } else if get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo40MhzWidth)?.is_some() {
+    } else if has_attr(handle, Nl80211RateInfo::RateInfo40MhzWidth) {
         Some(40)
-    } else if get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo80MhzWidth)?.is_some() {
+    } else if has_attr(handle, Nl80211RateInfo::RateInfo80MhzWidth) {
         Some(80)
-    } else if get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo80p80MhzWidth)?.is_some()
-        || get_optional_attr::<u8, _>(handle, Nl80211RateInfo::RateInfo160MhzWidth)?.is_some()
+    } else if has_attr(handle, Nl80211RateInfo::RateInfo80p80MhzWidth)
+        || has_attr(handle, Nl80211RateInfo::RateInfo160MhzWidth)
     {
         Some(160)
     } else {
@@ -180,4 +196,20 @@ fn optional_i64_from_u64(value: Option<u64>) -> Result<Option<i64>> {
         .map(i64::try_from)
         .transpose()
         .map_err(|error| anyhow!(error))
+}
+
+fn optional_i64_from_u64_or_u32(value64: Option<u64>, value32: Option<u32>) -> Result<Option<i64>> {
+    if let Some(value) = value64 {
+        Ok(Some(i64::try_from(value).map_err(|error| anyhow!(error))?))
+    } else {
+        Ok(value32.map(i64::from))
+    }
+}
+
+fn optional_i64_from_u32_or_u16(value32: Option<u32>, value16: Option<u16>) -> Result<Option<i64>> {
+    if let Some(value) = value32 {
+        Ok(Some(i64::from(value)))
+    } else {
+        Ok(value16.map(i64::from))
+    }
 }

@@ -25,7 +25,7 @@ Common rebuilt artifact locations are:
 
 ```text
 output/<board>/per-package/summit-rcm-rust/target/usr/bin/summit-rcm
-output/<board>/build/summit-rcm-rust-local/build/
+output/<board>/build/summit-rcm-rust-local/target/
 ```
 
 If you are checking the raw Cargo build products for the package, look under the package build tree. If you want the exact binary staged into the target rootfs, use the `per-package/.../target/usr/bin/summit-rcm` path.
@@ -150,6 +150,18 @@ python3 tests/parity/at_parity.py \
 
 In live serial mode, the harness does not start services or rewrite target config. It compares command responses from the two connected targets as-is.
 Use a positive `--read-timeout-seconds` value (`> 0`). Command completion waits for terminal AT status (`OK`/`ERROR`).
+
+To exercise the direct firmware-upload AT path on a live target:
+
+```bash
+python3 tools/check_fw_update_at.py \
+  --serial-path /dev/ttyUSB5 \
+  --image-path /path/to/update.swu \
+  --image complete \
+  --wait-for-ready-banner
+```
+
+This script sends `AT+FWSENDDIRECT=<length>,<image>`, streams the image bytes over the serial prompt, and then polls `AT+FWSTATUS`. It performs a real firmware update on the target.
 
 If the target image is Buildroot-generated, double-check that serial settings in the generated config are correct and not double-quoted.
 

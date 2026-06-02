@@ -57,8 +57,8 @@ pub async fn execute_network_virtual_interface(_fsm: &FsmHandle, params: &CsvPar
     }
 
     let result = match action.to_ascii_lowercase().as_str() {
-        "1" | "add" | "create" => NetworkService::add_virtual_interface().await,
-        "0" | "del" | "delete" | "remove" => NetworkService::remove_virtual_interface().await,
+        "1" | "add" | "create" => NetworkService::add_virtual_interface(name).await,
+        "0" | "del" | "delete" | "remove" => NetworkService::remove_virtual_interface(name).await,
         _ => return CommandOutcome::Error,
     };
 

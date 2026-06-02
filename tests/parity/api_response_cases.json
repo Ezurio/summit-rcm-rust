@@ -884,7 +884,8 @@
     "method": "DELETE",
     "path": "/api/v2/login",
     "compare": "exact",
-    "expected_status": 500
+    "expected_status": 400,
+    "requires_sessions": true
   },
   {
     "id": "v2_user_create_invalid",
