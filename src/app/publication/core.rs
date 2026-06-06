@@ -3,28 +3,6 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-#[derive(Clone, Copy, Debug)]
-pub struct CapabilityPublication<Metadata, Installer> {
-    pub metadata: Option<Metadata>,
-    pub install: Installer,
-}
-
-impl<Metadata, Installer> CapabilityPublication<Metadata, Installer> {
-    pub const fn new(metadata: Metadata, install: Installer) -> Self {
-        Self {
-            metadata: Some(metadata),
-            install,
-        }
-    }
-
-    pub const fn install_only(install: Installer) -> Self {
-        Self {
-            metadata: None,
-            install,
-        }
-    }
-}
-
 pub fn builtin_registry<T>(items: &'static [&'static T]) -> Vec<&'static T> {
     items.to_vec()
 }
@@ -35,7 +13,7 @@ pub struct PluginPublication {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub routes: Option<&'static [super::http::RoutePublication]>,
     #[cfg(feature = "at-interface")]
-    pub at_commands: Option<super::at::AtCommandPublication>,
+    pub at_commands: Option<&'static [crate::at_interface::commands::PublishedCommand]>,
     #[cfg(feature = "api-docs")]
     pub openapi_json: Option<super::docs::OpenApiJsonFn>,
     #[cfg(feature = "api-docs")]
@@ -74,7 +52,7 @@ impl PluginPublication {
         mut self,
         commands: &'static [crate::at_interface::commands::PublishedCommand],
     ) -> Self {
-        self.at_commands = Some(super::at::AtCommandPublication::install_only(commands));
+        self.at_commands = Some(commands);
         self
     }
 

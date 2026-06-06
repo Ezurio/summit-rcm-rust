@@ -9,9 +9,6 @@ mod core;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[path = "publication/http.rs"]
 mod http;
-#[cfg(feature = "at-interface")]
-#[path = "publication/at.rs"]
-mod at;
 #[cfg(feature = "api-docs")]
 #[path = "publication/docs.rs"]
 mod docs;

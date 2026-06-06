@@ -541,17 +541,15 @@ fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuth
                 }
                 if should_log_routes {
                     let mut last_path = None;
-                    if let Some(routes) = route_publication.common.metadata {
-                        for route in routes {
-                            if last_path == Some(route.path) {
-                                continue;
-                            }
-                            info!("route loaded: {}", route.path);
-                            last_path = Some(route.path);
+                    for route in route_publication.routes {
+                        if last_path == Some(route.path) {
+                            continue;
                         }
+                        info!("route loaded: {}", route.path);
+                        last_path = Some(route.path);
                     }
                 }
-                api = (route_publication.common.install)(api);
+                api = (route_publication.install)(api);
             }
         }
     }

@@ -81,7 +81,7 @@ static COMMAND_REGISTRY: LazyLock<HashMap<&'static str, &'static CommandHandler>
             continue;
         };
 
-        for (candidate, command) in at_commands.install {
+        for (candidate, command) in *at_commands {
             by_signature.entry(*candidate).or_insert(*command);
         }
     }

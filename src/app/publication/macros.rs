@@ -55,23 +55,23 @@ macro_rules! __declare_route_publication {
         fn install(api: axum::Router) -> axum::Router {
             api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
-        $crate::publication::RoutePublication::new_with_mode(
-            ROUTES,
+        $crate::publication::RoutePublication {
+            routes: ROUTES,
             install,
-            summit_rcm_plugin_api::__route_auth_policy!($auth),
-            summit_rcm_plugin_api::__route_mode!($auth),
-        )
+            auth: summit_rcm_plugin_api::__route_auth_policy!($auth),
+            mode: summit_rcm_plugin_api::__route_mode!($auth),
+        }
     }};
 
     ($auth:ident $path:expr => $installer:expr, { $($method:ident),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
             summit_rcm_plugin_api::published_routes!($path; $($method),+);
-        $crate::publication::RoutePublication::new_with_mode(
-            ROUTES,
-            $installer,
-            summit_rcm_plugin_api::__route_auth_policy!($auth),
-            summit_rcm_plugin_api::__route_mode!($auth),
-        )
+        $crate::publication::RoutePublication {
+            routes: ROUTES,
+            install: $installer,
+            auth: summit_rcm_plugin_api::__route_auth_policy!($auth),
+            mode: summit_rcm_plugin_api::__route_mode!($auth),
+        }
     }};
 }
 
