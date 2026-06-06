@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+
+#![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+
 pub(crate) const LOG_FORWARDING_ENABLED_FLAG_FILE: &str = "/etc/summit-rcm/log_forwarding_enabled";
 pub(crate) const SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE: &str = "systemd-journal-gatewayd.socket";
 

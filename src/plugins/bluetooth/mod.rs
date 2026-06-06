@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+
+#![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+
 // Bluetooth plugin routes and BLE notification websocket support.
 
 pub mod service;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 
 crate::declare_plugin_api! {

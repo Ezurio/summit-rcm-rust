@@ -3,6 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+
 #[cfg(feature = "at-interface")]
 pub mod at_commands;
 pub mod files_service;

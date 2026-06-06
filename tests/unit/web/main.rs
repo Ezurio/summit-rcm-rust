@@ -593,7 +593,7 @@ fn at_command_publications_expose_feature_gated_metadata() {
         .iter()
         .copied()
         .filter_map(|publication| publication.at_commands.as_ref())
-        .flat_map(|publication| publication.install.iter().map(|(signature, _)| *signature))
+        .flat_map(|commands| commands.iter().map(|(signature, _)| *signature))
         .collect();
 
     assert!(commands.contains(&"at+datetime"));

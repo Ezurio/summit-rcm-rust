@@ -3,15 +3,15 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+
 #[cfg(feature = "at-interface")]
 pub mod at_commands;
-#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub mod firmware_update_service;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod routes;
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub use self::firmware_update_service::FirmwareUpdateService;
 #[cfg(feature = "api-v2")]
 pub use self::firmware_update_service::SummitRcmUpdateStatus;

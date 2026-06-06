@@ -316,7 +316,7 @@
   {
     "id": "at_filesdel_usage",
     "command": "AT+FILESDEL?",
-    "expected_rust_response": "AT+FILESDEL=<type>,<name>",
+    "expected_rust_response": "AT+FILESDEL=<name>",
     "expected_python_response": "ERROR"
   },
   {

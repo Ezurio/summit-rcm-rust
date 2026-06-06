@@ -189,7 +189,7 @@ impl FirmwareUpdateService {
             StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref()).await?,
         }
 
-        let abort_handle = tokio::spawn(progress::run_progress_listener()).abort_handle();
+        let abort_handle = tokio::task::spawn_local(progress::run_progress_listener()).abort_handle();
         let mut state = STATE.write().unwrap();
         state.update_in_progress = true;
         state.progress_task = Some(abort_handle);

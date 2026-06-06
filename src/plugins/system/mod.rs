@@ -3,6 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+
 use serde::{Deserialize, Serialize};
 
 pub(crate) const FACTORY_RESET_SCRIPT: &str = "/usr/sbin/do_factory_reset.sh";

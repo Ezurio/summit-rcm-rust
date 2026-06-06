@@ -5,8 +5,6 @@
 
 //! NetworkManager-specific extra helpers.
 
-#![cfg(any(feature = "api-v2", feature = "api-legacy"))]
-
 use anyhow::Result;
 use crate::definition::{
     relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,

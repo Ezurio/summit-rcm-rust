@@ -3,6 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+
 use axum::Router;
 
 pub(crate) const DEVICE_SERVER_KEY_PATH: &str = "/etc/summit-rcm/provisioning/dev.key";

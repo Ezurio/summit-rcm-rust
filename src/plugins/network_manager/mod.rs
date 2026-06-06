@@ -3,6 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+
 pub(crate) const FILEDIR_CERT: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
 pub(crate) const INVALID_RSSI: f64 = -9999.9999;
 

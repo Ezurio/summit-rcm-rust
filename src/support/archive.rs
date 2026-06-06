@@ -8,8 +8,6 @@
 //! All functions are `async` and drive the `zip`, `unzip`, and `tar` CLI tools.
 
 use anyhow::Result;
-#[cfg(feature = "at-interface")]
-use crate::utils::command_output_checked;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{command_output, command_output_checked_in_dir, random_token_hex};
 use std::path::Path;
@@ -78,15 +76,6 @@ pub(crate) async fn zip_extract(
         anyhow::bail!("unzip extraction failed");
     }
     Ok(())
-}
-
-#[cfg(feature = "at-interface")]
-pub(crate) async fn tar_create(sources: &[&str], cwd: impl AsRef<Path>) -> Result<Vec<u8>> {
-    let cwd_str = cwd.as_ref().to_string_lossy().into_owned();
-    let mut args = vec!["-czf", "-", "-C", cwd_str.as_str()];
-    args.extend(sources.iter().copied());
-    let output = command_output_checked("tar", &args).await?;
-    Ok(output.stdout)
 }
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]

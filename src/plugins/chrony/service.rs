@@ -9,6 +9,7 @@ use crate::utils::command_output;
 use crate::utils::read_text;
 use serde::{Deserialize, Serialize};
 use log::error;
+use std::collections::HashSet;
 
 const CHRONY_SOURCES_PATH: &str = "/etc/chrony/supplemental.sources";
 const CHRONYC_PATH: &str = "/usr/bin/chronyc";
