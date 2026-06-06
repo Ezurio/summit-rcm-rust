@@ -4,7 +4,7 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationOkResponse, LegacyOperationResponse};
-use crate::plugins::chrony::service::{ADD_SOURCE, ChronyNTPService, ChronySource, REMOVE_SOURCE};
+use crate::plugins::chrony::service::{ChronyNTPService, ChronySource, SourceCommand};
 use serde::{Deserialize, Serialize};
 use axum::{extract::Path, Json};
 
@@ -31,16 +31,6 @@ crate::define_ok_json_response_family! {
 
 pub type PutNtpLegacyResponses = LegacyOperationOkResponse;
 
-fn legacy_chrony_sources_response(
-    operation: LegacyOperationResponse,
-    sources: Vec<ChronySource>,
-) -> LegacyChronySourcesResponse {
-    LegacyChronySourcesResponse {
-        operation,
-        sources,
-    }
-}
-
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
     path = "/ntp",
@@ -49,11 +39,11 @@ fn legacy_chrony_sources_response(
 ))]
 pub async fn get_ntp_legacy() -> GetNtpLegacyResponses {
     match ChronyNTPService::get_sources().await {
-        Ok(sources) => legacy_chrony_sources_response(ok_response(""), sources).into(),
-        Err(e) => legacy_chrony_sources_response(
-            fail_response(format!("Unable to retrieve chrony sources - {}", e)),
-            vec![],
-        )
+        Ok(sources) => LegacyChronySourcesResponse { operation: ok_response(""), sources }.into(),
+        Err(e) => LegacyChronySourcesResponse {
+            operation: fail_response(format!("Unable to retrieve chrony sources - {}", e)),
+            sources: vec![],
+        }
         .into(),
     }
 }
@@ -92,21 +82,19 @@ pub async fn put_ntp_legacy(
     Path(command): Path<String>,
     Json(body): Json<LegacyChronyCommandRequest>,
 ) -> PutNtpLegacyResponses {
-
-    if ![ADD_SOURCE, REMOVE_SOURCE].contains(&command.as_str()) {
-        return fail_response(format!(
-            "supplied parameter 'command' value {} must be one of ['addSource', 'removeSource'], ",
-            command
-        ))
-        .into();
-    }
-
-    match ChronyNTPService::configure_sources(&command, body.sources).await {
-        Ok(_) => ok_response("").into(),
-        Err(e) => fail_response(format!(
-            "Unable to update chrony sources - {}",
-            e
+    let cmd = match command.parse::<SourceCommand>() {
+        Ok(c) => c,
+        Err(_) => return fail_response(format!(
+            "supplied parameter 'command' value {} must be one of {}, ",
+            command,
+            SourceCommand::display_names(),
         ))
         .into(),
+    };
+
+    match ChronyNTPService::configure_sources(cmd, body.sources).await {
+        Ok(true) => ok_response("").into(),
+        Ok(false) => fail_response("Source not found").into(),
+        Err(e) => fail_response(format!("Unable to update chrony sources - {}", e)).into(),
     }
 }

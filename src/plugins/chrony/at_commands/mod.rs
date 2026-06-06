@@ -7,6 +7,7 @@
 use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
 use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
+use crate::plugins::chrony::service::{ChronyNTPService, SourceCommand};
 use std::fmt::Write as _;
 use log::error;
 
@@ -18,7 +19,11 @@ pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
         .map(|s| s.to_string())
         .collect();
 
-    match crate::plugins::chrony::service::ChronyNTPService::configure_sources(&command, sources).await {
+    let cmd = match command.parse::<SourceCommand>() {
+        Ok(c) => c,
+        Err(_) => return CommandOutcome::Error,
+    };
+    match ChronyNTPService::configure_sources(cmd, sources).await {
         Ok(_) => CommandOutcome::Ok,
         Err(e) => {
             error!("NTP configure error: {}", e);
@@ -37,7 +42,7 @@ pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
 
     match scope {
         "" | "-1" => {
-            let sources = match crate::plugins::chrony::service::ChronyNTPService::get_sources().await {
+            let sources = match ChronyNTPService::get_sources().await {
                 Ok(sources) => sources,
                 Err(error) => {
                     error!("NTP get error: {}", error);
@@ -50,12 +55,12 @@ pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comman
             }
         }
         "0" => {
-            for source in crate::plugins::chrony::service::ChronyNTPService::get_static_sources().await {
+            for source in ChronyNTPService::get_static_sources().await {
                 let _ = writeln!(out, "+NTPGET: {}\r", source);
             }
         }
         "1" => {
-            let sources = match crate::plugins::chrony::service::ChronyNTPService::get_current_sources().await {
+            let sources = match ChronyNTPService::get_current_sources().await {
                 Ok(sources) => sources,
                 Err(error) => {
                     error!("NTP get error: {}", error);

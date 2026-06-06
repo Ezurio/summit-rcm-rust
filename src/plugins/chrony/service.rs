@@ -8,13 +8,7 @@ use anyhow::{bail, Result};
 use crate::utils::command_output;
 use crate::utils::read_text;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use log::error;
-
-pub const ADD_SOURCE: &str = "addSource";
-pub const REMOVE_SOURCE: &str = "removeSource";
-pub const OVERRIDE_SOURCES: &str = "overrideSources";
-pub const SOURCE_COMMANDS: &[&str] = &[ADD_SOURCE, REMOVE_SOURCE, OVERRIDE_SOURCES];
 
 const CHRONY_SOURCES_PATH: &str = "/etc/chrony/supplemental.sources";
 const CHRONYC_PATH: &str = "/usr/bin/chronyc";
@@ -25,6 +19,32 @@ pub struct ChronySource {
     pub address: String,
     #[serde(rename = "type")]
     pub source_type: String, // "static" | "dynamic"
+}
+
+const SOURCE_COMMAND_NAMES: [&str; 3] = ["addSource", "removeSource", "overrideSources"];
+
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceCommand {
+    AddSource    = 0,
+    RemoveSource = 1,
+    OverrideSources = 2,
+}
+
+impl SourceCommand {
+    pub fn display_names() -> String {
+        format!("['{}']", SOURCE_COMMAND_NAMES.join("', '"))
+    }
+}
+
+impl std::str::FromStr for SourceCommand {
+    type Err = ();
+    fn from_str(s: &str) -> std::result::Result<Self, ()> {
+        let idx = SOURCE_COMMAND_NAMES.iter().position(|&n| n == s).ok_or(())?;
+        // SAFETY: SOURCE_COMMAND_NAMES has exactly 3 entries, one per variant,
+        // and each index equals its discriminant value.
+        Ok(unsafe { std::mem::transmute::<usize, Self>(idx) })
+    }
 }
 
 pub struct ChronyNTPService;
@@ -82,33 +102,34 @@ impl ChronyNTPService {
         Ok(result)
     }
 
-    pub async fn configure_sources(command: &str, sources_in: Vec<String>) -> Result<()> {
-        if !SOURCE_COMMANDS.contains(&command) {
-            bail!("Invalid command");
-        }
-        let current = Self::get_static_sources().await;
-        let new_sources: Vec<String> = match command {
-            c if c == ADD_SOURCE => {
-                let current_set: HashSet<&str> = current.iter().map(String::as_str).collect();
-                let mut v = current.clone();
-                for s in &sources_in {
-                    if !current_set.contains(s.as_str()) {
-                        v.push(s.clone());
+    pub async fn get_source(address: &str) -> Result<Option<ChronySource>> {
+        Ok(Self::get_sources().await?.into_iter().find(|s| s.address == address))
+    }
+
+    /// Configure chrony static sources.
+    ///
+    /// Returns `Ok(true)` in all cases except `RemoveSource` where no supplied address matched a
+    /// known static source, in which case `Ok(false)` is returned without writing the file.
+    pub async fn configure_sources(command: SourceCommand, sources_in: Vec<String>) -> Result<bool> {
+        let mut current = Self::get_static_sources().await;
+        match command {
+            SourceCommand::AddSource => {
+                for s in sources_in {
+                    if !current.contains(&s) {
+                        current.push(s);
                     }
                 }
-                v
             }
-            c if c == REMOVE_SOURCE => {
-                let remove_set: HashSet<&str> = sources_in.iter().map(String::as_str).collect();
-                current
-                    .into_iter()
-                    .filter(|s| !remove_set.contains(s.as_str()))
-                    .collect()
+            SourceCommand::RemoveSource => {
+                let before = current.len();
+                current.retain(|s| !sources_in.contains(s));
+                if current.len() == before {
+                    return Ok(false);
+                }
             }
-            _ => sources_in, // OVERRIDE_SOURCES
-        };
-
-        let content: String = new_sources.iter().map(|s| format!("server {}\n", s)).collect();
+            SourceCommand::OverrideSources => current = sources_in,
+        }
+        let content: String = current.into_iter().map(|s| format!("server {}\n", s)).collect();
         if let Err(error) = tokio::fs::write(CHRONY_SOURCES_PATH, content).await {
             if error.kind() == std::io::ErrorKind::NotFound {
                 bail!("[Errno 2] No such file or directory: '{}'", CHRONY_SOURCES_PATH);
@@ -116,6 +137,6 @@ impl ChronyNTPService {
             return Err(error.into());
         }
         Self::reload_sources().await;
-        Ok(())
+        Ok(true)
     }
 }
