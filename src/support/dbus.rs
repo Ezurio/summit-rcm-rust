@@ -112,33 +112,13 @@ fn timeout_cache_key(timeout: Option<Duration>) -> Option<u64> {
 }
 
 fn current_system_bus_key() -> Cow<'static, str> {
-    std::env::var(TEST_SYSTEM_BUS_ADDRESS_ENV)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(Cow::Owned)
-        .unwrap_or(Cow::Borrowed("__system__"))
+    let key = super::config::env_or_trimmed(TEST_SYSTEM_BUS_ADDRESS_ENV, "");
+    if key.is_empty() { Cow::Borrowed("__system__") } else { Cow::Owned(key) }
 }
 
 static DBUS_METHOD_TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
-    let default_timeout_ms: u64 = 2_000;
-    match std::env::var(DBUS_METHOD_TIMEOUT_MS_ENV) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            match trimmed.parse::<u64>() {
-                Ok(timeout_ms) if timeout_ms > 0 => Duration::from_millis(timeout_ms),
-                _ => {
-                    warn!(
-                        "Invalid {}='{}'; using default {} ms",
-                        DBUS_METHOD_TIMEOUT_MS_ENV,
-                        trimmed,
-                        default_timeout_ms
-                    );
-                    Duration::from_millis(default_timeout_ms)
-                }
-            }
-        }
-        Err(_) => Duration::from_millis(default_timeout_ms),
-    }
+    let val = super::config::env_or_trimmed(DBUS_METHOD_TIMEOUT_MS_ENV, "");
+    Duration::from_millis(val.parse::<u64>().unwrap_or(2_000).max(1))
 });
 
 fn dbus_method_timeout() -> Duration {
@@ -420,6 +400,123 @@ pub async fn subscribe_to_signal(
         .await
         .map_err(|error| anyhow::anyhow!("failed to subscribe to D-Bus signal stream: {error}"))
 }
+
+/// Subscribe to a D-Bus signal and spawn a background task that invokes
+/// `handler` for every received message until the stream ends or errors.
+///
+/// This is the shared, plugin-agnostic plumbing behind the event-driven
+/// observers: callers supply only the per-message parsing and reaction, and get
+/// back a [`tokio::task::JoinHandle`] they can abort to stop observing. The
+/// transport here has no knowledge of any particular plugin or payload shape.
+pub async fn spawn_signal_observer<H, Fut>(
+    sender: &str,
+    interface: &str,
+    member: &str,
+    max_queued: usize,
+    mut handler: H,
+) -> Result<tokio::task::JoinHandle<()>>
+where
+    H: FnMut(Message) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    use futures_util::StreamExt;
+
+    let mut stream = subscribe_to_signal(sender, interface, member, max_queued).await?;
+    let label = format!("{interface}.{member}");
+    Ok(tokio::spawn(async move {
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(message) => handler(message).await,
+                Err(error) => {
+                    log::debug!("signal observer {label} stream error: {error}");
+                    break;
+                }
+            }
+        }
+    }))
+}
+
+/// Decoded payload of an `org.freedesktop.DBus.Properties.PropertiesChanged`
+/// signal: the emitting object path plus the standard
+/// `(interface, changed, invalidated)` tuple.
+pub struct PropertiesChanged {
+    pub path: String,
+    pub interface: String,
+    pub changed: HashMap<String, OwnedValue>,
+    pub invalidated: Vec<String>,
+}
+
+/// Parse a `PropertiesChanged` signal message into its object path and decoded
+/// body. Returns `None` if the message carries no path or its body does not
+/// match the standard signature, so observer handlers can `let … else` and skip
+/// malformed signals without bespoke parsing.
+pub fn parse_properties_changed(message: &Message) -> Option<PropertiesChanged> {
+    let path = message.header().path().map(|path| path.as_str().to_string())?;
+    let (interface, changed, invalidated) = message
+        .body()
+        .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
+        .ok()?;
+    Some(PropertiesChanged {
+        path,
+        interface,
+        changed,
+        invalidated,
+    })
+}
+
+/// A collection of background signal-observer tasks sharing one sender and queue
+/// depth. Each [`add`](SignalObservers::add) subscribes one
+/// `interface`/`member` pair through [`spawn_signal_observer`], logging (rather
+/// than propagating) a subscription failure so one missing signal does not abort
+/// the others. Callers own the resulting tasks via [`into_tasks`] or stop them
+/// with [`abort_all`].
+pub struct SignalObservers {
+    sender: String,
+    max_queued: usize,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl SignalObservers {
+    pub fn new(sender: &str, max_queued: usize) -> Self {
+        Self {
+            sender: sender.to_string(),
+            max_queued,
+            tasks: Vec::new(),
+        }
+    }
+
+    /// Subscribe one signal and add its observer task to the collection. A
+    /// subscription failure is logged and skipped.
+    pub async fn add<H, Fut>(&mut self, interface: &str, member: &str, handler: H)
+    where
+        H: FnMut(Message) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
+    {
+        match spawn_signal_observer(&self.sender, interface, member, self.max_queued, handler).await
+        {
+            Ok(task) => self.tasks.push(task),
+            Err(error) => log::debug!("{interface}.{member} subscribe failed: {error}"),
+        }
+    }
+
+    /// Whether any observer task is still running.
+    pub fn any_active(&self) -> bool {
+        self.tasks.iter().any(|task| !task.is_finished())
+    }
+
+    /// Abort every observer task, clearing the collection.
+    pub fn abort_all(&mut self) {
+        for task in self.tasks.drain(..) {
+            task.abort();
+        }
+    }
+
+    /// Consume the collection, returning the spawned observer tasks.
+    pub fn into_tasks(self) -> Vec<tokio::task::JoinHandle<()>> {
+        self.tasks
+    }
+}
+
 
 pub fn clone_owned_value(value: &OwnedValue) -> Result<OwnedValue> {
     value.try_clone().map_err(Into::into)

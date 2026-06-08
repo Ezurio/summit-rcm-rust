@@ -132,7 +132,10 @@ pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleRespo
             if !fname.ends_with(".crt") && !fname.ends_with(".pem") {
                 return PutClientBundleResponses::BadRequest;
             }
-            let data = field.bytes().await.unwrap_or_default();
+            let data = match field.bytes().await {
+                Ok(d) => d,
+                Err(_) => return PutClientBundleResponses::BadRequest,
+            };
             if tokio::fs::write(TEMP_PATH, data).await.is_err() {
                 return PutClientBundleResponses::InternalError;
             }

@@ -4,23 +4,13 @@
 //
 
 use crate::web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::plugins::bluetooth::routes::common::{
-    BluetoothCommandRequest, BluetoothControlResponse,
+use crate::plugins::bluetooth::routes::shared::{
+    include_filter, BluetoothCommandRequest, BluetoothControlResponse, BluetoothControllerState,
     BluetoothDeviceModel, BluetoothQuery,
 };
-#[cfg(feature = "bluetooth-websocket")]
-use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
 use crate::plugins::bluetooth::service::{BluetoothDeviceStateError, BluetoothService};
 use axum::{extract::{Path, Query}, Json};
-#[cfg(feature = "bluetooth-websocket")]
-use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
-#[cfg(feature = "bluetooth-websocket")]
-use axum::http::StatusCode;
-#[cfg(feature = "bluetooth-websocket")]
-use axum::response::{IntoResponse, Response};
-#[cfg(feature = "bluetooth-websocket")]
-use axum::Json as AxumJson;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[cfg(feature = "api-docs")]
@@ -36,6 +26,24 @@ pub struct LegacyBluetoothControllerModel {
     pub discoverable: Option<i32>,
     #[serde(rename = "transportFilter")]
     pub transport_filter: Option<String>,
+}
+
+impl BluetoothControllerState {
+    pub fn into_legacy_controllers(self) -> BTreeMap<String, LegacyBluetoothControllerModel> {
+        let filters = self.matched_filters.as_deref();
+        let model = LegacyBluetoothControllerModel {
+            bluetooth_devices: include_filter(filters, "bluetoothDevices").then_some(self.devices),
+            discovering: include_filter(filters, "discovering").then_some(i32::from(self.discovering)),
+            powered: include_filter(filters, "powered").then_some(i32::from(self.powered)),
+            discoverable: include_filter(filters, "discoverable").then_some(i32::from(self.discoverable)),
+            // Legacy exposes the cached `Transport` discovery filter under the
+            // renamed `transportFilter` key.
+            transport_filter: include_filter(filters, "transportFilter")
+                .then_some(self.transport_filter)
+                .flatten(),
+        };
+        BTreeMap::from([(self.controller_name, model)])
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -107,13 +115,6 @@ fn legacy_bluetooth_device_response(
     }
 }
 
-fn parse_legacy_response<T>(value: serde_json::Value) -> Result<T, serde_json::Error>
-where
-    T: DeserializeOwned,
-{
-    serde_json::from_value(value)
-}
-
 fn empty_bluetooth_device() -> BluetoothDeviceModel {
     BluetoothDeviceModel {
         auto_connect: None,
@@ -138,21 +139,7 @@ fn empty_bluetooth_device() -> BluetoothDeviceModel {
 }
 
 fn empty_bluetooth_control() -> BluetoothControlResponse {
-    BluetoothControlResponse {
-        rssi: None,
-        tx_power: None,
-        max_tx_power: None,
-        #[cfg(feature = "bluetooth-hid")]
-        hid: crate::plugins::bluetooth::routes::hid::BluetoothHidControlResponse {
-            hid_connections: None,
-        },
-        started: None,
-        port: None,
-        #[cfg(feature = "bluetooth-vsp")]
-        vsp: crate::plugins::bluetooth::routes::vsp::BluetoothVspControlResponse {
-            gatt_connections: None,
-        },
-    }
+    BluetoothControlResponse::default()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -163,14 +150,8 @@ fn empty_bluetooth_control() -> BluetoothControlResponse {
     responses(GetBluetoothLegacyResponses)
 ))]
 pub async fn get_bluetooth_legacy(Query(query): Query<BluetoothQuery>) -> GetBluetoothLegacyResponses {
-    match BluetoothService::get_state_legacy(None, None, query.filters()).await {
-        Ok(value) => match parse_legacy_response::<BTreeMap<String, LegacyBluetoothControllerModel>>(value) {
-            Ok(controllers) => legacy_bluetooth_state_response(ok_response(""), controllers).into(),
-            Err(error) => {
-                log::error!("get_bluetooth_legacy invalid response shape: {}", error);
-                GetBluetoothLegacyResponses::BadRequest
-            }
-        },
+    match BluetoothService::get_controller_state(None, query.filters()).await {
+        Ok(state) => legacy_bluetooth_state_response(ok_response(""), state.into_legacy_controllers()).into(),
         Err(error) => legacy_bluetooth_state_response(fail_response(error.to_string()), BTreeMap::new()).into(),
     }
 }
@@ -209,14 +190,8 @@ pub async fn get_bluetooth_controller_legacy(
     Path(controller): Path<String>,
     Query(query): Query<BluetoothQuery>,
 ) -> GetBluetoothLegacyResponses {
-    match BluetoothService::get_state_legacy(Some(&controller), None, query.filters()).await {
-        Ok(value) => match parse_legacy_response::<BTreeMap<String, LegacyBluetoothControllerModel>>(value) {
-            Ok(controllers) => legacy_bluetooth_state_response(ok_response(""), controllers).into(),
-            Err(error) => {
-                log::error!("get_bluetooth_controller_legacy {} invalid response shape: {}", controller, error);
-                GetBluetoothLegacyResponses::BadRequest
-            }
-        },
+    match BluetoothService::get_controller_state(Some(&controller), query.filters()).await {
+        Ok(state) => legacy_bluetooth_state_response(ok_response(""), state.into_legacy_controllers()).into(),
         Err(error) => legacy_bluetooth_state_response(fail_response(error.to_string()), BTreeMap::new()).into(),
     }
 }
@@ -317,31 +292,70 @@ pub async fn put_bluetooth_device_legacy(
     }
 }
 
+// Response for the legacy `/bluetoothWebsocket` index route: the standard
+// legacy ack when notifications are enabled, otherwise 404.
+#[cfg(feature = "bluetooth-websocket")]
+crate::define_json_response_family! {
+    pub enum BluetoothWebsocketIndexLegacyResponse {
+        Ok(LegacyOperationResponse) => 200;
+        NotFound => 404
+    }
+    from LegacyOperationResponse => Ok;
+}
+
+// Response for the legacy `/bluetoothWebsocket/ws` route. The `200` arm is a
+// CherryPy parity quirk: a non-upgrade GET to the websocket URL is answered
+// with the standard legacy ack instead of switching protocols.
+#[cfg(feature = "bluetooth-websocket")]
+crate::define_websocket_response_family! {
+    pub enum BluetoothWebsocketLegacyResponse {
+        Upgrade => 101, "Switching protocols";
+        Ok(LegacyOperationResponse) => 200;
+        NotFound => 404
+    }
+    from LegacyOperationResponse => Ok;
+}
+
+/// `GET /bluetoothWebsocket` (and trailing-slash form) — non-upgrade index that
+/// acknowledges with the standard legacy body when notifications are enabled.
 #[cfg(feature = "bluetooth-websocket")]
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
     path = "/bluetoothWebsocket",
     tag = "bluetooth",
-    responses(
-        (status = 200, body = LegacyOperationResponse),
-        (status = 404, description = "Bluetooth websocket notifications not enabled")
-    )
+    responses(BluetoothWebsocketIndexLegacyResponse)
 ))]
-pub async fn get_bluetooth_websocket_index_legacy() -> Response {
+pub async fn get_bluetooth_websocket_index_legacy() -> BluetoothWebsocketIndexLegacyResponse {
     if !BluetoothService::websocket_notifications_enabled() {
-        return StatusCode::NOT_FOUND.into_response();
+        return BluetoothWebsocketIndexLegacyResponse::NotFound;
     }
 
-    AxumJson(ok_response("")).into_response()
+    BluetoothWebsocketIndexLegacyResponse::from(ok_response(""))
 }
 
+/// `GET /bluetoothWebsocket/ws` — upgrade to the BLE notification websocket, or
+/// answer a non-upgrade GET with the standard legacy ack.
 #[cfg(feature = "bluetooth-websocket")]
+#[cfg_attr(feature = "api-docs", utoipa::path(
+    get,
+    path = "/bluetoothWebsocket/ws",
+    tag = "bluetooth",
+    responses(BluetoothWebsocketLegacyResponse)
+))]
 pub async fn get_bluetooth_websocket_legacy(
-    upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
-) -> Response {
-    if let Some(response) = bluetooth_websocket_upgrade_response(upgrade).await {
-        response
-    } else {
-        AxumJson(ok_response("")).into_response()
+    upgrade: Result<
+        axum::extract::ws::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
+) -> BluetoothWebsocketLegacyResponse {
+    use crate::notifications::NotificationWebsocketResponse;
+
+    match super::shared::bluetooth_websocket_upgrade_response(upgrade).await {
+        Some(NotificationWebsocketResponse::Upgrade(response)) => {
+            BluetoothWebsocketLegacyResponse::Upgrade(response)
+        }
+        Some(NotificationWebsocketResponse::NotFound) => BluetoothWebsocketLegacyResponse::NotFound,
+        None => BluetoothWebsocketLegacyResponse::from(ok_response("")),
     }
 }
+

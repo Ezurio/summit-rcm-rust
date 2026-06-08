@@ -57,12 +57,7 @@ fn rodata_ca_cert_path() -> String {
     V.clone()
 }
 
-fn env_or_trimmed(env_key: &str, default: &str) -> String {
-    std::env::var(env_key)
-        .unwrap_or_else(|_| default.to_string())
-        .trim_matches('"')
-        .to_string()
-}
+use crate::config::env_or_trimmed;
 
 const FALLBACK_TIMESTAMP_FILE_PATH: &str = "/etc/fallback_timestamp";
 

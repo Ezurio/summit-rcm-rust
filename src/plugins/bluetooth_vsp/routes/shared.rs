@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+//! Shared VSP API schemas and neutral data types. The typed request/response
+//! model owned by this device plugin lives here so both the service command
+//! handler and the v2 route layer can depend on it without the service
+//! depending on the HTTP handler module. The `utoipa` derives are gated behind
+//! `api-docs`, keeping the data types usable independently of the REST stack.
 
-use crate::plugins::bluetooth::routes::common::BluetoothConnectionModel;
+use crate::plugins::bluetooth::routes::shared::BluetoothConnectionModel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
@@ -36,6 +41,7 @@ pub struct BluetoothVspCommandRequest {
     pub vsp_write_chr_size: Option<u16>,
     pub vsp_write_chr_type: Option<BluetoothVspWriteType>,
     pub socket_rx_type: Option<BluetoothSocketRxType>,
+    pub tcp_port: Option<u16>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -50,5 +56,16 @@ pub fn gatt_connections_response(
 ) -> BluetoothVspControlResponse {
     BluetoothVspControlResponse {
         gatt_connections: Some(connections),
+    }
+}
+
+/// Serialize a VSP control response into the neutral fragment carried by the
+/// shared `BluetoothControlResponse` for legacy/compat clients.
+pub fn control_response_fragment(
+    response: &BluetoothVspControlResponse,
+) -> serde_json::Map<String, serde_json::Value> {
+    match serde_json::to_value(response) {
+        Ok(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
     }
 }

@@ -4,9 +4,13 @@ use summit_rcm::plugins::bluetooth::service::BluetoothService;
 #[tokio::test]
 #[ignore = "requires live BlueZ adapter on the system bus"]
 async fn live_bluez_discovery_command_uses_real_adapter_state() {
-    let initial = BluetoothService::get_state_v2_result(Some("controller0"), None, None)
-        .await
-        .expect("expected controller0 on the live BlueZ bus");
+    let initial = serde_json::to_value(
+        BluetoothService::get_controller_state(Some("controller0"), None)
+            .await
+            .expect("expected controller0 on the live BlueZ bus")
+            .into_v2_response(),
+    )
+    .expect("v2 controller state should serialize");
     let controller = initial
         .get("controller0")
         .expect("expected controller0 on the live BlueZ bus");
@@ -31,9 +35,13 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
 
     let mut observed_discovering = false;
     for _ in 0..10 {
-        let state = BluetoothService::get_state_v2_result(Some("controller0"), None, None)
-            .await
-            .expect("controller0 should remain visible while polling discovery state");
+        let state = serde_json::to_value(
+            BluetoothService::get_controller_state(Some("controller0"), None)
+                .await
+                .expect("controller0 should remain visible while polling discovery state")
+                .into_v2_response(),
+        )
+        .expect("v2 controller state should serialize");
         let controller = state
             .get("controller0")
             .expect("controller0 should remain visible while polling discovery state");

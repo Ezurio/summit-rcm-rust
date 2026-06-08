@@ -6,7 +6,11 @@ use axum::http::Request;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use summit_rcm::plugins::bluetooth::service::{BLE_NOTIFICATION_RESYNC_INTERVAL, format_notification};
+use std::collections::BTreeMap;
+use summit_rcm::plugins::bluetooth::service::{
+    BleNotification, CharValueNotification, CharacteristicFlags, ConnectNotification,
+    DiscoveryNotification, ServicesEntry,
+};
 use summit_rcm::plugins::bluetooth::service::BluetoothService;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
@@ -17,60 +21,123 @@ use tokio_tungstenite::{
 use tower::ServiceExt;
 
 #[test]
-fn notification_payload_matches_python_connect_serialization() {
-    let message = json!({
-        "connect": {
-            "timestamp": 123,
-            "connected": true,
-            "address": "AA:BB:CC:DD:EE:FF",
-        }
+fn connect_notification_serializes_with_sorted_keys() {
+    let frame = BleNotification::Connect(ConnectNotification {
+        address: "AA:BB:CC:DD:EE:FF".to_string(),
+        name: "Sensor".to_string(),
+        alias: "Tag".to_string(),
+        connected: true,
+        paired: false,
+        services: None,
+        timestamp: 123,
     });
 
-    let payload = format_notification(&message).expect("notification should serialize");
-
     assert_eq!(
-        payload,
+        frame.render(),
         concat!(
-            "{\n",
-            "    \"connect\":{\n",
-            "        \"address\":\"AA:BB:CC:DD:EE:FF\",\n",
-            "        \"connected\":true,\n",
-            "        \"timestamp\":123\n",
-            "    }\n",
-            "}\n"
+            "{\"connect\":{",
+            "\"address\":\"AA:BB:CC:DD:EE:FF\",",
+            "\"alias\":\"Tag\",",
+            "\"connected\":true,",
+            "\"name\":\"Sensor\",",
+            "\"paired\":false,",
+            "\"timestamp\":123",
+            "}}\n"
         )
     );
 }
 
 #[test]
-fn notification_payload_preserves_unsorted_char_order() {
-    let message = json!({
-        "char": {
-            "char_uuid": "abcd",
-            "value": "beef",
-            "timestamp": 123,
-        }
+fn char_value_notification_preserves_field_order() {
+    let frame = BleNotification::CharValue(CharValueNotification {
+        char_uuid: "abcd".to_string(),
+        value: "beef".to_string(),
+        timestamp: 123,
     });
 
-    let payload = format_notification(&message).expect("notification should serialize");
-
     assert_eq!(
-        payload,
+        frame.render(),
         concat!(
-            "{\n",
-            "    \"char\":{\n",
-            "        \"char_uuid\":\"abcd\",\n",
-            "        \"value\":\"beef\",\n",
-            "        \"timestamp\":123\n",
-            "    }\n",
-            "}\n"
+            "{\"char\":{",
+            "\"char_uuid\":\"abcd\",",
+            "\"value\":\"beef\",",
+            "\"timestamp\":123",
+            "}}\n"
         )
     );
 }
 
 #[test]
-fn notification_resync_interval_matches_websocket_contract() {
-    assert_eq!(BLE_NOTIFICATION_RESYNC_INTERVAL, Duration::from_secs(5));
+fn discovery_notification_sorts_keys() {
+    let properties = BTreeMap::from([
+        ("Address".to_string(), json!("AA:BB:CC:DD:EE:FF")),
+        ("Name".to_string(), json!("Tag")),
+        ("RSSI".to_string(), json!(-40)),
+    ]);
+    let frame = BleNotification::Discovery(DiscoveryNotification {
+        properties,
+        timestamp: 5,
+    });
+
+    assert_eq!(
+        frame.render(),
+        concat!(
+            "{\"discovery\":{",
+            "\"Address\":\"AA:BB:CC:DD:EE:FF\",",
+            "\"Name\":\"Tag\",",
+            "\"RSSI\":-40,",
+            "\"timestamp\":5",
+            "}}\n"
+        )
+    );
+}
+
+#[test]
+fn connect_notification_sorts_nested_service_keys() {
+    let services = BTreeMap::from([
+        (
+            "ff10".to_string(),
+            ServicesEntry {
+                characteristics: Vec::new(),
+            },
+        ),
+        (
+            "180a".to_string(),
+            ServicesEntry {
+                characteristics: vec![BTreeMap::from([(
+                    "2a29".to_string(),
+                    CharacteristicFlags {
+                        flags: vec!["read".to_string()],
+                    },
+                )])],
+            },
+        ),
+    ]);
+    let frame = BleNotification::Connect(ConnectNotification {
+        address: "AA".to_string(),
+        name: String::new(),
+        alias: String::new(),
+        connected: true,
+        paired: true,
+        services: Some(services),
+        timestamp: 1,
+    });
+
+    let payload = frame.render();
+    let index_180a = payload.find("\"180a\"").expect("180a present");
+    let index_ff10 = payload.find("\"ff10\"").expect("ff10 present");
+    assert!(
+        index_180a < index_ff10,
+        "nested service keys should be sorted alphabetically"
+    );
+
+    let index_paired = payload.find("\"paired\"").expect("paired present");
+    let index_services = payload.find("\"services\"").expect("services present");
+    let index_timestamp = payload.find("\"timestamp\"").expect("timestamp present");
+    assert!(
+        index_paired < index_services && index_services < index_timestamp,
+        "services should sit between paired and timestamp"
+    );
 }
 
 fn websocket_test_router() -> Router {

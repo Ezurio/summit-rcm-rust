@@ -14,6 +14,19 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+// Files that wrap bindgen-generated code and legitimately suppress dead_code
+// for constants that are only partially used at any given time.
+const DEAD_CODE_EXCEPTIONS: &[&str] = &[
+    "plugins/network/nl80211/protocol.rs",
+];
+
+fn is_exception(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    DEAD_CODE_EXCEPTIONS
+        .iter()
+        .any(|suffix| path_str.replace('\\', "/").ends_with(suffix))
+}
+
 #[test]
 fn source_tree_has_no_dead_code_allows() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -24,6 +37,9 @@ fn source_tree_has_no_dead_code_allows() {
 
     let mut violations = Vec::new();
     for file in files {
+        if is_exception(&file) {
+            continue;
+        }
         let content = fs::read_to_string(&file).expect("failed to read source file");
         if content.contains("allow(dead_code)") {
             violations.push(file);

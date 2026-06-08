@@ -10,7 +10,6 @@ use crate::dbus;
 use crate::dbus::DBUS_PROP_IFACE;
 use crate::systemd_unit::SystemdUnit;
 use crate::systemd_unit::{SYSTEMD_BUS_NAME, SYSTEMD_UNIT_IFACE};
-use futures_util::StreamExt;
 use log::error;
 use serde_json::json;
 use std::sync::atomic::Ordering;
@@ -72,58 +71,46 @@ impl NetworkManagerService {
     }
 
     async fn ensure_nm_status_watcher() -> Result<()> {
-        if NETWORK_STATUS_SIGNAL_TASK.lock().await.is_some() {
-            return Ok(());
+        {
+            let watcher = NETWORK_STATUS_SIGNAL_TASK.lock().await;
+            if watcher.as_ref().is_some_and(|task| !task.is_finished()) {
+                return Ok(());
+            }
         }
 
-        let mut stream = crate::dbus::subscribe_to_signal(
+        let handle = dbus::spawn_signal_observer(
             NM_BUS_NAME,
             DBUS_PROP_IFACE,
             "PropertiesChanged",
             64,
+            |message| async move {
+                let Some(signal) = dbus::parse_properties_changed(&message) else {
+                    return;
+                };
+
+                if !NetworkManagerService::should_refresh_status_cache(
+                    &signal.path,
+                    &signal.interface,
+                    &signal.changed,
+                    &signal.invalidated,
+                ) {
+                    return;
+                }
+
+                if let Err(error) = NetworkManagerService::refresh_status_cache().await {
+                    error!("failed to refresh cached NetworkManager status: {}", error);
+                }
+            },
         )
         .await?;
-        let handle = tokio::spawn(async move {
-            while let Some(message) = stream.next().await {
-                match message {
-                    Ok(message) => {
-                        let Some(path) = message.header().path().map(|path| path.as_str().to_string()) else {
-                            continue;
-                        };
-
-                        let Ok((changed_interface, changed_properties, invalidated_properties)) =
-                            message.body().deserialize::<(String, NmProperties, Vec<String>)>()
-                        else {
-                            continue;
-                        };
-
-                        if !NetworkManagerService::should_refresh_status_cache(
-                            &path,
-                            &changed_interface,
-                            &changed_properties,
-                            &invalidated_properties,
-                        ) {
-                            continue;
-                        }
-
-                        if let Err(error) = NetworkManagerService::refresh_status_cache().await {
-                            error!("failed to refresh cached NetworkManager status: {}", error);
-                        }
-                    }
-                    Err(error) => {
-                        error!("NetworkManager PropertiesChanged stream error: {}", error);
-                        break;
-                    }
-                }
-            }
-
-            NETWORK_STATUS_SIGNAL_TASK.lock().await.take();
-        });
 
         let mut watcher = NETWORK_STATUS_SIGNAL_TASK.lock().await;
-        if watcher.is_some() {
+        if watcher.as_ref().is_some_and(|task| !task.is_finished()) {
             handle.abort();
         } else {
+            if let Some(previous) = watcher.take() {
+                previous.abort();
+            }
             *watcher = Some(handle);
         }
 
@@ -152,64 +139,50 @@ impl NetworkManagerService {
         let unit = SystemdUnit::new(NETWORKMANAGER_SERVICE_FILE);
         let unit_path = unit.unit_path().await?;
         let unit_path = unit_path.as_str().to_string();
-        let mut stream = dbus::subscribe_to_signal(
+
+        dbus::spawn_signal_observer(
             SYSTEMD_BUS_NAME,
             DBUS_PROP_IFACE,
             "PropertiesChanged",
             32,
+            move |message| {
+                let unit_path = unit_path.clone();
+                async move {
+                    let Some(signal) = dbus::parse_properties_changed(&message) else {
+                        return;
+                    };
+
+                    if signal.path != unit_path || signal.interface != SYSTEMD_UNIT_IFACE {
+                        return;
+                    }
+
+                    let active_state_changed = signal.changed.contains_key("ActiveState")
+                        || signal
+                            .invalidated
+                            .iter()
+                            .any(|property| property == "ActiveState");
+                    if !active_state_changed {
+                        return;
+                    }
+
+                    let new_state = dbus::property::<String>(&signal.changed, "ActiveState")
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let new_state = if new_state == "unknown"
+                        && signal
+                            .invalidated
+                            .iter()
+                            .any(|property| property == "ActiveState")
+                    {
+                        NetworkManagerService::networkmanager_systemd_active_state().await
+                    } else {
+                        new_state
+                    };
+
+                    NetworkManagerService::handle_networkmanager_systemd_state(&new_state).await;
+                }
+            },
         )
         .await?;
-
-        tokio::spawn(async move {
-            while let Some(message) = stream.next().await {
-                match message {
-                    Ok(message) => {
-                        let path_matches = message
-                            .header()
-                            .path()
-                            .map(|path| path.as_str() == unit_path)
-                            .unwrap_or(false);
-                        if !path_matches {
-                            continue;
-                        }
-
-                        let Ok((changed_interface, changed_properties, invalidated_properties)) =
-                            message.body().deserialize::<(String, NmProperties, Vec<String>)>()
-                        else {
-                            continue;
-                        };
-
-                        if changed_interface != SYSTEMD_UNIT_IFACE {
-                            continue;
-                        }
-
-                        let active_state_changed = changed_properties.contains_key("ActiveState")
-                            || invalidated_properties
-                                .iter()
-                                .any(|property| property == "ActiveState");
-                        if !active_state_changed {
-                            continue;
-                        }
-
-                        let new_state = dbus::property::<String>(&changed_properties, "ActiveState")
-                            .unwrap_or_else(|| "unknown".to_string());
-                        let new_state = if new_state == "unknown"
-                            && invalidated_properties.iter().any(|property| property == "ActiveState")
-                        {
-                            NetworkManagerService::networkmanager_systemd_active_state().await
-                        } else {
-                            new_state
-                        };
-
-                        NetworkManagerService::handle_networkmanager_systemd_state(&new_state).await;
-                    }
-                    Err(error) => {
-                        error!("NetworkManager systemd PropertiesChanged stream error: {}", error);
-                        break;
-                    }
-                }
-            }
-        });
 
         Ok(())
     }

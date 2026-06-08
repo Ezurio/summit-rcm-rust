@@ -153,7 +153,7 @@ async fn parse_import_connections_request(
     let mut archive = Vec::new();
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("archive") {
-            archive = field.bytes().await.unwrap_or_default().into_iter().collect();
+            archive = field.bytes().await.map_err(|_| fail_response("Failed to read upload"))?.into_iter().collect();
             break;
         }
     }
@@ -180,7 +180,7 @@ async fn parse_upload_legacy_file_request(
     while let Ok(Some(field)) = multipart.next_field().await {
         let field_name = field.name().map(str::to_owned).unwrap_or_default();
         let fname = field.file_name().unwrap_or("upload").to_string();
-        let data = field.bytes().await.unwrap_or_default();
+        let data = field.bytes().await.map_err(|_| fail_response("Failed to read upload"))?;
         match field_name.as_str() {
             "type" => file_type = String::from_utf8_lossy(&data).trim().to_string(),
             "password" => {

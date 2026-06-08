@@ -13,6 +13,9 @@ pub mod definition;
 pub mod archive;
 #[path = "support/certificates.rs"]
 pub mod certificates;
+#[path = "support/notifications.rs"]
+#[cfg(feature = "notifications")]
+pub mod notifications;
 #[path = "support/utils.rs"]
 pub mod utils;
 #[path = "app/loader.rs"]

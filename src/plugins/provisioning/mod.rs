@@ -49,8 +49,7 @@ pub enum BootMode {
 }
 
 pub(crate) fn provisioning_state_file_path() -> String {
-	std::env::var("SUMMIT_RCM_PROVISIONING_STATE_FILE")
-		.unwrap_or_else(|_| PROVISIONING_STATE_FILE_PATH.to_string())
+	crate::config::env_or_trimmed("SUMMIT_RCM_PROVISIONING_STATE_FILE", PROVISIONING_STATE_FILE_PATH)
 }
 
 fn read_boot_mode() -> BootMode {
@@ -71,6 +70,7 @@ fn read_boot_mode() -> BootMode {
 /// Returns the boot-time daemon mode. Computed once on first call and cached.
 pub fn current_boot_mode() -> BootMode {
 	use std::sync::OnceLock;
+	#[cfg(test)]
 	if std::env::var_os("SUMMIT_RCM_PROVISIONING_STATE_FILE").is_some() {
 		return read_boot_mode();
 	}

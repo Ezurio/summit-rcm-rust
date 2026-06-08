@@ -3,13 +3,15 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use super::*;
-
-#[cfg(feature = "bluetooth-websocket")]
-use log::debug;
+use crate::dbus;
+use crate::plugins::bluetooth::service::{
+    BluetoothCommandFuture, BluetoothCommandHandler,
+    BluetoothCommandOutcome, BluetoothService, ManagedObjects, BLUEZ_SERVICE, GATT_CHR_IFACE,
+};
+use zbus::{zvariant::Value, Connection};
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex as StdMutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{tcp::OwnedWriteHalf, TcpListener},
@@ -17,12 +19,20 @@ use tokio::{
     task::JoinHandle,
 };
 
+// VSP reacts to BlueZ signals for its own device and read characteristic. The
+// handlers live in a sibling module and are driven by this plugin's own signal
+// subscriptions, so the core bluetooth service holds no reference to VSP.
+#[path = "service_signals.rs"]
+mod signals;
+
 const TCP_SOCKET_HOST: &str = "0.0.0.0";
 const DEFAULT_VSP_WRITE_SIZE: usize = 1;
 const MAX_VSP_RECV_LEN: usize = 512;
+const OBJECT_MANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
+const VSP_SIGNAL_BUFFER: usize = 64;
 
-static VSP_CONNECTIONS: LazyLock<StdMutex<HashMap<String, VspConnectionHandle>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
+static VSP_CONNECTIONS: LazyLock<Mutex<HashMap<String, VspConnectionHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum VspSocketRxType {
@@ -45,39 +55,34 @@ impl VspSocketRxType {
 pub(super) struct VspConnectionState {
     pub(super) conn: Connection,
     pub(super) port: u16,
+    pub(super) device_address: String,
+    pub(super) device_path: String,
     pub(super) service_uuid: String,
-    pub(super) read_char_path: StdMutex<String>,
+    pub(super) read_char_path: Mutex<String>,
     read_char_uuid: String,
-    pub(super) write_char_path: StdMutex<String>,
+    pub(super) write_char_path: Mutex<String>,
     pub(super) write_char_uuid: String,
     pub(super) write_size: usize,
     pub(super) write_type: String,
     socket_rx_type: VspSocketRxType,
-    pub(super) writer_tx: StdMutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
+    pub(super) writer_tx: Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
 }
 
 impl VspConnectionState {
     pub(super) fn is_json(&self) -> bool {
-        #[cfg(not(feature = "bluetooth-websocket"))]
-        {
-            let _ = (&self.service_uuid, &self.read_char_uuid, &self.write_char_uuid);
-        }
         self.socket_rx_type == VspSocketRxType::Json
-    }
-
-    #[cfg(feature = "bluetooth-websocket")]
-    pub(super) fn read_char_uuid(&self) -> &str {
-        &self.read_char_uuid
     }
 }
 
 pub(super) struct VspConnectionHandle {
     pub(super) state: Arc<VspConnectionState>,
     pub(super) task: JoinHandle<()>,
+    pub(super) signal_tasks: Vec<JoinHandle<()>>,
 }
 
 pub(super) struct StartVspConnectionArgs {
     device_address: String,
+    device_path: String,
     service_uuid: String,
     read_char_path: String,
     read_char_uuid: String,
@@ -100,14 +105,44 @@ async fn run_vsp_writer(
     }
 }
 
+/// Device connection-state line written to the VSP socket: `{"Connected": <bool>}`.
+#[derive(serde::Serialize)]
+pub(super) struct VspConnectedMessage {
+    #[serde(rename = "Connected")]
+    pub(super) connected: bool,
+}
+
+/// Inbound serial data line written to the VSP socket: `{"Received": "0x<hex>"}`.
+#[derive(serde::Serialize)]
+pub(super) struct VspReceivedMessage {
+    #[serde(rename = "Received")]
+    pub(super) received: String,
+}
+
+/// Transmit-failure line written to the VSP socket: `{"Error": "Transmit failed"}`.
+#[derive(serde::Serialize)]
+pub(super) struct VspErrorMessage {
+    #[serde(rename = "Error")]
+    pub(super) error: &'static str,
+}
+
+/// Not-connected sentinel line written to the VSP socket on a failed write:
+/// `{"Connected": 0}`. This intentionally carries the integer `0` rather than a
+/// boolean, matching the Python `generic_val_error_cb` output.
+#[derive(serde::Serialize)]
+pub(super) struct VspNotConnectedMessage {
+    #[serde(rename = "Connected")]
+    pub(super) connected: u8,
+}
+
 impl BluetoothService {
-    pub(super) async fn list_vsp_connections(
-    ) -> Vec<crate::plugins::bluetooth::routes::common::BluetoothConnectionModel> {
+    pub async fn list_vsp_connections(
+    ) -> Vec<crate::plugins::bluetooth::routes::shared::BluetoothConnectionModel> {
         let guard = VSP_CONNECTIONS.lock().unwrap();
         guard
             .iter()
             .map(|(device, handle)| {
-                crate::plugins::bluetooth::routes::common::BluetoothConnectionModel {
+                crate::plugins::bluetooth::routes::shared::BluetoothConnectionModel {
                     device: device.clone(),
                     port: i32::from(handle.state.port),
                 }
@@ -120,8 +155,11 @@ impl BluetoothService {
         guard.get(device).map(|handle| handle.state.clone())
     }
 
-    pub(super) async fn send_vsp_json(state: &Arc<VspConnectionState>, value: serde_json::Value) {
-        let Ok(mut payload) = serde_json::to_vec(&value) else {
+    pub(super) async fn send_vsp_json<T: serde::Serialize>(
+        state: &Arc<VspConnectionState>,
+        message: &T,
+    ) {
+        let Ok(mut payload) = serde_json::to_vec(message) else {
             return;
         };
         payload.push(b'\n');
@@ -148,15 +186,17 @@ impl BluetoothService {
         let state = Arc::new(VspConnectionState {
             conn: conn.clone(),
             port: args.port,
+            device_address: args.device_address.clone(),
+            device_path: args.device_path,
             service_uuid: args.service_uuid,
-            read_char_path: StdMutex::new(args.read_char_path),
+            read_char_path: Mutex::new(args.read_char_path),
             read_char_uuid: args.read_char_uuid,
-            write_char_path: StdMutex::new(args.write_char_path),
+            write_char_path: Mutex::new(args.write_char_path),
             write_char_uuid: args.write_char_uuid,
             write_size: args.write_size,
             write_type: args.write_type,
             socket_rx_type: args.socket_rx_type,
-            writer_tx: StdMutex::new(None),
+            writer_tx: Mutex::new(None),
         });
 
         let task_state = state.clone();
@@ -164,12 +204,40 @@ impl BluetoothService {
             Self::run_vsp_server(listener, task_state).await;
         });
 
+        let signal_tasks = Self::spawn_vsp_signal_observers(state.clone()).await;
+
         let mut guard = VSP_CONNECTIONS.lock().unwrap();
         guard.insert(
             args.device_address,
-            VspConnectionHandle { state, task },
+            VspConnectionHandle {
+                state,
+                task,
+                signal_tasks,
+            },
         );
         Ok(())
+    }
+
+    async fn spawn_vsp_signal_observers(state: Arc<VspConnectionState>) -> Vec<JoinHandle<()>> {
+        let mut observers = dbus::SignalObservers::new(BLUEZ_SERVICE, VSP_SIGNAL_BUFFER);
+
+        let prop_state = state.clone();
+        observers
+            .add(dbus::DBUS_PROP_IFACE, "PropertiesChanged", move |message| {
+                let state = prop_state.clone();
+                async move { signals::on_vsp_properties_changed(state, message).await }
+            })
+            .await;
+
+        let removed_state = state.clone();
+        observers
+            .add(OBJECT_MANAGER_IFACE, "InterfacesRemoved", move |message| {
+                let state = removed_state.clone();
+                async move { signals::on_vsp_interfaces_removed(state, message).await }
+            })
+            .await;
+
+        observers.into_tasks()
     }
 
     pub(super) async fn stop_vsp_connection(device_address: &str) -> anyhow::Result<bool> {
@@ -191,6 +259,9 @@ impl BluetoothService {
         )
         .await;
 
+        for signal_task in handle.signal_tasks {
+            signal_task.abort();
+        }
         handle.task.abort();
         Ok(true)
     }
@@ -226,13 +297,13 @@ impl BluetoothService {
                     let chunk = pending.drain(..state.write_size).collect::<Vec<_>>();
                     if let Err(error) = Self::send_vsp_chunk(&state, &chunk).await
                         && state.is_json() {
-                            Self::send_vsp_json(&state, serde_json::json!({"Error": "Transmit failed"})).await;
+                            Self::send_vsp_json(&state, &VspErrorMessage { error: "Transmit failed" }).await;
                             if matches!(
                                 error,
                                 dbus::DbusCallError::Method(zbus::Error::MethodError(name, _, _))
                                     if name.as_str() == "org.bluez.Error.NotConnected"
                             ) {
-                                Self::send_vsp_json(&state, serde_json::json!({"Connected": 0})).await;
+                                Self::send_vsp_json(&state, &VspNotConnectedMessage { connected: 0 }).await;
                             }
                         }
                 }
@@ -264,130 +335,35 @@ impl BluetoothService {
         .await?;
         Ok(())
     }
-
-    #[cfg(feature = "bluetooth-websocket")]
-    pub(super) async fn refresh_vsp_connection(
-        device_address: &str,
-        state: &Arc<VspConnectionState>,
-    ) -> anyhow::Result<()> {
-        let objects = Self::get_managed_objects(&state.conn).await?;
-        let device_path = Self::find_device_path(&objects, device_address)
-            .ok_or_else(|| anyhow::anyhow!("device {} not found on bus", device_address))?;
-
-        let read_char_path = Self::find_characteristic_path(
-            &objects,
-            &device_path,
-            &state.service_uuid,
-            state.read_char_uuid(),
-        )
-        .ok_or_else(|| anyhow::anyhow!("no VSP read characteristic found for device {}", device_address))?;
-        let write_char_path = Self::find_characteristic_path(
-            &objects,
-            &device_path,
-            &state.service_uuid,
-            &state.write_char_uuid,
-        )
-        .ok_or_else(|| anyhow::anyhow!("no VSP write characteristic found for device {}", device_address))?;
-
-        {
-            let mut active_read_path = state.read_char_path.lock().unwrap();
-            *active_read_path = read_char_path.clone();
-        }
-        {
-            let mut active_write_path = state.write_char_path.lock().unwrap();
-            *active_write_path = write_char_path;
-        }
-
-        Self::call_bluez_noargs(&state.conn, read_char_path.as_str(), GATT_CHR_IFACE, "StartNotify")
-            .await?;
-        Ok(())
-    }
 }
 
-#[cfg(feature = "bluetooth-websocket")]
-pub(super) async fn handle_connect_state_change(device: &DeviceSnapshot) {
-    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await
-        && state.is_json() {
-            BluetoothService::send_vsp_json(
-                &state,
-                serde_json::json!({"Connected": device.connected}),
-            )
-            .await;
-        }
-}
+pub(crate) struct VspCommandHandler;
 
-#[cfg(feature = "bluetooth-websocket")]
-pub(super) async fn refresh_device_connection_if_needed(
-    previous_device: Option<&DeviceSnapshot>,
-    device: &DeviceSnapshot,
-) {
-    let vsp_needs_refresh = previous_device
-        .map(|prev| {
-            (device.connected && !prev.connected)
-                || (device.connected && prev.services.is_empty() && !device.services.is_empty())
-        })
-        .unwrap_or(false);
+pub(crate) static VSP_COMMAND_HANDLER: VspCommandHandler = VspCommandHandler;
 
-    if !vsp_needs_refresh {
-        return;
+impl BluetoothCommandHandler for VspCommandHandler {
+    fn commands(&self) -> &'static [&'static str] {
+        &["gattList", "gattConnect", "gattDisconnect"]
     }
 
-    let Some(state) = BluetoothService::active_vsp_state(&device.address).await else {
-        return;
-    };
-
-    match BluetoothService::refresh_vsp_connection(&device.address, &state).await {
-        Ok(()) => {
-            if state.is_json() {
-                BluetoothService::send_vsp_json(
-                    &state,
-                    serde_json::json!({"Connected": true}),
-                )
-                .await;
+    fn handle<'a>(
+        &'a self,
+        conn: &'a Connection,
+        objects: &'a ManagedObjects,
+        adapter_path: &'a str,
+        device: Option<&'a str>,
+        body: &'a serde_json::Value,
+        command: &'a str,
+    ) -> BluetoothCommandFuture<'a> {
+        Box::pin(async move {
+            match handle_vsp_command(conn, objects, adapter_path, device, body, command).await {
+                Some(result) => result,
+                None => Ok(BluetoothCommandOutcome::failure(format!(
+                    "unknown vsp command: {command}"
+                ))),
             }
-        }
-        Err(error) => {
-            debug!("failed to refresh VSP connection for {}: {}", device.address, error);
-        }
+        })
     }
-}
-
-#[cfg(feature = "bluetooth-websocket")]
-pub(super) async fn handle_characteristic_value_change(
-    device: &DeviceSnapshot,
-    characteristic: &CharacteristicSnapshot,
-) {
-    let Some(state) = BluetoothService::active_vsp_state(&device.address).await else {
-        return;
-    };
-
-    if !characteristic.uuid.eq_ignore_ascii_case(state.read_char_uuid()) {
-        return;
-    }
-
-    if state.is_json() {
-        let value_hex = characteristic.value_hex.as_deref().unwrap_or_default();
-        BluetoothService::send_vsp_json(
-            &state,
-            serde_json::json!({"Received": format!("0x{}", value_hex)}),
-        )
-        .await;
-    } else if let Some(value_hex) = characteristic.value_hex.as_deref()
-        && let Ok(bytes) = hex::decode(value_hex) {
-            BluetoothService::write_vsp_bytes(&state, &bytes).await;
-        }
-}
-
-#[cfg(feature = "bluetooth-websocket")]
-pub(super) async fn handle_device_removed(device: &DeviceSnapshot) {
-    if let Some(state) = BluetoothService::active_vsp_state(&device.address).await
-        && state.is_json() {
-            BluetoothService::send_vsp_json(
-                &state,
-                serde_json::json!({"Connected": false}),
-            )
-            .await;
-        }
 }
 
 pub(super) async fn handle_vsp_command(
@@ -400,10 +376,11 @@ pub(super) async fn handle_vsp_command(
 ) -> Option<anyhow::Result<BluetoothCommandOutcome>> {
     match command {
         "gattList" => {
-            let mut response = BluetoothService::empty_control_response();
-            response.vsp = crate::plugins::bluetooth::routes::vsp::gatt_connections_response(
+            let typed = crate::plugins::bluetooth_vsp::routes::shared::gatt_connections_response(
                 BluetoothService::list_vsp_connections().await,
             );
+            let mut response = BluetoothService::empty_control_response();
+            response.extra = crate::plugins::bluetooth_vsp::routes::shared::control_response_fragment(&typed);
             Some(Ok(BluetoothCommandOutcome::success(response)))
         }
         "gattConnect" => Some(handle_gatt_connect(_conn, _objects, _adapter_path, _device, _body).await),
@@ -460,8 +437,7 @@ async fn handle_gatt_connect(
         }
     };
 
-    if BluetoothService::active_vsp_state(dev_addr).await.is_some() {
-        let current = BluetoothService::active_vsp_state(dev_addr).await.unwrap();
+    if let Some(current) = BluetoothService::active_vsp_state(dev_addr).await {
         return Ok(BluetoothCommandOutcome::failure(format!(
             "device {} already has vsp connection on port {}",
             dev_addr, current.port
@@ -491,6 +467,7 @@ async fn handle_gatt_connect(
         conn,
         StartVspConnectionArgs {
             device_address: dev_addr.to_string(),
+            device_path,
             service_uuid: vsp_svc_uuid.to_string(),
             read_char_path,
             read_char_uuid: vsp_read_chr_uuid.to_string(),

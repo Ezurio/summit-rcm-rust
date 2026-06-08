@@ -317,6 +317,7 @@ macro_rules! declare_plugin {
         name: $name:literal
         $(, startup: $startup:expr)?
         $(, at_commands: $commands:expr)?
+        $(, bluetooth_command_handler: $bt_handler:expr)?
         $(,)?
     ) => {
         #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy", feature = "at-interface")))]
@@ -336,6 +337,7 @@ macro_rules! declare_plugin {
                 publication = publication.with_route_doc_policies(ROUTE_DOC_POLICIES);
             }
             publication = $crate::declare_plugin!(@with_at_commands publication $(, $commands)?);
+            publication = $crate::declare_plugin!(@with_bluetooth_handler publication $(, $bt_handler)?);
             publication
         };
     };
@@ -350,6 +352,21 @@ macro_rules! declare_plugin {
             $publication.with_at_commands($commands)
         }
         #[cfg(not(feature = "at-interface"))]
+        {
+            $publication
+        }
+    }};
+
+    (@with_bluetooth_handler $publication:ident) => {
+        $publication
+    };
+
+    (@with_bluetooth_handler $publication:ident, $bt_handler:expr) => {{
+        #[cfg(feature = "bluetooth")]
+        {
+            $publication.with_bluetooth_command_handler($bt_handler)
+        }
+        #[cfg(not(feature = "bluetooth"))]
         {
             $publication
         }

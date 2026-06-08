@@ -7,6 +7,16 @@
 
 use super::*;
 
+/// Env var for the Bluetooth bus timeout in milliseconds. Defaults to 60 s to
+/// cover the worst-case Pair / Connect handshake. Every call on this bus uses
+/// the same timeout — one value, one connection.
+pub const BLUETOOTH_TIMEOUT_MS_ENV: &str = "SUMMIT_RCM_BLUETOOTH_TIMEOUT_MS";
+
+static BLUETOOTH_TIMEOUT: LazyLock<std::time::Duration> = LazyLock::new(|| {
+    let val = crate::config::env_or_trimmed(BLUETOOTH_TIMEOUT_MS_ENV, "");
+    std::time::Duration::from_millis(val.parse::<u64>().unwrap_or(60_000).max(1))
+});
+
 impl BluetoothService {
     pub(super) async fn get_controller_state_data_with_conn(
         conn: &Connection,
@@ -32,7 +42,7 @@ impl BluetoothService {
         })
     }
 
-    pub(super) async fn call_bluez_noargs(
+    pub(crate) async fn call_bluez_noargs(
         conn: &Connection,
         path: &str,
         interface: &str,
@@ -70,25 +80,16 @@ impl BluetoothService {
         .await
     }
 
-    pub(super) fn device_path(adapter_path: &str, device_address: &str) -> String {
+    pub(crate) fn device_path(adapter_path: &str, device_address: &str) -> String {
         format!("{}/dev_{}", adapter_path, device_address.replace(':', "_"))
     }
 
-    #[cfg(all(feature = "bluetooth-websocket", feature = "bluetooth-vsp"))]
-    pub(super) fn find_device_path(objects: &ManagedObjects, device_address: &str) -> Option<String> {
-        objects.iter().find_map(|(path, ifaces)| {
-            let device_props = ifaces.get(DEVICE_IFACE)?;
-            let address: String = dbus::property_or_default(device_props, "Address");
-            if address.eq_ignore_ascii_case(device_address) {
-                Some(path.as_str().to_string())
-            } else {
-                None
-            }
-        })
-    }
-
     pub(super) async fn get_conn() -> anyhow::Result<Arc<Connection>> {
-        dbus::system_bus().await
+        #[cfg(test)]
+        if let Some(conn) = super::test_support::test_system_bus() {
+            return Ok(conn);
+        }
+        dbus::system_bus_with_timeout(Some(*BLUETOOTH_TIMEOUT)).await
     }
 
     pub(super) fn snapshot_from_objects(
@@ -137,7 +138,7 @@ impl BluetoothService {
         })
     }
 
-    pub(super) async fn get_managed_objects(conn: &Connection) -> anyhow::Result<ManagedObjects> {
+    pub(crate) async fn get_managed_objects(conn: &Connection) -> anyhow::Result<ManagedObjects> {
         let reply = dbus::call_method(
             conn,
             Some(BLUEZ_SERVICE),
@@ -170,11 +171,12 @@ impl BluetoothService {
         adapter_paths.into_iter().next()
     }
 
+    #[cfg(feature = "bluetooth-websocket")]
     pub(super) fn timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+        // CLOCK_BOOTTIME: monotonic and unaffected by wall-clock/NTP jumps, so
+        // notification timestamps stay strictly ordered even before the RTC is
+        // synchronized on embedded targets.
+        crate::utils::timespec_duration(crate::utils::boottime()).as_secs()
     }
 
     pub(super) fn device_snapshot(props: &HashMap<String, OwnedValue>) -> DeviceSnapshot {
@@ -258,7 +260,7 @@ impl BluetoothService {
         (services, characteristics)
     }
 
-    pub(super) fn find_characteristic_path(
+    pub(crate) fn find_characteristic_path(
         objects: &ManagedObjects,
         device_path: &str,
         service_uuid: &str,
@@ -293,24 +295,24 @@ impl BluetoothService {
         })
     }
 
+    #[cfg(feature = "bluetooth-websocket")]
     pub(super) fn send_char_value_notification(char_uuid: &str, value_hex: String) {
-        send_notification(serde_json::json!({
-            "char": {
-                "char_uuid": char_uuid,
-                "value": value_hex,
-                "timestamp": Self::timestamp(),
-            }
-        }));
+        BleNotification::CharValue(CharValueNotification {
+            char_uuid: char_uuid.to_string(),
+            value: value_hex,
+            timestamp: Self::timestamp(),
+        })
+        .publish();
     }
 
+    #[cfg(feature = "bluetooth-websocket")]
     pub(super) fn send_char_result_notification(char_uuid: &str, result: i32, error: Option<String>) {
-        send_notification(serde_json::json!({
-            "char": {
-                "char_uuid": char_uuid,
-                "result": result,
-                "error": error,
-                "timestamp": Self::timestamp(),
-            }
-        }));
+        BleNotification::CharResult(CharResultNotification {
+            char_uuid: char_uuid.to_string(),
+            result,
+            error,
+            timestamp: Self::timestamp(),
+        })
+        .publish();
     }
 }

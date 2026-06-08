@@ -3,16 +3,21 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use super::*;
+use crate::dbus;
+use crate::plugins::bluetooth::service::{
+    BluetoothCommandFuture, BluetoothCommandHandler,
+    BluetoothCommandOutcome, BluetoothService, ManagedObjects, DEVICE_IFACE,
+};
 use crate::utils::read_sysfs;
+use zbus::Connection;
 
 use std::{
-    collections::HashMap as StdHashMap,
+    collections::HashMap,
     fs,
     io::{ErrorKind, Read},
     pin::Pin,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex as StdMutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 use futures_util::StreamExt;
@@ -154,8 +159,37 @@ const HID_UPPERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
     Some('?'),
 ];
 
-static HID_CONNECTIONS: LazyLock<StdMutex<StdHashMap<String, HidConnectionHandle>>> =
-    LazyLock::new(|| StdMutex::new(StdHashMap::new()));
+static HID_CONNECTIONS: LazyLock<Mutex<HashMap<String, HidConnectionHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) struct HidCommandHandler;
+
+pub(crate) static HID_COMMAND_HANDLER: HidCommandHandler = HidCommandHandler;
+
+impl BluetoothCommandHandler for HidCommandHandler {
+    fn commands(&self) -> &'static [&'static str] {
+        &["hidList", "hidConnect", "hidDisconnect"]
+    }
+
+    fn handle<'a>(
+        &'a self,
+        _conn: &'a Connection,
+        objects: &'a ManagedObjects,
+        adapter_path: &'a str,
+        device: Option<&'a str>,
+        body: &'a serde_json::Value,
+        command: &'a str,
+    ) -> BluetoothCommandFuture<'a> {
+        Box::pin(async move {
+            match handle_hid_command(objects, adapter_path, device, body, command).await {
+                Some(result) => result,
+                None => Ok(BluetoothCommandOutcome::failure(format!(
+                    "unknown hid command: {command}"
+                ))),
+            }
+        })
+    }
+}
 
 pub(super) async fn handle_hid_command(
     _objects: &ManagedObjects,
@@ -175,8 +209,8 @@ pub(super) async fn handle_hid_command(
 struct HidSharedState {
     device_uuid: String,
     port: u16,
-    writer_tx: StdMutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
-    active_device_node: StdMutex<Option<PathBuf>>,
+    writer_tx: Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
+    active_device_node: Mutex<Option<PathBuf>>,
 }
 
 struct HidConnectionHandle {
@@ -216,8 +250,8 @@ impl HidSharedState {
         Arc::new(Self {
             device_uuid,
             port,
-            writer_tx: StdMutex::new(None),
-            active_device_node: StdMutex::new(None),
+            writer_tx: Mutex::new(None),
+            active_device_node: Mutex::new(None),
         })
     }
 
@@ -289,19 +323,28 @@ impl HidRawReader {
     }
 }
 
+impl BluetoothService {
+    pub async fn list_hid_connections(
+    ) -> Vec<crate::plugins::bluetooth::routes::shared::BluetoothConnectionModel> {
+        let guard = HID_CONNECTIONS.lock().unwrap();
+        guard
+            .iter()
+            .map(|(device, handle)| {
+                crate::plugins::bluetooth::routes::shared::BluetoothConnectionModel {
+                    device: device.clone(),
+                    port: i32::from(handle.state.port),
+                }
+            })
+            .collect()
+    }
+}
+
 async fn handle_hid_list() -> anyhow::Result<BluetoothCommandOutcome> {
-    let guard = HID_CONNECTIONS.lock().unwrap();
-    let connections = guard
-        .iter()
-        .map(|(device, handle)| crate::plugins::bluetooth::routes::common::BluetoothConnectionModel {
-            device: device.clone(),
-            port: i32::from(handle.state.port),
-        })
-        .collect::<Vec<_>>();
+    let typed = crate::plugins::bluetooth_hid::routes::shared::hid_connections_response(
+        BluetoothService::list_hid_connections().await,
+    );
     let mut response = BluetoothService::empty_control_response();
-    response.hid = crate::plugins::bluetooth::routes::hid::BluetoothHidControlResponse {
-        hid_connections: Some(connections),
-    };
+    response.extra = crate::plugins::bluetooth_hid::routes::shared::control_response_fragment(&typed);
     Ok(BluetoothCommandOutcome::success(response))
 }
 

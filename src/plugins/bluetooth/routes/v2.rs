@@ -3,21 +3,56 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::plugins::bluetooth::routes::common::{
-    BluetoothCommandRequest, BluetoothControlResponse, BluetoothDeviceModel,
-    BluetoothQuery, BluetoothStateResponse,
+use crate::plugins::bluetooth::routes::shared::{
+    include_filter, BluetoothCommandRequest, BluetoothControlResponse, BluetoothControllerState,
+    BluetoothDeviceModel, BluetoothQuery,
 };
-#[cfg(feature = "bluetooth-websocket")]
-use crate::plugins::bluetooth::routes::websocket::bluetooth_websocket_upgrade_response;
 use crate::plugins::bluetooth::service::{BluetoothDeviceStateError, BluetoothService};
 use axum::{extract::{Path, Query}, Json};
-#[cfg(feature = "bluetooth-websocket")]
-use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
-#[cfg(feature = "bluetooth-websocket")]
-use axum::response::Response;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
+
+#[derive(Deserialize, Serialize)]
+#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
+pub struct BluetoothControllerModel {
+    #[serde(rename = "bluetoothDevices")]
+    pub bluetooth_devices: Option<Vec<BluetoothDeviceModel>>,
+    #[serde(rename = "RSSI")]
+    pub rssi: Option<i32>,
+    #[serde(rename = "Transport")]
+    pub transport: Option<String>,
+    #[serde(rename = "Pattern")]
+    pub pattern: Option<String>,
+    pub discovering: Option<i32>,
+    pub powered: Option<i32>,
+    pub discoverable: Option<i32>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
+#[serde(transparent)]
+pub struct BluetoothStateResponse(pub BTreeMap<String, BluetoothControllerModel>);
+
+impl BluetoothControllerState {
+    pub fn into_v2_response(self) -> BluetoothStateResponse {
+        let filters = self.matched_filters.as_deref();
+        let model = BluetoothControllerModel {
+            bluetooth_devices: include_filter(filters, "bluetoothDevices").then_some(self.devices),
+            // Cached discovery-filter properties (write-only in BlueZ). The v2 API
+            // exposes them under their BlueZ names.
+            rssi: include_filter(filters, "RSSI").then_some(self.rssi_filter).flatten(),
+            transport: include_filter(filters, "Transport").then_some(self.transport_filter).flatten(),
+            pattern: include_filter(filters, "Pattern").then_some(self.pattern_filter).flatten(),
+            discovering: include_filter(filters, "discovering").then_some(i32::from(self.discovering)),
+            powered: include_filter(filters, "powered").then_some(i32::from(self.powered)),
+            discoverable: include_filter(filters, "discoverable").then_some(i32::from(self.discoverable)),
+        };
+        BluetoothStateResponse(BTreeMap::from([(self.controller_name, model)]))
+    }
+}
 
 define_bluetooth_v2_response_family! {
     pub enum GetBluetoothResponses(BluetoothStateResponse);
@@ -69,8 +104,8 @@ fn put_error_response(message: &str) -> PutBluetoothResponses {
     responses(GetBluetoothResponses)
 ))]
 pub async fn get_bluetooth(Query(query): Query<BluetoothQuery>) -> GetBluetoothResponses {
-    match BluetoothService::get_state_v2(None, None, query.filters()).await {
-        Ok(value) => value.into(),
+    match BluetoothService::get_controller_state(None, query.filters()).await {
+        Ok(state) => state.into_v2_response().into(),
         Err(error) => get_error_response(&error),
     }
 }
@@ -114,8 +149,8 @@ pub async fn get_bluetooth_controller(
     Path(controller): Path<String>,
     Query(query): Query<BluetoothQuery>,
 ) -> GetBluetoothResponses {
-    match BluetoothService::get_state_v2(Some(&controller), None, query.filters()).await {
-        Ok(value) => value.into(),
+    match BluetoothService::get_controller_state(Some(&controller), query.filters()).await {
+        Ok(state) => state.into_v2_response().into(),
         Err(error) => get_error_response(&error),
     }
 }
@@ -201,11 +236,22 @@ pub async fn put_bluetooth_device(
     }
 }
 
+/// `GET /api/v2/bluetooth/ws` — upgrade to the BLE notification websocket.
 #[cfg(feature = "bluetooth-websocket")]
+#[cfg_attr(feature = "api-docs", utoipa::path(
+    get,
+    path = "/api/v2/bluetooth/ws",
+    tag = "bluetooth",
+    responses(crate::notifications::NotificationWebsocketResponse)
+))]
 pub async fn get_bluetooth_websocket(
-    upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
-) -> Response {
-    bluetooth_websocket_upgrade_response(upgrade)
+    upgrade: Result<
+        axum::extract::ws::WebSocketUpgrade,
+        axum::extract::ws::rejection::WebSocketUpgradeRejection,
+    >,
+) -> crate::notifications::NotificationWebsocketResponse {
+    super::shared::bluetooth_websocket_upgrade_response(upgrade)
         .await
         .expect("websocket upgrade should always return a response")
 }
+

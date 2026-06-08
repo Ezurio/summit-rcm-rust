@@ -54,13 +54,15 @@ pub async fn create_csr_from_upload(
                 if !fname.ends_with(".cnf") {
                     return Err(ProvisioningRouteError::BadRequest);
                 }
-                let data = field.bytes().await.unwrap_or_default();
+                let data = field.bytes().await.map_err(|_| ProvisioningRouteError::BadRequest)?;
                 if tokio::fs::write(CONFIG_FILE_TEMP_PATH, data).await.is_err() {
                     return Err(ProvisioningRouteError::InternalError);
                 }
                 config_file_found = true;
             }
             "opensslKeyGenArgs" => {
+                // Optional field; empty string means "use defaults", so a read
+                // error is treated the same as "not provided".
                 openssl_key_gen_args = field.text().await.unwrap_or_default();
             }
             _ => {}
@@ -115,7 +117,7 @@ pub async fn save_uploaded_certificate(
             if !fname.ends_with(".crt") && !fname.ends_with(".pem") {
                 return Err(ProvisioningRouteError::InvalidCertificate);
             }
-            let data = field.bytes().await.unwrap_or_default();
+            let data = field.bytes().await.map_err(|_| ProvisioningRouteError::BadRequest)?;
             if tokio::fs::write(CERT_TEMP_PATH, data).await.is_err() {
                 return Err(ProvisioningRouteError::InternalError);
             }

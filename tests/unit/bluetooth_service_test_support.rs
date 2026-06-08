@@ -25,12 +25,16 @@ pub(super) const TEST_VSP_WRITE_UUID: &str = "6E400002-B5A3-F393-E0A9-E50E24DCCA
 struct MockDeviceState {
     connected: bool,
     paired: bool,
+    trusted: bool,
+    auto_connect: bool,
+    removed: bool,
 }
 
 #[derive(Default)]
 pub(super) struct MockBluezState {
     pub(super) discovering: AtomicBool,
     device: StdMutex<MockDeviceState>,
+    pub(super) discovery_filters: StdMutex<Vec<String>>,
     #[cfg(feature = "bluetooth-vsp")]
     pub(super) vsp_notify_enabled: AtomicBool,
     #[cfg(feature = "bluetooth-vsp")]
@@ -46,6 +50,30 @@ impl MockBluezState {
     #[cfg(feature = "bluetooth-vsp")]
     pub(super) fn vsp_writes(&self) -> Vec<Vec<u8>> {
         self.vsp_writes.lock().expect("vsp writes mutex poisoned").clone()
+    }
+
+    fn device(&self) -> MockDeviceState {
+        self.device.lock().expect("device mutex poisoned").clone()
+    }
+
+    pub(super) fn device_paired(&self) -> bool {
+        self.device().paired
+    }
+
+    pub(super) fn device_connected(&self) -> bool {
+        self.device().connected
+    }
+
+    pub(super) fn device_trusted(&self) -> bool {
+        self.device().trusted
+    }
+
+    pub(super) fn device_auto_connect(&self) -> bool {
+        self.device().auto_connect
+    }
+
+    pub(super) fn device_removed(&self) -> bool {
+        self.device().removed
     }
 }
 
@@ -65,6 +93,26 @@ impl MockAdapter {
         } else {
             Err(zbus::fdo::Error::Failed("No discovery started".to_string()))
         }
+    }
+
+    fn set_discovery_filter(
+        &self,
+        filter: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+    ) {
+        let mut keys: Vec<String> = filter.keys().cloned().collect();
+        keys.sort();
+        *self
+            .state
+            .discovery_filters
+            .lock()
+            .expect("discovery filters mutex poisoned") = keys;
+    }
+
+    fn remove_device(&self, _device: zbus::zvariant::OwnedObjectPath) {
+        let mut device = self.state.device.lock().expect("device mutex poisoned");
+        device.removed = true;
+        device.connected = false;
+        device.paired = false;
     }
 
     #[zbus(property)]
@@ -107,6 +155,10 @@ impl MockDevice {
         self.state.device.lock().expect("device mutex poisoned").paired = true;
     }
 
+    fn get_conn_info(&self) -> (i16, i16, i16) {
+        (-55, 4, 8)
+    }
+
     #[zbus(property)]
     fn address(&self) -> String {
         TEST_DEVICE_ADDRESS.to_string()
@@ -134,7 +186,22 @@ impl MockDevice {
 
     #[zbus(property)]
     fn trusted(&self) -> bool {
-        false
+        self.snapshot().trusted
+    }
+
+    #[zbus(property)]
+    fn set_trusted(&self, value: bool) {
+        self.state.device.lock().expect("device mutex poisoned").trusted = value;
+    }
+
+    #[zbus(property)]
+    fn auto_connect(&self) -> bool {
+        self.snapshot().auto_connect
+    }
+
+    #[zbus(property)]
+    fn set_auto_connect(&self, value: bool) {
+        self.state.device.lock().expect("device mutex poisoned").auto_connect = value;
     }
 
     #[zbus(property)]
@@ -305,10 +372,43 @@ impl Drop for TestBus {
     }
 }
 
+thread_local! {
+    /// Connection the bluetooth service uses instead of the real system bus
+    /// while a [`MockBluezHarness`] is active on this thread. Installed by
+    /// `start` and cleared on drop, so `BluetoothService::get_conn`
+    /// transparently targets the mock bus without threading a connection
+    /// through every service call.
+    static TEST_SYSTEM_BUS: std::cell::RefCell<Option<StdArc<Connection>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Connection the bluetooth service should use on this thread, if a harness is
+/// active. Read by `BluetoothService::get_conn` under `cfg(test)`.
+pub(super) fn test_system_bus() -> Option<StdArc<Connection>> {
+    TEST_SYSTEM_BUS.with(|cell| cell.borrow().clone())
+}
+
+pub(super) struct TestSystemBusGuard {
+    previous: Option<StdArc<Connection>>,
+}
+
+impl Drop for TestSystemBusGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        TEST_SYSTEM_BUS.with(|cell| *cell.borrow_mut() = previous);
+    }
+}
+
+pub(super) fn install_test_system_bus(conn: StdArc<Connection>) -> TestSystemBusGuard {
+    let previous = TEST_SYSTEM_BUS.with(|cell| cell.replace(Some(conn)));
+    TestSystemBusGuard { previous }
+}
+
 pub(super) struct MockBluezHarness {
     _bus: TestBus,
     _service_conn: Connection,
-    pub(super) conn: Connection,
+    _client_conn: StdArc<Connection>,
+    _test_bus_guard: TestSystemBusGuard,
     pub(super) state: StdArc<MockBluezState>,
 }
 
@@ -352,12 +452,16 @@ impl MockBluezHarness {
                 },
             )?;
         let service_conn = builder.build().await?;
-        let conn = Builder::address(bus.address.as_str())?.build().await?;
+        let client_conn = StdArc::new(Builder::address(bus.address.as_str())?.build().await?);
+        // Route the bluetooth service's `get_conn` to this mock bus for the
+        // duration of the harness (restored on drop).
+        let test_bus_guard = install_test_system_bus(client_conn.clone());
 
         Ok(Self {
             _bus: bus,
             _service_conn: service_conn,
-            conn,
+            _client_conn: client_conn,
+            _test_bus_guard: test_bus_guard,
             state,
         })
     }

@@ -97,10 +97,13 @@ update = ["dep:swupdate-ipc", "swupdate-ipc/async"]
 #   plugin + at-interface → AT commands
 awm             = []
 bluetooth       = []
-# Bluetooth subfeatures — extend the bluetooth plugin, not standalone plugins.
-bluetooth-hid   = ["dep:tokio-udev"]
-bluetooth-vsp   = []
-bluetooth-websocket = ["axum/ws"]
+# Bluetooth subfeatures — standalone device plugins that extend the bluetooth
+# plugin's service surface, so they require the bluetooth plugin itself.
+bluetooth-hid   = ["bluetooth", "dep:tokio-udev"]
+bluetooth-vsp   = ["bluetooth"]
+bluetooth-websocket = ["bluetooth", "notifications"]
+# Application-wide websocket notification channel (payload-agnostic transport).
+notifications = ["axum/ws"]
 chrony          = []
 fips            = []
 firewall        = []

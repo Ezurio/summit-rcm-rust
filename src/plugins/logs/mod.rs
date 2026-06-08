@@ -129,4 +129,3 @@ crate::declare_plugin! {
 	name: "logs",
 	at_commands: at_commands::COMMANDS,
 }
-

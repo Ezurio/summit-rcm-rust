@@ -10,7 +10,7 @@ use std::time::Duration;
 use zbus::MessageStream;
 
 use super::{
-    NetworkManagerService, NmProperties, NM_BUS_NAME, NM_IFACE, NM_MAIN_OBJ,
+    NetworkManagerService, NM_BUS_NAME, NM_IFACE, NM_MAIN_OBJ,
     NM_SETTINGS_CONNECTION_IFACE,
 };
 
@@ -33,14 +33,24 @@ impl NetworkManagerService {
         crate::dbus::subscribe_to_signal(NM_BUS_NAME, NM_SETTINGS_CONNECTION_IFACE, "Removed", 16).await
     }
 
-    async fn wait_for_active_connection_state(
-        uuid: &str,
-        active: bool,
+    /// Drive `stream` until `is_satisfied` reports the target state, bounded by
+    /// [`NETWORK_STATE_VERIFY_TIMEOUT`]. Only `PropertiesChanged` signals on the
+    /// main NetworkManager object that touch `watched_property` trigger a
+    /// re-check; `timeout_message` describes the awaited transition for the
+    /// timeout error.
+    async fn wait_for_nm_main_property<C, Fut>(
         stream: &mut MessageStream,
-    ) -> Result<()> {
+        watched_property: &str,
+        timeout_message: String,
+        mut is_satisfied: C,
+    ) -> Result<()>
+    where
+        C: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<bool>>,
+    {
         tokio::time::timeout(NETWORK_STATE_VERIFY_TIMEOUT, async {
             loop {
-                if Self::get_active_connection_path_by_uuid(uuid).await?.is_some() == active {
+                if is_satisfied().await? {
                     return Ok(());
                 }
 
@@ -49,44 +59,41 @@ impl NetworkManagerService {
                 };
                 let message = message?;
 
-                let path_matches = message
-                    .header()
-                    .path()
-                    .map(|path| path.as_str() == NM_MAIN_OBJ)
-                    .unwrap_or(false);
-                if !path_matches {
-                    continue;
-                }
-
-                let Ok((changed_interface, changed_properties, invalidated_properties)) =
-                    message.body().deserialize::<(String, NmProperties, Vec<String>)>()
-                else {
+                let Some(signal) = crate::dbus::parse_properties_changed(&message) else {
                     continue;
                 };
 
-                if changed_interface != NM_IFACE {
+                if signal.path != NM_MAIN_OBJ || signal.interface != NM_IFACE {
                     continue;
                 }
 
-                let active_connections_changed = changed_properties.contains_key("ActiveConnections")
-                    || invalidated_properties
+                let _ = signal.changed.contains_key(watched_property)
+                    || signal
+                        .invalidated
                         .iter()
-                        .any(|property| property == "ActiveConnections");
-                if !active_connections_changed {
-                    continue;
-                }
+                        .any(|property| property == watched_property);
             }
         })
         .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "Timed out waiting for connection '{}' to {}",
-                uuid,
-                if active { "activate" } else { "deactivate" }
-            )
-        })??;
+        .map_err(|_| anyhow::anyhow!("{timeout_message}"))??;
 
         Ok(())
+    }
+
+    async fn wait_for_active_connection_state(
+        uuid: &str,
+        active: bool,
+        stream: &mut MessageStream,
+    ) -> Result<()> {
+        let timeout_message = format!(
+            "Timed out waiting for connection '{}' to {}",
+            uuid,
+            if active { "activate" } else { "deactivate" }
+        );
+        Self::wait_for_nm_main_property(stream, "ActiveConnections", timeout_message, || async {
+            Ok(Self::get_active_connection_path_by_uuid(uuid).await?.is_some() == active)
+        })
+        .await
     }
 
     async fn wait_for_connection_removed(
@@ -122,54 +129,14 @@ impl NetworkManagerService {
     }
 
     async fn wait_for_wifi_enabled_state(enabled: bool, stream: &mut MessageStream) -> Result<()> {
-        tokio::time::timeout(NETWORK_STATE_VERIFY_TIMEOUT, async {
-            loop {
-                if Self::get_wifi_enabled_dbus().await? == enabled {
-                    return Ok(());
-                }
-
-                let Some(message) = stream.next().await else {
-                    anyhow::bail!("NetworkManager PropertiesChanged stream ended unexpectedly");
-                };
-                let message = message?;
-
-                let path_matches = message
-                    .header()
-                    .path()
-                    .map(|path| path.as_str() == NM_MAIN_OBJ)
-                    .unwrap_or(false);
-                if !path_matches {
-                    continue;
-                }
-
-                let Ok((changed_interface, changed_properties, invalidated_properties)) =
-                    message.body().deserialize::<(String, NmProperties, Vec<String>)>()
-                else {
-                    continue;
-                };
-
-                if changed_interface != NM_IFACE {
-                    continue;
-                }
-
-                let wireless_enabled_changed = changed_properties.contains_key("WirelessEnabled")
-                    || invalidated_properties
-                        .iter()
-                        .any(|property| property == "WirelessEnabled");
-                if !wireless_enabled_changed {
-                    continue;
-                }
-            }
+        let timeout_message = format!(
+            "Timed out waiting for Wi-Fi to be {}",
+            if enabled { "enabled" } else { "disabled" }
+        );
+        Self::wait_for_nm_main_property(stream, "WirelessEnabled", timeout_message, || async {
+            Ok(Self::get_wifi_enabled_dbus().await? == enabled)
         })
         .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "Timed out waiting for Wi-Fi to be {}",
-                if enabled { "enabled" } else { "disabled" }
-            )
-        })??;
-
-        Ok(())
     }
 
     pub async fn activate_connection_and_wait(

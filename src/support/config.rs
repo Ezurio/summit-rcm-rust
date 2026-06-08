@@ -14,6 +14,19 @@ use log::warn;
 pub const SUMMIT_RCM_SERVER_CONF_FILE: &str = "/etc/summit-rcm.ini";
 pub const SUMMIT_RCM_SETTINGS_FILE: &str = "/etc/summit-rcm/summit-rcm-settings.ini";
 
+/// Returns the env var value (trimmed of surrounding `"`) in non-release
+/// builds; always returns `default` unchanged in release builds.
+pub(crate) fn env_or_trimmed(key: &str, default: &str) -> String {
+    #[cfg(not(debug_assertions))]
+    let _ = key;
+
+    #[cfg(debug_assertions)]
+    if let Ok(val) = std::env::var(key) {
+        return val.trim_matches('"').to_string();
+    }
+    default.to_string()
+}
+
 fn parse_bool(value: &str) -> Option<bool> {
     if matches!(value, "1")
         || value.eq_ignore_ascii_case("true")

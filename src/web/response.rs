@@ -95,7 +95,6 @@ macro_rules! define_json_response_family {
             }
         }
     };
-
 }
 
 #[macro_export]
@@ -213,6 +212,139 @@ macro_rules! define_status_response_family {
                 match self {
                     $(Self::$variant => $crate::web::response::empty_status_response($crate::web::response::http_status($status)),)+
                 }
+            }
+        }
+    };
+}
+
+// Response family for websocket endpoints. Like the other shaped families
+// (`define_text_response_family!`, `define_status_response_family!`) this is a
+// dedicated sibling macro rather than a variant of the generic JSON family,
+// because its first variant carries the raw protocol-upgrade `Response`
+// (e.g. HTTP 101) produced by the websocket layer. That field has no schema,
+// so `IntoResponses` is implemented by hand to emit the same OpenAPI the derive
+// would for the JSON body and bodyless status variants.
+#[macro_export]
+macro_rules! define_websocket_response_family {
+    // Upgrade variant + a JSON body outcome + bodyless status outcomes.
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $up_variant:ident => $up_status:tt, $up_desc:literal;
+            $( $body_variant:ident($body_ty:ty) => $body_status:tt ),+ $(,)?
+            ;
+            $( $empty_variant:ident => $empty_status:tt $(, $desc:literal)? ),* $(,)?
+        }
+        from $from_ty:ty => $from_variant:ident;
+    ) => {
+        $(#[$meta])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name {
+            $up_variant(axum::response::Response),
+            $( $body_variant($body_ty), )+
+            $( $empty_variant, )*
+        }
+
+        $(#[$meta])*
+        impl From<$from_ty> for $name {
+            fn from(value: $from_ty) -> Self { Self::$from_variant(value) }
+        }
+
+        $(#[$meta])*
+        impl axum::response::IntoResponse for $name {
+            fn into_response(self) -> axum::response::Response {
+                match self {
+                    Self::$up_variant(response) => response,
+                    $(Self::$body_variant(body) => $crate::web::response::json_response($crate::web::response::http_status($body_status), body),)+
+                    $(Self::$empty_variant => $crate::web::response::empty_status_response($crate::web::response::http_status($empty_status)),)*
+                }
+            }
+        }
+
+        #[cfg(feature = "api-docs")]
+        $(#[$meta])*
+        impl utoipa::IntoResponses for $name {
+            fn responses() -> std::collections::BTreeMap<String, utoipa::openapi::RefOr<utoipa::openapi::response::Response>> {
+                let mut responses = std::collections::BTreeMap::new();
+                responses.insert(
+                    stringify!($up_status).to_string(),
+                    utoipa::openapi::ResponseBuilder::new().description($up_desc).build().into(),
+                );
+                $(
+                    responses.insert(
+                        stringify!($body_status).to_string(),
+                        utoipa::openapi::ResponseBuilder::new()
+                            .description("")
+                            .content(
+                                "application/json",
+                                utoipa::openapi::ContentBuilder::new()
+                                    .schema(Some(utoipa::openapi::Ref::from_schema_name(
+                                        <$body_ty as utoipa::ToSchema>::name(),
+                                    )))
+                                    .build(),
+                            )
+                            .build()
+                            .into(),
+                    );
+                )+
+                $(
+                    responses.insert(
+                        stringify!($empty_status).to_string(),
+                        utoipa::openapi::ResponseBuilder::new()
+                            .description($crate::response_status_description!(@resolve $empty_status $(, $desc)?))
+                            .build()
+                            .into(),
+                    );
+                )*
+                responses
+            }
+        }
+    };
+
+    // Upgrade variant + bodyless status outcomes only (no JSON body variant).
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $up_variant:ident => $up_status:tt, $up_desc:literal;
+            $( $empty_variant:ident => $empty_status:tt $(, $desc:literal)? ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[allow(clippy::large_enum_variant)]
+        $vis enum $name {
+            $up_variant(axum::response::Response),
+            $( $empty_variant, )+
+        }
+
+        $(#[$meta])*
+        impl axum::response::IntoResponse for $name {
+            fn into_response(self) -> axum::response::Response {
+                match self {
+                    Self::$up_variant(response) => response,
+                    $(Self::$empty_variant => $crate::web::response::empty_status_response($crate::web::response::http_status($empty_status)),)+
+                }
+            }
+        }
+
+        #[cfg(feature = "api-docs")]
+        $(#[$meta])*
+        impl utoipa::IntoResponses for $name {
+            fn responses() -> std::collections::BTreeMap<String, utoipa::openapi::RefOr<utoipa::openapi::response::Response>> {
+                let mut responses = std::collections::BTreeMap::new();
+                responses.insert(
+                    stringify!($up_status).to_string(),
+                    utoipa::openapi::ResponseBuilder::new().description($up_desc).build().into(),
+                );
+                $(
+                    responses.insert(
+                        stringify!($empty_status).to_string(),
+                        utoipa::openapi::ResponseBuilder::new()
+                            .description($crate::response_status_description!(@resolve $empty_status $(, $desc)?))
+                            .build()
+                            .into(),
+                    );
+                )+
+                responses
             }
         }
     };
