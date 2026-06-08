@@ -28,5 +28,6 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "stunnel",
+	routes: ROUTE_PUBLICATIONS,
 }
 

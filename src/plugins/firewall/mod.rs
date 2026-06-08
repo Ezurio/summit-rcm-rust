@@ -32,5 +32,6 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "firewall",
+	routes: ROUTE_PUBLICATIONS,
 }
 

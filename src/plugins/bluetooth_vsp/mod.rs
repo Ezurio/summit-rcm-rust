@@ -37,5 +37,6 @@ crate::declare_plugin_api! {
 crate::declare_plugin! {
 	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "bluetooth-vsp",
+	routes: ROUTE_PUBLICATIONS,
 	bluetooth_command_handler: &service::VSP_COMMAND_HANDLER,
 }

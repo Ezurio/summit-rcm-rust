@@ -177,15 +177,15 @@ macro_rules! declare_plugin_api {
             $($legacy_route,)*
         ];
 
-        #[cfg(feature = "api-docs")]
+        #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
         const ROUTE_DOC_POLICIES_LEN: usize =
             $crate::publication::route_doc_policies_len(ROUTE_PUBLICATIONS);
 
-        #[cfg(feature = "api-docs")]
+        #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
         const ROUTE_DOC_POLICIES: &[$crate::publication::RouteDocPolicy] =
             &$crate::publication::derive_route_doc_policies::<ROUTE_DOC_POLICIES_LEN>(ROUTE_PUBLICATIONS);
 
-        #[cfg(feature = "api-docs")]
+        #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
         fn openapi_json() -> String {
             let mut merged: Option<utoipa::openapi::OpenApi> = None;
 
@@ -315,6 +315,7 @@ macro_rules! declare_plugin {
     (
         cfg($($cfg:tt)+);
         name: $name:literal
+        $(, routes: $routes:expr)?
         $(, startup: $startup:expr)?
         $(, at_commands: $commands:expr)?
         $(, bluetooth_command_handler: $bt_handler:expr)?
@@ -323,24 +324,70 @@ macro_rules! declare_plugin {
         #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy", feature = "at-interface")))]
         pub static PLUGIN_PUBLICATION: $crate::publication::PluginPublication = {
             let mut publication = $crate::publication::PluginPublication::new($name);
-            #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-            {
-                publication = publication.with_routes(ROUTE_PUBLICATIONS);
-            }
-            $(publication = publication.with_startup($startup);)?
-            #[cfg(feature = "api-docs")]
-            {
-                publication = publication.with_openapi_json(openapi_json);
-            }
-            #[cfg(feature = "api-docs")]
-            {
-                publication = publication.with_route_doc_policies(ROUTE_DOC_POLICIES);
-            }
+            publication = $crate::declare_plugin!(@with_routes publication $(, $routes)?);
+            publication = $crate::declare_plugin!(@with_startup publication $(, $startup)?);
+            publication = $crate::declare_plugin!(@with_openapi_json publication $(, $routes)?);
+            publication = $crate::declare_plugin!(@with_route_doc_policies publication $(, $routes)?);
             publication = $crate::declare_plugin!(@with_at_commands publication $(, $commands)?);
             publication = $crate::declare_plugin!(@with_bluetooth_handler publication $(, $bt_handler)?);
             publication
         };
     };
+
+    (@with_routes $publication:ident) => {
+        $publication
+    };
+
+    (@with_routes $publication:ident, $routes:expr) => {{
+        #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+        {
+            $publication.with_routes($routes)
+        }
+        #[cfg(not(any(feature = "api-v2", feature = "api-legacy")))]
+        {
+            $publication
+        }
+    }};
+
+    (@with_startup $publication:ident) => {
+        $publication
+    };
+
+    (@with_startup $publication:ident, $startup:expr) => {
+        $publication.with_startup($startup)
+    };
+
+    (@with_openapi_json $publication:ident) => {
+        $publication
+    };
+
+    (@with_openapi_json $publication:ident, $routes:expr) => {{
+        let _ = $routes;
+        #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
+        {
+            $publication.with_openapi_json(openapi_json)
+        }
+        #[cfg(not(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy"))))]
+        {
+            $publication
+        }
+    }};
+
+    (@with_route_doc_policies $publication:ident) => {
+        $publication
+    };
+
+    (@with_route_doc_policies $publication:ident, $routes:expr) => {{
+        let _ = $routes;
+        #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
+        {
+            $publication.with_route_doc_policies(ROUTE_DOC_POLICIES)
+        }
+        #[cfg(not(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy"))))]
+        {
+            $publication
+        }
+    }};
 
     (@with_at_commands $publication:ident) => {
         $publication
