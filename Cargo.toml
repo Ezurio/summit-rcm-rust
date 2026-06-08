@@ -47,6 +47,11 @@ name = "plugins"
 path = "tests/plugins.rs"
 
 [[test]]
+name = "cww"
+path = "tests/cww.rs"
+required-features = ["cww"]
+
+[[test]]
 name = "at_basic"
 path = "tests/at_basic.rs"
 required-features = ["at-interface"]
@@ -89,6 +94,7 @@ system = []
 logs = []
 files = []
 update = ["dep:swupdate-ipc", "swupdate-ipc/async"]
+cww = []
 
 # Optional plugins — fully independent; no interface implied.
 # Routes are wired only when the matching interface feature is also active:
@@ -113,7 +119,7 @@ radio-siso-mode = []
 stunnel         = []
 unauthenticated = []
 all-plugins = [
-    "awm", "bluetooth", "chrony", "fips", "firewall", "log-forwarding",
+    "awm", "bluetooth", "chrony", "cww", "fips", "firewall", "log-forwarding",
     "provisioning", "radio-siso-mode", "stunnel", "unauthenticated",
     "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
 ]
