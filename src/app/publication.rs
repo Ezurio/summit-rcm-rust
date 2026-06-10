@@ -9,9 +9,6 @@ mod core;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[path = "publication/http.rs"]
 mod http;
-#[cfg(feature = "api-docs")]
-#[path = "publication/docs.rs"]
-mod docs;
 #[path = "publication/macros.rs"]
 mod macros;
 
@@ -19,5 +16,3 @@ mod macros;
 pub use self::core::*;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub use self::http::*;
-#[cfg(feature = "api-docs")]
-pub use self::docs::*;

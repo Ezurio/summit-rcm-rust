@@ -1,10 +1,7 @@
 [workspace]
 members = [
     ".",
-    "crates/generate-nl80211",
-    "crates/plugin-api",
-    "crates/plugin-example",
-    "crates/swupdate-ipc",
+    "crates/*",
 ]
 
 [package]
@@ -67,7 +64,7 @@ default = ["api-v2", "api-legacy"]
 # Shared REST server stack used by both published HTTP APIs.
 api-rest = [
     "dep:axum",
-    "dep:libloading", "dep:tower-sessions", "dep:hyper-util", "tokio/net",
+    "dep:tower-sessions", "dep:hyper-util", "tokio/net",
 ]
 
 # REST API v2 routes (/api/v2/...) — pulls in Axum automatically
@@ -127,41 +124,62 @@ api-docs = ["dep:utoipa", "api-v2", "api-legacy"]
 runtime-docs = []
 swagger-ui = ["runtime-docs"]
 
-[dependencies]
-# Always required
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-bytes = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-configparser = { version = "3", features = ["async-std"] }
-hex = "0.4"
-log = "0.4"
-env_filter = { version = "1.0.1", default-features = false }
+[workspace.dependencies]
+# Versions declared once here; workspace members reference them with .workspace = true
+tokio          = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+bytes          = "1"
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+configparser   = { version = "3", features = ["async-std"] }
+hex            = "0.4"
+log            = "0.4"
+env_filter     = { version = "1.0.1", default-features = false }
 systemd-journal-logger = "2.2.2"
-tracing = { version = "0.1.44", default-features = false, features = ["release_max_level_off"] }
-anyhow = "1"
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
-base64 = "0.22"
-time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
-libc = "0.2"
+tracing        = { version = "0.1.44", default-features = false, features = ["release_max_level_off"] }
+anyhow         = "1"
+futures-util   = { version = "0.3", default-features = false, features = ["std", "sink"] }
+zbus           = { version = "5.16.0", default-features = false, features = ["tokio"] }
+base64         = "0.22"
+time           = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
+libc           = "0.2"
+openssl        = "0.10"
+openssl-sys    = "0.9"
+tokio-openssl  = "0.6"
+inventory      = "0.3"
+axum           = { version = "0.8.9", features = ["multipart"] }
+tower          = { version = "0.5", features = ["util"] }
+tokio-tungstenite = "0.29"
+
+[dependencies]
+tokio.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+configparser.workspace = true
+hex.workspace = true
+log.workspace = true
+env_filter.workspace = true
+systemd-journal-logger.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+futures-util.workspace = true
+zbus.workspace = true
+base64.workspace = true
+time.workspace = true
+libc.workspace = true
 rustix = { version = "1", features = ["time", "fs"], optional = true }
-openssl = "0.10"
-openssl-sys = "0.9"
-tokio-openssl = "0.6"
+openssl.workspace = true
+openssl-sys.workspace = true
+tokio-openssl.workspace = true
 hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"], optional = true }
 ping           = { version = "0.7", optional = true }
-summit-rcm-plugin-api = { path = "crates/plugin-api" }
-swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
 neli = { version = "0.7.4", default-features = false, features = ["async"], optional = true }
 neli-proc-macros = { version = "0.2.2", optional = true }
 tokio-udev = { version = "0.10.0", optional = true }
-
-# REST API dependencies (enabled by api-v2 and/or api-legacy)
-axum           = { version = "0.8.9", features = ["multipart"], optional = true }
-libloading     = { version = "0.9.0", optional = true }
+swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
+inventory.workspace = true
+axum = { workspace = true, optional = true }
 tower-sessions = { version = "0.15.0", optional = true }
-
 # AT interface (feature = "at-interface")
 tokio-serial   = { version = "5", optional = true }
 httparse       = { version = "1", optional = true }
@@ -169,8 +187,11 @@ httparse       = { version = "1", optional = true }
 utoipa         = { version = "5.5.0", features = ["axum_extras"], optional = true }
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
-tokio-tungstenite = "0.29"
+tower.workspace = true
+tokio-tungstenite.workspace = true
+
+[build-dependencies]
+glob = "0.3"
 
 [profile.dev]
 incremental = true

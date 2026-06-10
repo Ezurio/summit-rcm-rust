@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#![cfg(feature = "stunnel")]
 
 pub mod service;
 pub mod routes;
@@ -26,7 +27,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "stunnel",
 	routes: ROUTE_PUBLICATIONS,
 }

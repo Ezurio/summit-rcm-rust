@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#![cfg(feature = "bluetooth-hid")]
 
 //! Bluetooth HID device plugin.
 //!
@@ -35,7 +36,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "bluetooth-hid",
 	routes: ROUTE_PUBLICATIONS,
 	bluetooth_command_handler: &service::HID_COMMAND_HANDLER,

@@ -133,7 +133,7 @@ pub trait BluetoothCommandHandler: Sync {
 /// adding a new device type requires no edit to the core bluetooth code.
 static BLUETOOTH_COMMAND_HANDLERS: LazyLock<Vec<&'static dyn BluetoothCommandHandler>> =
     LazyLock::new(|| {
-        crate::publication::builtin_plugin_publications()
+        crate::all_plugin_publications()
             .into_iter()
             .filter_map(|publication| publication.bluetooth_command_handler)
             .collect()

@@ -74,7 +74,7 @@ mod runtime {
         let local = LocalSet::new();
         local
             .run_until(async move {
-                for publication in summit_rcm::builtin_plugin_publications() {
+                for publication in summit_rcm::all_plugin_publications() {
                     if let Some(startup) = publication.startup {
                         startup();
                     }

@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#![cfg(feature = "bluetooth")]
 
 // Bluetooth plugin routes and BLE notification websocket support.
 
@@ -60,7 +61,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "bluetooth",
 	routes: ROUTE_PUBLICATIONS,
 }

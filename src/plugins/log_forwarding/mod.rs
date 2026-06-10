@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#![cfg(feature = "log-forwarding")]
 
 pub(crate) const LOG_FORWARDING_ENABLED_FLAG_FILE: &str = "/etc/summit-rcm/log_forwarding_enabled";
 pub(crate) const SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE: &str = "systemd-journal-gatewayd.socket";
@@ -32,7 +33,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "log-forwarding",
 	routes: ROUTE_PUBLICATIONS,
 	at_commands: at_commands::COMMANDS,

@@ -76,7 +76,7 @@ static COMMAND_REGISTRY: LazyLock<HashMap<&'static str, &'static CommandHandler>
         }
     }
 
-    for publication in crate::publication::builtin_plugin_publications() {
+    for publication in crate::all_plugin_publications() {
         let Some(at_commands) = publication.at_commands.as_ref() else {
             continue;
         };

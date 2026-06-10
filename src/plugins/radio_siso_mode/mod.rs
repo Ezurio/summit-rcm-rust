@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#![cfg(feature = "radio-siso-mode")]
 
 pub mod service;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -29,7 +30,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "radio-siso-mode",
 	routes: ROUTE_PUBLICATIONS,
 	at_commands: at_commands::COMMANDS,

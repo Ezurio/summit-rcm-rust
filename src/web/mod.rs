@@ -62,7 +62,6 @@ use log::{info, warn};
 #[cfg(feature = "provisioning")]
 use axum::Extension;
 use crate::config::{ServerConfig, SystemSettingsManage};
-use crate::plugin_loader;
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ClientTlsInfo, ProvisioningWebTlsConfig,
@@ -553,7 +552,7 @@ fn admit_route_mode(mode: crate::publication::RouteMode) -> bool {
 
 fn apply_route_publications(mut api: Router, auth: crate::publication::RouteAuthPolicy) -> Router {
     let should_log_routes = ServerConfig::get_bool("summit-rcm", "log_routes_loaded", false);
-    for publication in crate::publication::builtin_plugin_publications() {
+    for publication in crate::all_plugin_publications() {
         debug_assert!(!publication.name.is_empty());
         if let Some(route_publications) = publication.routes {
             for route_publication in route_publications {
@@ -639,7 +638,6 @@ pub fn build_router() -> Router {
 
 pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {
     let app = build_router();
-    let app = plugin_loader::load_plugins(app).await;
 
     #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
     let app = add_runtime_docs_routes(app).await;

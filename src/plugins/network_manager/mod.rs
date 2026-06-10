@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#![cfg(feature = "network-manager")]
 
 pub(crate) const FILEDIR_CERT: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
 pub(crate) const INVALID_RSSI: f64 = -9999.9999;
@@ -152,7 +153,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"));
 	name: "network-manager",
 	routes: ROUTE_PUBLICATIONS,
 	startup: initialize_network_manager_runtime,

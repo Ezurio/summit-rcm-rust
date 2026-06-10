@@ -3,10 +3,6 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub fn builtin_registry<T>(items: &'static [&'static T]) -> Vec<&'static T> {
-    items.to_vec()
-}
-
 #[derive(Clone, Copy)]
 pub struct PluginPublication {
     pub name: &'static str,
@@ -14,10 +10,10 @@ pub struct PluginPublication {
     pub routes: Option<&'static [super::http::RoutePublication]>,
     #[cfg(feature = "at-interface")]
     pub at_commands: Option<&'static [crate::at_interface::commands::PublishedCommand]>,
-    #[cfg(feature = "api-docs")]
-    pub openapi_json: Option<super::docs::OpenApiJsonFn>,
-    #[cfg(feature = "api-docs")]
-    pub route_policies: Option<&'static [super::docs::RouteDocPolicy]>,
+    #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
+    pub openapi_json: Option<super::http::OpenApiJsonFn>,
+    #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
+    pub route_policies: Option<&'static [super::http::RouteDocPolicy]>,
     #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub startup: Option<fn()>,
     /// Bluetooth device command handler contributed by a device plugin (HID,
@@ -29,7 +25,14 @@ pub struct PluginPublication {
         Option<&'static dyn crate::plugins::bluetooth::service::BluetoothCommandHandler>,
 }
 
-include!(concat!(env!("OUT_DIR"), "/builtin_plugin_publications.rs"));
+/// Self-registration handle for a builtin plugin's [`PluginPublication`].
+///
+/// Each plugin's `declare_plugin!` invocation submits one of these via
+/// [`inventory`], so the set of builtin publications is assembled from the
+/// plugins that are actually compiled in — no central registry to maintain.
+pub struct PluginPublicationRegistration(pub &'static PluginPublication);
+
+inventory::collect!(PluginPublicationRegistration);
 
 impl PluginPublication {
     pub const fn new(name: &'static str) -> Self {
@@ -39,9 +42,9 @@ impl PluginPublication {
             routes: None,
             #[cfg(feature = "at-interface")]
             at_commands: None,
-            #[cfg(feature = "api-docs")]
+            #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
             openapi_json: None,
-            #[cfg(feature = "api-docs")]
+            #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
             route_policies: None,
             #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
             startup: None,
@@ -65,16 +68,16 @@ impl PluginPublication {
         self
     }
 
-    #[cfg(feature = "api-docs")]
-    pub const fn with_openapi_json(mut self, openapi_json: super::docs::OpenApiJsonFn) -> Self {
+    #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
+    pub const fn with_openapi_json(mut self, openapi_json: super::http::OpenApiJsonFn) -> Self {
         self.openapi_json = Some(openapi_json);
         self
     }
 
-    #[cfg(feature = "api-docs")]
+    #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
     pub const fn with_route_doc_policies(
         mut self,
-        route_policies: &'static [super::docs::RouteDocPolicy],
+        route_policies: &'static [super::http::RouteDocPolicy],
     ) -> Self {
         self.route_policies = Some(route_policies);
         self
@@ -97,5 +100,13 @@ impl PluginPublication {
 }
 
 pub fn builtin_plugin_publications() -> Vec<&'static PluginPublication> {
-    builtin_registry(BUILTIN_PLUGIN_PUBLICATIONS)
+    let mut publications: Vec<&'static PluginPublication> =
+        inventory::iter::<PluginPublicationRegistration>()
+            .map(|registration| registration.0)
+            .collect();
+    // `inventory` yields registrations in link order, which is not stable
+    // across builds; sort by name so route ordering, OpenAPI, and SBOM output
+    // stay deterministic.
+    publications.sort_by_key(|publication| publication.name);
+    publications
 }

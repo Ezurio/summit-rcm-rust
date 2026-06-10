@@ -1,6 +1,10 @@
+extern crate libc;
+extern crate libloading;
+extern crate static_assertions;
+
 #[cfg(all(test, unix))]
 mod unix {
-    use static_assertions::const_assert_eq;
+    use super::static_assertions::const_assert_eq;
 
     const_assert_eq!(libloading::os::unix::RTLD_LOCAL, libc::RTLD_LOCAL);
     const_assert_eq!(libloading::os::unix::RTLD_GLOBAL, libc::RTLD_GLOBAL);

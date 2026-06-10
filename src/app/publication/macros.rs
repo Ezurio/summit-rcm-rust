@@ -5,6 +5,50 @@
 
 #[doc(hidden)]
 #[macro_export]
+macro_rules! __route_auth_policy {
+    (protected) => { $crate::publication::RouteAuthPolicy::SessionRequired };
+    (public) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unauthenticated) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unprov_protected) => { $crate::publication::RouteAuthPolicy::SessionRequired };
+    (unprov_public) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+    (unprov_unauthenticated) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+    (prov_only_protected) => { $crate::publication::RouteAuthPolicy::SessionRequired };
+    (prov_only_public) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+    (prov_only_unauthenticated) => { $crate::publication::RouteAuthPolicy::UnauthenticatedAllowed };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __route_mode {
+    (protected) => { $crate::publication::RouteMode::NormalOnly };
+    (public) => { $crate::publication::RouteMode::NormalOnly };
+    (unauthenticated) => { $crate::publication::RouteMode::NormalOnly };
+    (unprov_protected) => { $crate::publication::RouteMode::Any };
+    (unprov_public) => { $crate::publication::RouteMode::Any };
+    (unprov_unauthenticated) => { $crate::publication::RouteMode::Any };
+    (prov_only_protected) => { $crate::publication::RouteMode::ProvisioningOnly };
+    (prov_only_public) => { $crate::publication::RouteMode::ProvisioningOnly };
+    (prov_only_unauthenticated) => { $crate::publication::RouteMode::ProvisioningOnly };
+}
+
+#[macro_export]
+macro_rules! published_routes {
+    ($path:expr; $($method:ident),+ $(,)?) => {
+        &[
+            $($crate::publication::PublishedRoute::new(stringify!($method), $path),)+
+        ]
+    };
+}
+
+#[macro_export]
+macro_rules! route_doc_policy {
+    ($auth:ident, $path:expr) => {
+        $crate::publication::RouteDocPolicy::new($path, $crate::__route_auth_policy!($auth))
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
 macro_rules! __declare_method_router_chain {
     ($router:expr) => {
         $router
@@ -30,19 +74,19 @@ macro_rules! __declare_method_router_chain {
 #[macro_export]
 macro_rules! __declare_method_router {
     (GET => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!(axum::routing::get($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::__axum::routing::get($handler) $(, $($rest)*)?)
     };
     (POST => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!(axum::routing::post($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::__axum::routing::post($handler) $(, $($rest)*)?)
     };
     (PUT => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!(axum::routing::put($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::__axum::routing::put($handler) $(, $($rest)*)?)
     };
     (DELETE => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!(axum::routing::delete($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::__axum::routing::delete($handler) $(, $($rest)*)?)
     };
     (PATCH => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!(axum::routing::patch($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::__axum::routing::patch($handler) $(, $($rest)*)?)
     };
 }
 
@@ -51,26 +95,26 @@ macro_rules! __declare_method_router {
 macro_rules! __declare_route_publication {
     ($auth:ident $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
-            summit_rcm_plugin_api::published_routes!($path; $($method),+);
-        fn install(api: axum::Router) -> axum::Router {
+            $crate::published_routes!($path; $($method),+);
+        fn install(api: $crate::__axum::Router) -> $crate::__axum::Router {
             api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
         $crate::publication::RoutePublication {
             routes: ROUTES,
             install,
-            auth: summit_rcm_plugin_api::__route_auth_policy!($auth),
-            mode: summit_rcm_plugin_api::__route_mode!($auth),
+            auth: $crate::__route_auth_policy!($auth),
+            mode: $crate::__route_mode!($auth),
         }
     }};
 
     ($auth:ident $path:expr => $installer:expr, { $($method:ident),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
-            summit_rcm_plugin_api::published_routes!($path; $($method),+);
+            $crate::published_routes!($path; $($method),+);
         $crate::publication::RoutePublication {
             routes: ROUTES,
             install: $installer,
-            auth: summit_rcm_plugin_api::__route_auth_policy!($auth),
-            mode: summit_rcm_plugin_api::__route_mode!($auth),
+            auth: $crate::__route_auth_policy!($auth),
+            mode: $crate::__route_mode!($auth),
         }
     }};
 }
@@ -313,7 +357,6 @@ macro_rules! declare_plugin_api {
 #[macro_export]
 macro_rules! declare_plugin {
     (
-        cfg($($cfg:tt)+);
         name: $name:literal
         $(, routes: $routes:expr)?
         $(, startup: $startup:expr)?
@@ -321,7 +364,6 @@ macro_rules! declare_plugin {
         $(, bluetooth_command_handler: $bt_handler:expr)?
         $(,)?
     ) => {
-        #[cfg(all($($cfg)+, any(feature = "api-v2", feature = "api-legacy", feature = "at-interface")))]
         pub static PLUGIN_PUBLICATION: $crate::publication::PluginPublication = {
             let mut publication = $crate::publication::PluginPublication::new($name);
             publication = $crate::declare_plugin!(@with_routes publication $(, $routes)?);
@@ -332,6 +374,10 @@ macro_rules! declare_plugin {
             publication = $crate::declare_plugin!(@with_bluetooth_handler publication $(, $bt_handler)?);
             publication
         };
+
+        $crate::__inventory_submit! {
+            $crate::publication::PluginPublicationRegistration(&PLUGIN_PUBLICATION)
+        }
     };
 
     (@with_routes $publication:ident) => {

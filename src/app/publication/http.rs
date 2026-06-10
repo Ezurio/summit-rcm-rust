@@ -3,9 +3,55 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub use summit_rcm_plugin_api::{PublishedRoute, RouteAuthPolicy, RouteMode};
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PublishedRoute {
+    pub method: &'static str,
+    pub path: &'static str,
+}
+
+impl PublishedRoute {
+    pub const fn new(method: &'static str, path: &'static str) -> Self {
+        Self { method, path }
+    }
+
+    pub fn leak(method: String, path: String) -> Self {
+        Self {
+            method: Box::leak(method.into_boxed_str()),
+            path: Box::leak(path.into_boxed_str()),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteAuthPolicy {
+    SessionRequired = 0,
+    UnauthenticatedAllowed = 1,
+}
+
+/// Boot-mode visibility for a route.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteMode {
+    NormalOnly = 0,
+    ProvisioningOnly = 1,
+    Any = 2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteDocPolicy {
+    pub path: &'static str,
+    pub auth: RouteAuthPolicy,
+}
+
+impl RouteDocPolicy {
+    pub const fn new(path: &'static str, auth: RouteAuthPolicy) -> Self {
+        Self { path, auth }
+    }
+}
+
 #[cfg(feature = "api-docs")]
-pub use summit_rcm_plugin_api::RouteDocPolicy;
+pub type OpenApiJsonFn = fn() -> String;
 
 use axum::Router;
 

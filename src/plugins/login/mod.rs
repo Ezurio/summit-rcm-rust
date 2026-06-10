@@ -4,6 +4,7 @@
 //
 
 #![cfg(any(feature = "api-v2", feature = "api-legacy"))]
+#![cfg(feature = "login")]
 
 pub mod login_service;
 pub mod user_service;
@@ -48,7 +49,6 @@ crate::declare_plugin_api! {
 }
 
 crate::declare_plugin! {
-	cfg(any(feature = "api-v2", feature = "api-legacy"));
 	name: "login",
 	routes: ROUTE_PUBLICATIONS,
 }

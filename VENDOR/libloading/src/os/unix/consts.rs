@@ -1,4 +1,4 @@
-use core::ffi::c_int;
+use std::os::raw::c_int;
 
 /// Perform lazy binding.
 ///
@@ -54,7 +54,8 @@ mod posix {
 
 #[cfg(any(not(libloading_docs), unix))]
 mod posix {
-    use cfg_if::cfg_if;
+    extern crate cfg_if;
+    use self::cfg_if::cfg_if;
     use super::c_int;
     cfg_if! {
         if #[cfg(target_os = "haiku")] {

@@ -2,15 +2,26 @@
 name = "summit-rcm-plugin-example"
 version = "0.1.0"
 edition = "2024"
-description = "Example out-of-tree plugin for summit-rcm — shows how to implement the plugin ABI"
+description = "Example out-of-tree plugin for summit-rcm"
 license = "LicenseRef-Ezurio-Clause"
 
 [lib]
 name = "summit_rcm_plugin_example"
-# cdylib = shared library loaded at runtime by the summit-rcm plugin loader
-crate-type = ["cdylib"]
+# rlib: compiled into summit-rcm via workspace injection at build time.
+# No dylib — all crates are shared through the workspace, not runtime loading.
+
+# Mirror the host feature flags so the cfg gates inside declare_plugin_api! and
+# declare_plugin! fire correctly. Enable the same set when building the plugin
+# recipe in Yocto/Buildroot that you use for summit-rcm itself.
+[features]
+default = ["api-v2"]
+api-v2 = []
+api-legacy = []
+at-interface = []
+api-docs = []
 
 [dependencies]
-summit-rcm-plugin-api = { path = "../plugin-api" }
-libc = "0.2"
-serde_json = "1"
+summit-rcm = { path = "../.." }
+# Plugin-specific deps go here — for deps already in [workspace.dependencies] use .workspace = true:
+axum.workspace = true
+serde_json.workspace = true
