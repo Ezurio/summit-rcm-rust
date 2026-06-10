@@ -16,7 +16,7 @@
 //! own. Adding a new device client therefore never touches this module.
 
 use super::*;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use tokio::task::JoinHandle;
 
 pub(crate) mod notification;
@@ -30,11 +30,9 @@ struct ProducerState {
     tasks: Vec<JoinHandle<()>>,
 }
 
-static PRODUCER_STATE: LazyLock<Mutex<ProducerState>> = LazyLock::new(|| {
-    Mutex::new(ProducerState {
-        enabled: false,
-        tasks: Vec::new(),
-    })
+static PRODUCER_STATE: Mutex<ProducerState> = Mutex::new(ProducerState {
+    enabled: false,
+    tasks: Vec::new(),
 });
 
 impl BluetoothService {

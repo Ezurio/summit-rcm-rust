@@ -7,7 +7,6 @@
 use crate::utils::command_output;
 use log::error;
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use tokio::sync::{Mutex as AsyncMutex, OnceCell, RwLock};
 
 const IPTABLES: &str = "/usr/sbin/iptables";
@@ -32,10 +31,9 @@ pub struct ForwardedPort {
     pub ip_version: String,
 }
 
-static FORWARDED_PORTS: LazyLock<RwLock<Vec<ForwardedPort>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
-static PORTS_INTERLOCK: LazyLock<AsyncMutex<()>> = LazyLock::new(|| AsyncMutex::new(()));
-static PORTS_LOADED: LazyLock<OnceCell<()>> = LazyLock::new(OnceCell::new);
+static FORWARDED_PORTS: RwLock<Vec<ForwardedPort>> = RwLock::const_new(Vec::new());
+static PORTS_INTERLOCK: AsyncMutex<()> = AsyncMutex::const_new(());
+static PORTS_LOADED: OnceCell<()> = OnceCell::const_new();
 
 async fn with_ports_read<R>(f: impl FnOnce(&Vec<ForwardedPort>) -> R) -> R {
     let ports = FORWARDED_PORTS.read().await;

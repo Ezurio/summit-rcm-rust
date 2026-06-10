@@ -140,10 +140,8 @@ fn max_web_clients() -> usize {
 }
 
 fn effective_permission_string(username: &str) -> String {
-    use crate::definition::USER_PERMISSION_TYPES;
-
     let mut permission = UserService::get_permission(username)
-        .unwrap_or_else(|| USER_PERMISSION_TYPES.join(" "));
+        .unwrap_or_else(|| crate::web::USER_PERMISSION_TYPES.to_owned());
 
     if max_web_clients() == 1 && !permission.is_empty() {
         permission = permission
@@ -296,14 +294,13 @@ pub async fn post_login_legacy(
     session: Session,
     Json(body): Json<UserBody>,
 ) -> PostLoginLegacyResponses {
-    use crate::definition::USER_PERMISSION_TYPES;
     use crate::plugins::login::LoginService;
 
     if !sessions_enabled() {
         return login_response(
             ok_response("User logged in"),
             0,
-            permission_list_value(&USER_PERMISSION_TYPES.join(" ")),
+            permission_list_value(crate::web::USER_PERMISSION_TYPES.as_str()),
         )
         .into();
     }
@@ -379,7 +376,7 @@ pub async fn post_login_legacy(
         UserService::add_user(
             &username,
             password,
-            Some(&USER_PERMISSION_TYPES.join(" ")),
+            Some(crate::web::USER_PERMISSION_TYPES.as_str()),
         );
     }
 

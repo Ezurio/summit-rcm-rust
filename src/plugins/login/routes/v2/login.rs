@@ -8,7 +8,6 @@
 //! DELETE /api/v2/login – destroy session
 
 use crate::config::ServerConfig;
-use crate::definition::USER_PERMISSION_TYPES;
 use crate::plugins::login::LoginService;
 use crate::plugins::login::UserService;
 use axum::Json;
@@ -110,7 +109,7 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
         UserService::add_user(
             username,
             password,
-            Some(&USER_PERMISSION_TYPES.join(" ")),
+            Some(crate::web::USER_PERMISSION_TYPES.as_str()),
         );
     }
 

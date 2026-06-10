@@ -211,7 +211,6 @@ pub struct WebserverLogLevelRequest {
     pub webserver_log_level: String,
 }
 
-const VALID_LOG_LEVELS: &[&str] = &["critical", "error", "warning", "info", "debug", "trace"];
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
@@ -221,7 +220,7 @@ const VALID_LOG_LEVELS: &[&str] = &["critical", "error", "warning", "info", "deb
     responses(SetLogsWebserverResponses)
 ))]
 pub async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest>) -> SetLogsWebserverResponses {
-    if !VALID_LOG_LEVELS.contains(&body.webserver_log_level.as_str()) {
+    if !crate::plugins::logs::logs_service::VALID_WEBSERVER_LOG_LEVELS.contains(&body.webserver_log_level.as_str()) {
         return SetLogsWebserverResponses::BadRequest;
     }
     LogsService::set_webserver_log_level(&body.webserver_log_level);

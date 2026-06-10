@@ -9,14 +9,14 @@ use crate::plugins::system::{FACTORY_RESET_SCRIPT, PowerState};
 use crate::utils::command_output;
 use crate::utils::path_exists_sync;
 use anyhow::Result;
-use std::sync::{LazyLock, RwLock};
+use std::sync::RwLock;
 use log::{error, info};
 
 const LOGIND_BUS_NAME: &str = "org.freedesktop.login1";
 const LOGIND_MAIN_OBJ: &str = "/org/freedesktop/login1";
 const LOGIND_MAIN_IFACE: &str = "org.freedesktop.login1.Manager";
 
-static POWER_STATE: LazyLock<RwLock<PowerState>> = LazyLock::new(|| RwLock::new(PowerState::On));
+static POWER_STATE: RwLock<PowerState> = RwLock::new(PowerState::On);
 
 pub struct SystemService;
 

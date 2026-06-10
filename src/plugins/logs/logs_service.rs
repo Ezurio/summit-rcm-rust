@@ -10,14 +10,17 @@ use crate::plugins::network::service::NetworkService;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use time::format_description::FormatItem;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
 use tokio::process::Command;
 use log::error;
 
-static WEBSERVER_LOG_LEVEL: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new("error".to_string()));
+pub const VALID_WEBSERVER_LOG_LEVELS: &[&str] =
+    &["critical", "error", "warning", "info", "debug", "trace"];
+
+static WEBSERVER_LOG_LEVEL: Mutex<&'static str> = Mutex::new("error");
 static JOURNALCTL_DAYS_SINCE_FORMAT: &[FormatItem<'static>] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
 static JOURNALCTL_LOG_ENTRY_FORMAT: &[FormatItem<'static>] =
@@ -190,10 +193,12 @@ impl LogsService {
     // ------------------------------------------------------------ webserver log
 
     pub fn get_webserver_log_level() -> String {
-        WEBSERVER_LOG_LEVEL.lock().unwrap().clone()
+        WEBSERVER_LOG_LEVEL.lock().unwrap().to_string()
     }
 
     pub fn set_webserver_log_level(level: &str) {
-        *WEBSERVER_LOG_LEVEL.lock().unwrap() = level.to_string();
+        if let Some(&l) = VALID_WEBSERVER_LOG_LEVELS.iter().find(|&&l| l == level) {
+            *WEBSERVER_LOG_LEVEL.lock().unwrap() = l;
+        }
     }
 }

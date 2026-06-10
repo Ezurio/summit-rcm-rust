@@ -6,7 +6,7 @@
 //! AT interface finite state machine
 
 use crate::at_interface::commands;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio_serial::SerialPortBuilderExt;
 use log::error;
@@ -25,14 +25,12 @@ struct FsmInner {
     write_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
 }
 
-static FSM: LazyLock<Mutex<FsmInner>> = LazyLock::new(|| {
-    Mutex::new(FsmInner {
-        state: FsmState::Idle,
-        command_buffer: String::new(),
-        echo_enabled: false,
-        listeners: Vec::new(),
-        write_tx: None,
-    })
+static FSM: Mutex<FsmInner> = Mutex::new(FsmInner {
+    state: FsmState::Idle,
+    command_buffer: String::new(),
+    echo_enabled: false,
+    listeners: Vec::new(),
+    write_tx: None,
 });
 
 pub struct FsmHandle;

@@ -38,9 +38,8 @@ pub type NmConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
 
 static NETWORK_STATUS_CACHE: LazyLock<RwLock<Value>> = LazyLock::new(|| RwLock::new(json!({})));
 static NETWORK_STATUS_INIT_STARTED: AtomicBool = AtomicBool::new(false);
-static NETWORK_STATUS_WATCHER: LazyLock<OnceCell<()>> = LazyLock::new(OnceCell::new);
-static NETWORK_STATUS_SIGNAL_TASK: LazyLock<Mutex<Option<JoinHandle<()>>>> =
-    LazyLock::new(|| Mutex::new(None));
+static NETWORK_STATUS_WATCHER: OnceCell<()> = OnceCell::const_new();
+static NETWORK_STATUS_SIGNAL_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::const_new(None);
 
 /// NetworkManager connectivity state values
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

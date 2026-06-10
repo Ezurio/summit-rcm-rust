@@ -25,6 +25,13 @@ static UNMANAGED_DEVICES: LazyLock<HashSet<String>> = LazyLock::new(|| {
         .collect()
 });
 
+fn push_joined_label(output: &mut String, label: &str) {
+    if !output.is_empty() {
+        output.push(' ');
+    }
+    output.push_str(label);
+}
+
 impl NetworkManagerService {
     fn ap_flags_list(flags: u32) -> Vec<&'static str> {
         let entries = [
@@ -181,31 +188,31 @@ impl NetworkManagerService {
         let has_owe_tm = rsn_flags & 0x00001000 != 0;
         let has_suite_b = rsn_flags & (0x00002000 | 0x00400000) != 0;
 
-        let mut keymgmt = Vec::with_capacity(5);
+        let mut keymgmt = String::with_capacity(40);
         if has_sae {
-            keymgmt.push("sae");
+            keymgmt.push_str("sae");
         }
         if has_owe || has_owe_tm {
-            keymgmt.push("owe");
+            push_joined_label(&mut keymgmt, "owe");
         }
         if has_psk {
-            keymgmt.push("wpa-psk");
+            push_joined_label(&mut keymgmt, "wpa-psk");
         }
         if has_suite_b {
-            keymgmt.push("wpa-eap-suite-b");
+            push_joined_label(&mut keymgmt, "wpa-eap-suite-b");
         }
         if has_8021x {
-            keymgmt.push("wpa-eap");
+            push_joined_label(&mut keymgmt, "wpa-eap");
         }
 
         if keymgmt.is_empty() && flags & 0x1 != 0 {
-            keymgmt.push("static");
+            keymgmt.push_str("static");
         }
 
         if keymgmt.is_empty() {
             "none".to_string()
         } else {
-            keymgmt.join(" ")
+            keymgmt
         }
     }
 
@@ -219,18 +226,18 @@ impl NetworkManagerService {
         let has_rsn = rsn_flags != 0;
         let has_wpa = wpa_flags != 0;
 
-        let mut security = Vec::with_capacity(4);
+        let mut security = String::with_capacity(14);
         if has_wpa {
-            security.push("WPA1");
+            security.push_str("WPA1");
         }
         if has_rsn && (has_psk || !has_sae) {
-            security.push("WPA2");
+            push_joined_label(&mut security, "WPA2");
         }
         if has_sae {
-            security.push("WPA3");
+            push_joined_label(&mut security, "WPA3");
         }
         if has_psk && !security.is_empty() {
-            security.push("PSK");
+            push_joined_label(&mut security, "PSK");
         }
 
         if security.is_empty() && flags & 0x1 != 0 {
@@ -240,7 +247,7 @@ impl NetworkManagerService {
         if security.is_empty() {
             "Open".to_string()
         } else {
-            security.join(" ")
+            security
         }
     }
 

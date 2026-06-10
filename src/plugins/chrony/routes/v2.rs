@@ -54,7 +54,7 @@ pub async fn put_ntp(Json(body): Json<Vec<ChronySource>>) -> PutNtpResponses {
         .filter(|s| s.source_type == "static")
         .map(|s| s.address)
         .collect();
-    match ChronyNTPService::configure_sources(SourceCommand::OverrideSources, new_sources).await.map(|_| ()) {
+    match ChronyNTPService::configure_sources(SourceCommand::OverrideSources, &new_sources).await.map(|_| ()) {
         Ok(_) => match ChronyNTPService::get_sources().await {
             Ok(sources) => sources.into(),
             Err(e) => {
@@ -92,7 +92,7 @@ pub async fn get_ntp_source(Path(address): Path<String>) -> GetNtpSourceResponse
     responses(DeleteNtpSourceResponses)
 ))]
 pub async fn delete_ntp_source(Path(address): Path<String>) -> DeleteNtpSourceResponses {
-    match ChronyNTPService::configure_sources(SourceCommand::RemoveSource, vec![address]).await {
+    match ChronyNTPService::configure_sources(SourceCommand::RemoveSource, std::slice::from_ref(&address)).await {
         Ok(true) => DeleteNtpSourceResponses::Ok,
         Ok(false) => DeleteNtpSourceResponses::NotFound,
         Err(e) => { error!("Unable to remove chrony NTP source: {}", e); DeleteNtpSourceResponses::InternalError }

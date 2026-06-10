@@ -18,39 +18,44 @@ use std::path::Path;
 // We encode this DER manually because the structure is trivial, we need exact
 // control over the emitted bytes for parity with uri2pem.py, and it avoids
 // pulling in a separate ASN.1-building dependency for this one small wrapper.
-fn der_encode_length(length: usize) -> Vec<u8> {
+const PKCS11_PROVIDER_URI_DESCRIPTION: &str = "PKCS#11 Provider URI v1.0";
+
+fn der_encode_length(length: usize) -> ([u8; 5], usize) {
+    let mut encoded = [0_u8; 5];
     if length < 0x80 {
-        return vec![length as u8];
+        encoded[0] = length as u8;
+        return (encoded, 1);
     }
 
-    let bytes = if length <= 0xff {
-        vec![length as u8]
+    let byte_count = if length <= 0xff {
+        1
     } else if length <= 0xffff {
-        vec![(length >> 8) as u8, length as u8]
+        2
     } else if length <= 0xff_ffff {
-        vec![(length >> 16) as u8, (length >> 8) as u8, length as u8]
+        3
     } else {
-        vec![
-            (length >> 24) as u8,
-            (length >> 16) as u8,
-            (length >> 8) as u8,
-            length as u8,
-        ]
+        4
     };
 
-    let mut encoded = Vec::with_capacity(bytes.len() + 1);
-    encoded.push(0x80 | bytes.len() as u8);
-    encoded.extend(bytes);
-    encoded
+    encoded[0] = 0x80 | byte_count as u8;
+    for index in 0..byte_count {
+        let shift = (byte_count - index - 1) * 8;
+        encoded[index + 1] = (length >> shift) as u8;
+    }
+
+    (encoded, byte_count + 1)
 }
 
-fn der_encode_tagged_string(tag: u8, value: &str) -> Vec<u8> {
+fn append_der_length(output: &mut Vec<u8>, length: usize) {
+    let (encoded, encoded_len) = der_encode_length(length);
+    output.extend_from_slice(&encoded[..encoded_len]);
+}
+
+fn der_encode_tagged_string(output: &mut Vec<u8>, tag: u8, value: &str) {
     let bytes = value.as_bytes();
-    let mut encoded = Vec::with_capacity(1 + 5 + bytes.len());
-    encoded.push(tag);
-    encoded.extend(der_encode_length(bytes.len()));
-    encoded.extend(bytes);
-    encoded
+    output.push(tag);
+    append_der_length(output, bytes.len());
+    output.extend_from_slice(bytes);
 }
 
 fn pkcs11_uri_to_pem_bytes(pkcs11_uri: &str) -> Result<Vec<u8>> {
@@ -64,19 +69,19 @@ fn pkcs11_uri_to_pem_bytes(pkcs11_uri: &str) -> Result<Vec<u8>> {
         );
     }
 
-    let desc = der_encode_tagged_string(0x1a, "PKCS#11 Provider URI v1.0");
-    let uri = der_encode_tagged_string(0x0c, pkcs11_uri);
-
-    let mut der = Vec::with_capacity(1 + 5 + desc.len() + uri.len());
+    let desc_len = 1 + der_encode_length(PKCS11_PROVIDER_URI_DESCRIPTION.len()).1
+        + PKCS11_PROVIDER_URI_DESCRIPTION.len();
+    let uri_len = 1 + der_encode_length(pkcs11_uri.len()).1 + pkcs11_uri.len();
+    let mut der = Vec::with_capacity(1 + 5 + desc_len + uri_len);
     der.push(0x30);
-    der.extend(der_encode_length(desc.len() + uri.len()));
-    der.extend(desc);
-    der.extend(uri);
+    append_der_length(&mut der, desc_len + uri_len);
+    der_encode_tagged_string(&mut der, 0x1a, PKCS11_PROVIDER_URI_DESCRIPTION);
+    der_encode_tagged_string(&mut der, 0x0c, pkcs11_uri);
 
     let body = base64::engine::general_purpose::STANDARD.encode(der);
     let mut pem = String::from("-----BEGIN PKCS#11 PROVIDER URI-----\n");
     for chunk in body.as_bytes().chunks(64) {
-        pem.push_str(&String::from_utf8_lossy(chunk));
+        pem.push_str(std::str::from_utf8(chunk).expect("base64 output is ascii"));
         pem.push('\n');
     }
     pem.push_str("-----END PKCS#11 PROVIDER URI-----\n");

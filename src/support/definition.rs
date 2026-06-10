@@ -22,23 +22,3 @@ pub fn relative_system_path(path: &str) -> &str {
     path.strip_prefix('/').unwrap_or(path)
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-pub const USER_PERMISSION_TYPES: &[&str] = &[
-    "status_networking",
-    "networking_connections",
-    "networking_edit",
-    "networking_activate",
-    "networking_ap_activate",
-    "networking_delete",
-    "networking_scan",
-    "networking_certs",
-    "logging",
-    "help_version",
-    "system_datetime",
-    "system_swupdate",
-    "system_password",
-    "system_advanced",
-    "system_positioning",
-    "system_reboot",
-    "system_user",
-];

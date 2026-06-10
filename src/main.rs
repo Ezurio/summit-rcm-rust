@@ -24,7 +24,7 @@ fn init_logger() {
     if let Ok(logger) = JournalLog::new() {
         let logger = logger
             .with_syslog_identifier(CURRENT_PROCESS_LOG_IDENTIFIER.to_string())
-            .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))]);
+            .with_extra_fields([("VERSION", env!("CARGO_PKG_VERSION"))]);
         log::set_boxed_logger(Box::new(FilteredLog::new(logger, filter)))
             .expect("logger initialization should succeed");
         log::set_max_level(max_level);

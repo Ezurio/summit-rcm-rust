@@ -10,6 +10,7 @@ use crate::utils::read_text;
 use serde::{Deserialize, Serialize};
 use log::error;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 const CHRONY_SOURCES_PATH: &str = "/etc/chrony/supplemental.sources";
 const CHRONYC_PATH: &str = "/usr/bin/chronyc";
@@ -24,6 +25,9 @@ pub struct ChronySource {
 
 const SOURCE_COMMAND_NAMES: [&str; 3] = ["addSource", "removeSource", "overrideSources"];
 
+static SOURCE_COMMAND_DISPLAY_NAMES: LazyLock<String> =
+    LazyLock::new(|| format!("['{}']", SOURCE_COMMAND_NAMES.join("', '")));
+
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceCommand {
@@ -33,8 +37,8 @@ pub enum SourceCommand {
 }
 
 impl SourceCommand {
-    pub fn display_names() -> String {
-        format!("['{}']", SOURCE_COMMAND_NAMES.join("', '"))
+    pub fn display_names() -> &'static str {
+        SOURCE_COMMAND_DISPLAY_NAMES.as_str()
     }
 }
 
@@ -111,24 +115,25 @@ impl ChronyNTPService {
     ///
     /// Returns `Ok(true)` in all cases except `RemoveSource` where no supplied address matched a
     /// known static source, in which case `Ok(false)` is returned without writing the file.
-    pub async fn configure_sources(command: SourceCommand, sources_in: Vec<String>) -> Result<bool> {
+    pub async fn configure_sources(command: SourceCommand, sources_in: &[String]) -> Result<bool> {
         let mut current = Self::get_static_sources().await;
         match command {
             SourceCommand::AddSource => {
-                for s in sources_in {
-                    if !current.contains(&s) {
-                        current.push(s);
+                for source in sources_in {
+                    let source = source.as_str();
+                    if !current.iter().any(|s| s == source) {
+                        current.push(source.to_owned());
                     }
                 }
             }
             SourceCommand::RemoveSource => {
                 let before = current.len();
-                current.retain(|s| !sources_in.contains(s));
+                current.retain(|entry| !sources_in.iter().any(|source| source == entry));
                 if current.len() == before {
                     return Ok(false);
                 }
             }
-            SourceCommand::OverrideSources => current = sources_in,
+            SourceCommand::OverrideSources => current = sources_in.to_vec(),
         }
         let content: String = current.into_iter().map(|s| format!("server {}\n", s)).collect();
         if let Err(error) = tokio::fs::write(CHRONY_SOURCES_PATH, content).await {

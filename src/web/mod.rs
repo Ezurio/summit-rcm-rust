@@ -13,6 +13,30 @@ pub mod legacy_response;
 #[path = "../openapi/mod.rs"]
 pub mod openapi;
 
+pub const USER_PERMISSION_TYPES_LIST: &[&str] = &[
+    "status_networking",
+    "networking_connections",
+    "networking_edit",
+    "networking_activate",
+    "networking_ap_activate",
+    "networking_delete",
+    "networking_scan",
+    "networking_certs",
+    "logging",
+    "help_version",
+    "system_datetime",
+    "system_swupdate",
+    "system_password",
+    "system_advanced",
+    "system_positioning",
+    "system_reboot",
+    "system_user",
+];
+
+use std::sync::LazyLock;
+pub static USER_PERMISSION_TYPES: LazyLock<String> =
+    LazyLock::new(|| USER_PERMISSION_TYPES_LIST.join(" "));
+
 use std::{
     path::{Path, PathBuf},
     pin::Pin,

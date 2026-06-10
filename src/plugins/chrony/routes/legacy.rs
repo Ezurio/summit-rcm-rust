@@ -92,7 +92,7 @@ pub async fn put_ntp_legacy(
         .into(),
     };
 
-    match ChronyNTPService::configure_sources(cmd, body.sources).await {
+    match ChronyNTPService::configure_sources(cmd, &body.sources).await {
         Ok(true) => ok_response("").into(),
         Ok(false) => fail_response("Source not found").into(),
         Err(e) => fail_response(format!("Unable to update chrony sources - {}", e)).into(),

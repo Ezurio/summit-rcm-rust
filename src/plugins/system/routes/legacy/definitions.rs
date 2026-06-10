@@ -8,7 +8,7 @@
 use crate::config::{ServerConfig, SystemSettingsManage};
 use crate::web::legacy_response as legacy;
 use crate::web::legacy_response::{ok_response, LegacyOperationResponse};
-use crate::definition::USER_PERMISSION_TYPES;
+use crate::web::USER_PERMISSION_TYPES_LIST;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -140,7 +140,10 @@ const LEGACY_PERMISSION_ATTR_ROWS: &[(&str, &str, &str)] = &[
 
 static LEGACY_PERMISSION_DEFINITIONS: LazyLock<LegacyPermissionDefinitions> = LazyLock::new(|| {
     LegacyPermissionDefinitions {
-        user_permission_types: USER_PERMISSION_TYPES.iter().map(|value| (*value).to_string()).collect(),
+        user_permission_types: USER_PERMISSION_TYPES_LIST
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         user_permission_attrs: LEGACY_PERMISSION_ATTR_ROWS
             .iter()
             .map(|(name, selected, disabled)| {

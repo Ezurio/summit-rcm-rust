@@ -26,7 +26,7 @@ static AGENT_PASSKEYS: LazyLock<Mutex<HashMap<String, u32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Guards one-time agent export + registration.
-static AGENT_REGISTERED: LazyLock<AsyncMutex<bool>> = LazyLock::new(|| AsyncMutex::new(false));
+static AGENT_REGISTERED: AsyncMutex<bool> = AsyncMutex::const_new(false);
 
 /// Store a passkey for a device path so the agent can return it when BlueZ asks.
 pub(super) fn set_passkey(device_path: &str, passkey: u32) {

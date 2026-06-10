@@ -23,7 +23,7 @@ pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
         Ok(c) => c,
         Err(_) => return CommandOutcome::Error,
     };
-    match ChronyNTPService::configure_sources(cmd, sources).await {
+    match ChronyNTPService::configure_sources(cmd, &sources).await {
         Ok(_) => CommandOutcome::Ok,
         Err(e) => {
             error!("NTP configure error: {}", e);
