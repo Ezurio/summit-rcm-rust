@@ -8,13 +8,10 @@
 //! All functions are `async` and drive the `zip`, `unzip`, and `tar` CLI tools.
 
 use anyhow::Result;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::{command_output, command_output_checked_in_dir, random_token_hex};
 use std::path::Path;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::path::PathBuf;
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(crate) fn temp_file(prefix: &str, ext: &str) -> Result<PathBuf> {
     Ok(std::env::temp_dir().join(format!(
         "summit_rcm_{}_{}.{}",
@@ -24,7 +21,6 @@ pub(crate) fn temp_file(prefix: &str, ext: &str) -> Result<PathBuf> {
     )))
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(crate) async fn zip_create(
     password: &str,
     extra_args: &[&str],
@@ -46,7 +42,6 @@ pub(crate) async fn zip_create(
     Ok(data)
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(crate) async fn zip_extract(
     data: &[u8],
     password: &str,
@@ -78,7 +73,6 @@ pub(crate) async fn zip_extract(
     Ok(())
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 async fn validate_zip_entries(archive: &Path) -> Result<()> {
     let archive_str = archive.to_string_lossy().into_owned();
     let output = command_output("unzip", &["-Z1", archive_str.as_str()]).await?;
@@ -88,7 +82,6 @@ async fn validate_zip_entries(archive: &Path) -> Result<()> {
     check_paths(String::from_utf8_lossy(&output.stdout).lines())
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 fn check_paths<'a>(lines: impl Iterator<Item = &'a str>) -> Result<()> {
     for name in lines {
         let name = name.trim();

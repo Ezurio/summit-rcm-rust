@@ -10,15 +10,12 @@ use neli::types::{Buffer, GenlBuffer};
 use std::collections::BTreeSet;
 
 use super::{StationInfo, StationRateInfo};
-use super::protocol::{
-    Nl80211RateInfo, Nl80211StaBssParam, Nl80211StaInfo, get_optional_attr, has_attr, nl80211_attr,
-    nl80211_attrs, nl80211_band_attr, nl80211_frequency_attr, nl80211_rate_info,
-    nl80211_reg_rule_attr, nl80211_sta_bss_param, nl80211_sta_info,
-};
+use super::protocol::{get_optional_attr, has_attr, nl80211_attr, nl80211_rate_info, nl80211_sta_bss_param, nl80211_sta_info, Nl80211RateInfo, Nl80211StaBssParam, Nl80211StaInfo};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use super::protocol::{
-    Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr, Nl80211RegRuleAttr,
-    get_required_attr,
+    get_required_attr, nl80211_attrs, nl80211_band_attr, nl80211_frequency_attr,
+    nl80211_reg_rule_attr, Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr,
+    Nl80211RegRuleAttr,
 };
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -220,7 +217,7 @@ pub(super) fn parse_regulatory_rules(
     handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
 ) -> Result<Vec<RegulatoryRule>> {
     let Some(reg_rules_attr) = handle.get_attribute(
-        nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_RULES).into(),
+        nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_RULES),
     ) else {
         return Ok(Vec::new());
     };

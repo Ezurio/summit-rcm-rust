@@ -146,10 +146,11 @@ pub struct BluetoothCommandRequest {
     pub value: Option<String>,
     pub enable: Option<bool>,
     pub tcp_port: Option<u16>,
-    /// Device-plugin command parameters (VSP, …) that ride on this shared
-    /// endpoint for legacy/compat clients. Authoritative typed schemas live on
-    /// the per-device sub-resources; here they are carried verbatim so the
-    /// command pipeline can forward them to the owning device handler.
+    // Device-plugin command parameters (VSP, etc.) that ride on this shared
+    // endpoint for legacy/compat clients. Authoritative typed schemas live on
+    // the per-device sub-resources; here they are carried verbatim so the
+    // command pipeline can forward them to the owning device handler.
+    #[cfg_attr(feature = "api-docs", schema(value_type = Object))]
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -174,9 +175,10 @@ pub struct BluetoothControlResponse {
     pub started: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<i32>,
-    /// Device-plugin response fields (VSP, …) merged into this shared response
-    /// for legacy/compat clients. Authoritative typed schemas live on the
-    /// per-device sub-resources.
+    // Device-plugin response fields (VSP, etc.) merged into this shared response
+    // for legacy/compat clients. Authoritative typed schemas live on the
+    // per-device sub-resources.
+    #[cfg_attr(feature = "api-docs", schema(value_type = Object))]
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }

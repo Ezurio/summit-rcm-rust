@@ -2,17 +2,16 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
+
 //! Miscellaneous utility functions ported from utils.py
 
 use anyhow::{anyhow, bail, Result};
 use openssl::x509::X509VerifyResult;
-#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use rustix::time::{clock_gettime, ClockId, Timespec};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Output;
 use std::sync::LazyLock;
-#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -23,22 +22,18 @@ static SHUTDOWN_TX: LazyLock<watch::Sender<bool>> = LazyLock::new(|| {
 });
 
 /// Return the current CLOCK_BOOTTIME timestamp.
-#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 pub fn boottime() -> Timespec {
     clock_gettime(ClockId::Boottime)
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 pub fn timespec_duration(value: Timespec) -> Duration {
     Duration::new(value.tv_sec.try_into().unwrap_or(0), value.tv_nsec.try_into().unwrap_or(0))
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy", test))]
 pub fn elapsed_timespec(now: Timespec, earlier: Timespec) -> Duration {
     timespec_duration(now).saturating_sub(timespec_duration(earlier))
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub fn random_token_hex(byte_len: usize) -> anyhow::Result<String> {
     let mut bytes = vec![0_u8; byte_len];
     if openssl::rand::rand_bytes(&mut bytes).is_err() {
@@ -79,7 +74,6 @@ where
     command_output_impl(program, args, None).await
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub async fn command_output_in_dir<S>(program: &str, args: &[S], cwd: impl AsRef<Path>) -> Result<Output>
 where
     S: AsRef<OsStr>,
@@ -119,7 +113,6 @@ where
     Ok(output)
 }
 
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub async fn command_output_checked_in_dir<S>(program: &str, args: &[S], cwd: impl AsRef<Path>) -> Result<Output>
 where
     S: AsRef<OsStr>,

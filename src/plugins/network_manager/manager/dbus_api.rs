@@ -186,7 +186,6 @@ impl NetworkManagerService {
         Ok(())
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn reload_connections_dbus() -> Result<bool> {
         dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,

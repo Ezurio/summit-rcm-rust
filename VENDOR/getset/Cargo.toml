@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "getset"
-version = "0.1.6"
+version = "0.1.7"
 authors = [
     "Ana Hobden <ana@hoverbear.org>",
     "John Baublitz <john.m.baublitz@gmail.com",
@@ -88,9 +88,6 @@ path = "tests/unary_tuple.rs"
 [[test]]
 name = "with_setters"
 path = "tests/with_setters.rs"
-
-[dependencies.proc-macro-error2]
-version = "2"
 
 [dependencies.proc-macro2]
 version = "1"

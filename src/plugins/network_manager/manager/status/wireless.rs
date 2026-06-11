@@ -4,7 +4,8 @@
 //
 
 use anyhow::Result;
-use crate::{config::ServerConfig, dbus};
+use crate::config::ServerConfig;
+use crate::dbus;
 use crate::plugins::network::service::NetworkService as RawNetworkService;
 use crate::plugins::network_manager::INVALID_RSSI;
 use crate::utils::frequency_to_channel;

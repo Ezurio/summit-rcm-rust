@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 use summit_rcm::config;
 use summit_rcm::definition::CURRENT_PROCESS_LOG_IDENTIFIER;
 use log::info;
@@ -132,9 +133,10 @@ async fn main() -> anyhow::Result<()> {
 
     info!(
         "Summit RCM starting (version {})",
-        env!("SUMMIT_RCM_BUILD_VERSION")
+        env!("CARGO_PKG_VERSION")
     );
 
+    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     config::SystemSettingsManage::ensure_section();
 
     runtime::run().await?;

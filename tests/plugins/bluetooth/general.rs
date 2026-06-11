@@ -1,6 +1,38 @@
 use serde_json::json;
 use summit_rcm::plugins::bluetooth::service::BluetoothService;
 
+#[cfg(feature = "api-legacy")]
+use summit_rcm::plugins::bluetooth::routes::shared::BluetoothControllerState;
+
+#[cfg(feature = "api-legacy")]
+#[test]
+fn legacy_controller_state_serializes_transport_filter_under_legacy_name() {
+    let payload = serde_json::to_value(
+        BluetoothControllerState {
+            controller_name: "controller0".to_string(),
+            powered: true,
+            discoverable: false,
+            discovering: true,
+            devices: vec![],
+            rssi_filter: Some(-42),
+            transport_filter: Some("le".to_string()),
+            pattern_filter: Some("ignored".to_string()),
+            matched_filters: Some(vec!["transportFilter".to_string()]),
+        }
+        .into_legacy_controllers(),
+    )
+    .expect("legacy controller state should serialize");
+
+    let controller = payload
+        .get("controller0")
+        .expect("legacy payload should include controller0");
+    assert_eq!(controller.get("transportFilter"), Some(&json!("le")));
+    assert!(
+        controller.get("transport_filter").is_none(),
+        "legacy payload should not expose the Rust field name"
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires live BlueZ adapter on the system bus"]
 async fn live_bluez_discovery_command_uses_real_adapter_state() {

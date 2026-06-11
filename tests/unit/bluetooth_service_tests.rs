@@ -1,5 +1,5 @@
-use super::test_support::{MockBluezHarness, TEST_DEVICE_ADDRESS};
 use super::*;
+use super::test_support::{MockBluezHarness, TEST_DEVICE_ADDRESS};
 use serde_json::json;
 use std::sync::atomic::Ordering;
 

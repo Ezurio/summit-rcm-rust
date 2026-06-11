@@ -8,26 +8,31 @@
 #[doc(hidden)]
 pub use inventory::submit as __inventory_submit;
 
-// Used by declare_plugin_api! helper macros for $crate-qualified access to axum.
-#[doc(hidden)]
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-pub use axum as __axum;
-#[path = "support/config.rs"]
-pub mod config;
-#[path = "support/dbus.rs"]
-pub mod dbus;
 #[path = "support/definition.rs"]
 pub mod definition;
-#[path = "support/archive.rs"]
+
 #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#[path = "support/config.rs"]
+pub mod config;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#[path = "support/dbus.rs"]
+pub mod dbus;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+#[path = "support/archive.rs"]
 pub mod archive;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 #[path = "support/certificates.rs"]
 pub mod certificates;
-#[path = "support/notifications.rs"]
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 #[cfg(feature = "notifications")]
+#[path = "support/notifications.rs"]
 pub mod notifications;
+
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 #[path = "support/utils.rs"]
 pub mod utils;
+
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 #[path = "systemd/unit.rs"]
 pub mod systemd_unit;
 #[cfg(all(
@@ -37,22 +42,15 @@ pub mod systemd_unit;
 #[path = "systemd/state.rs"]
 pub mod systemd_state;
 pub mod plugins;
+
 #[path = "app/publication.rs"]
 pub mod publication;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub use publication::PluginPublication;
+#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
+pub use publication::builtin_plugin_publications as all_plugin_publications;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub mod web;
 #[cfg(feature = "at-interface")]
 pub mod at_interface;
-
-#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
-pub fn builtin_plugin_publications() -> Vec<&'static PluginPublication> {
-	publication::builtin_plugin_publications()
-}
-
-/// All active plugin publications (inventory-collected from all workspace members).
-#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
-pub fn all_plugin_publications() -> Vec<&'static PluginPublication> {
-	publication::builtin_plugin_publications()
-}

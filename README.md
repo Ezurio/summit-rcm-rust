@@ -291,7 +291,7 @@ Common targeted filters:
 
 ```bash
 # Provisioning-only host response parity against the sibling Python summit-rcm baseline
-../summit-rcm/.venv/bin/python tests/parity/api_parity.py responses \
+"$(realpath ../summit-rcm)/.venv/bin/python" tests/parity/api_parity.py responses \
   --cases tests/parity/provisioning_response_cases.json \
   --python-repo ../summit-rcm \
   --legacy-python-repo ../summit-rcm \

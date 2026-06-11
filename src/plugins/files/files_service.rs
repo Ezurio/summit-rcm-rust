@@ -5,25 +5,18 @@
 //! Service for file management: certificates, config archives, firmware updates
 
 use anyhow::{Context, Result};
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
     utils::command_output_checked,
 };
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::utils::path_exists;
 use std::path::Path;
 
 pub const CERT_DIR: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
-#[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 pub const SYSTEM_CONF_DIR: &str = "/etc/";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const NETWORKMANAGER_DIR_FULL: &str = crate::definition::NETWORKMANAGER_DIR;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const SUMMIT_RCM_DIR: &str = "/etc/summit-rcm/";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const PERSISTENT_LOG_PATH: &str = "/var/log/journal/";
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub const VOLATILE_LOG_PATH: &str = "/run/log/journal/";
 pub struct FilesService;
 
@@ -40,7 +33,6 @@ impl FilesService {
     // Config archive export / import (below) / file management
     // -------------------------------------------------------------------------
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_log_path() -> &'static str {
         let volatile_has_entries = if let Ok(mut entries) = tokio::fs::read_dir(VOLATILE_LOG_PATH).await {
             entries.next_entry().await.ok().flatten().is_some()
@@ -60,7 +52,6 @@ impl FilesService {
     // -------------------------------------------------------------------------
 
     /// Map a logical file type to the destination directory on the filesystem.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub fn get_file_dir(file_type: &str) -> Option<&'static str> {
         match file_type {
             "cert" | "pac" => Some(CERT_DIR),
@@ -91,7 +82,6 @@ impl FilesService {
 
     /// Write a certificate file to the cert directory.
     /// List files in the directory associated with `file_type`.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub async fn try_list_files(file_type: &str) -> Result<Vec<String>> {
         let dir = Self::get_file_dir(file_type)
             .ok_or_else(|| anyhow::anyhow!("Unknown file type '{}'", file_type))?;
@@ -113,19 +103,16 @@ impl FilesService {
     }
 
     /// Retrieve a list of certificate files.
-    #[cfg(feature = "at-interface")]
     pub async fn get_cert_files() -> Result<Vec<String>> {
         Self::try_list_files("cert").await
     }
 
     /// Retrieve a list of PAC files.
-    #[cfg(feature = "at-interface")]
     pub async fn get_pac_files() -> Result<Vec<String>> {
         Self::try_list_files("pac").await
     }
 
     /// Retrieve a list of all certificate and PAC files.
-    #[cfg(feature = "at-interface")]
     pub async fn get_cert_and_pac_files() -> Result<Vec<String>> {
         let mut files = Self::get_cert_files().await?;
         files.extend(Self::get_pac_files().await?);
@@ -134,7 +121,6 @@ impl FilesService {
     }
 
     /// Retrieve a list of all certificate and PAC files, surfacing filesystem errors.
-    #[cfg(feature = "api-v2")]
     pub async fn try_get_cert_and_pac_files() -> Result<Vec<String>> {
         let mut files = Self::try_list_files("cert").await?;
         files.extend(Self::try_list_files("pac").await?);
@@ -143,7 +129,6 @@ impl FilesService {
     }
 
     /// Delete a file from the directory associated with `file_type`.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub async fn delete_file(file_type: &str, name: &str) -> Result<()> {
         let safe_name = Self::sanitize_filename(name)?;
         let dir = Self::get_file_dir(file_type)
@@ -154,7 +139,6 @@ impl FilesService {
             .with_context(|| format!("Failed to delete '{}'", safe_name))
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub async fn delete_file_typed(
         file_type: &str,
         name: &str,
@@ -172,7 +156,6 @@ impl FilesService {
     }
 
     /// Write raw bytes to the destination directory for `file_type`.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub async fn upload_file(file_type: &str, name: &str, data: &[u8]) -> Result<()> {
         let safe_name = Self::sanitize_filename(name)?;
         let dir = Self::get_file_dir(file_type)
@@ -188,7 +171,6 @@ impl FilesService {
     // -------------------------------------------------------------------------
 
     /// Export logs as a password-protected zip archive.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn export_logs(password: &str) -> Result<Vec<u8>> {
         crate::archive::zip_create(
             password,
@@ -200,7 +182,6 @@ impl FilesService {
     }
 
     /// Export system config as a password-protected zip archive.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn export_system_config(password: &str) -> Result<Vec<u8>> {
         crate::archive::zip_create(
             password,
@@ -211,7 +192,6 @@ impl FilesService {
     }
 
     /// Export logs and config as an OpenSSL-encrypted debug archive.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn export_debug() -> Result<Vec<u8>> {
         let temp_zip = crate::archive::temp_file("debug_tmp", "zip")?;
         let encrypted_archive = crate::archive::temp_file("debug_export", "zip")?;
@@ -258,7 +238,6 @@ impl FilesService {
     }
 
     /// Import system config from a password-protected zip archive.
-    #[cfg(feature = "api-v2")]
     pub async fn import_system_config(archive_data: &[u8], password: &str) -> Result<()> {
         crate::archive::zip_extract(archive_data, password, "/").await
     }

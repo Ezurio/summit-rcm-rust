@@ -3,6 +3,9 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#[doc(hidden)]
+pub use axum as __axum;
+
 pub mod auth;
 pub mod pkcs11;
 pub mod security_headers;

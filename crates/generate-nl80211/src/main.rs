@@ -94,10 +94,10 @@ fn selected_prefix() -> PathBuf {
         "SDKTARGETSYSROOT",
         "OECORE_TARGET_SYSROOT",
     ] {
-        if let Ok(value) = std::env::var(env_name) {
-            if !value.trim().is_empty() {
-                return PathBuf::from(value);
-            }
+        if let Ok(value) = std::env::var(env_name)
+            && !value.trim().is_empty()
+        {
+            return PathBuf::from(value);
         }
     }
     PathBuf::from("/")

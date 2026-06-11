@@ -5,6 +5,7 @@ edition = "2024"
 description = "Pure-Rust client for the SWUpdate IPC and progress protocols"
 authors = ["Ezurio LLC"]
 license = "LicenseRef-Ezurio-Clause"
+resolver = "2"
 
 [features]
 # Async (tokio) client API. The blocking (std) API is always available.

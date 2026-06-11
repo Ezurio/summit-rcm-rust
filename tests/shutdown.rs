@@ -74,7 +74,7 @@ fn summit_rcm_binary() -> PathBuf {
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let binary_path = manifest_dir.join("build").join("debug").join("summit-rcm");
+    let binary_path = manifest_dir.join("target").join("debug").join("summit-rcm");
     if binary_path.is_file() {
         return binary_path;
     }

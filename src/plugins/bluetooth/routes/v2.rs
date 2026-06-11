@@ -62,10 +62,6 @@ define_bluetooth_v2_response_family! {
     pub enum PutBluetoothResponses(BluetoothControlResponse);
 }
 
-define_bluetooth_v2_response_family! {
-    pub enum GetBluetoothDeviceResponses(BluetoothDeviceModel);
-}
-
 fn classify_get_error<R>(error: &anyhow::Error, not_found: R, bad_request: R, internal_error: R) -> R {
     let message = error.to_string();
     if message.contains("controller not found") {
@@ -188,19 +184,28 @@ pub async fn put_bluetooth_controller(
     tag = "bluetooth",
     params(
         ("controller" = String, Path, description = "Controller address"),
-        ("device" = String, Path, description = "Device address")
+        ("device" = String, Path, description = "Device address"),
+        ("filter" = Option<String>, Query, description = "Comma-separated response field filters")
     ),
-    responses(GetBluetoothDeviceResponses)
+    responses(GetBluetoothResponses)
 ))]
 pub async fn get_bluetooth_device(
     Path((controller, device)): Path<(String, String)>,
-) -> GetBluetoothDeviceResponses {
+    Query(query): Query<BluetoothQuery>,
+) -> GetBluetoothResponses {
     match BluetoothService::get_device_state_typed(&controller, &device).await {
-        Ok(value) => value.into(),
+        Ok(_) => {}
         Err(BluetoothDeviceStateError::ControllerNotFound | BluetoothDeviceStateError::DeviceNotFound) => {
-            GetBluetoothDeviceResponses::NotFound
+            return GetBluetoothResponses::NotFound;
         }
-        Err(BluetoothDeviceStateError::Internal) => GetBluetoothDeviceResponses::InternalError,
+        Err(BluetoothDeviceStateError::Internal) => {
+            return GetBluetoothResponses::InternalError;
+        }
+    }
+
+    match BluetoothService::get_controller_state(Some(&controller), query.filters()).await {
+        Ok(state) => state.into_v2_response().into(),
+        Err(error) => get_error_response(&error),
     }
 }
 

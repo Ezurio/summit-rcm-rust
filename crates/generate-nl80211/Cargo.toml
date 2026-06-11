@@ -6,6 +6,7 @@ description = "Host tool: generates src/plugins/network/nl80211/generated.rs via
 authors = ["Ezurio LLC"]
 license = "LicenseRef-Ezurio-Clause"
 publish = false
+resolver = "2"
 
 [[bin]]
 name = "generate_nl80211_bindings"

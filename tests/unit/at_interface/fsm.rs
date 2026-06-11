@@ -16,7 +16,7 @@ async fn usage_query_emits_response() {
     process_input_with_queue(None, b"ATE1?\r").await;
 
     let output = rx.recv().await.expect("expected usage response");
-    assert_eq!(String::from_utf8(output).unwrap(), "\r\nATE1\r\n");
+    assert_eq!(String::from_utf8(output).unwrap(), "\r\nATE1\r\nOK\r\n");
 }
 
 #[tokio::test]

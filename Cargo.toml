@@ -12,6 +12,10 @@ description = "Summit RCM - Remote Configuration Manager (Rust/Axum port)"
 authors = ["Ezurio LLC"]
 license = "LicenseRef-Ezurio-Clause"
 autotests = false
+resolver = "2"
+
+[[bin]]
+name = "summit-rcm"
 
 [[bin]]
 name = "generate_openapi"
@@ -58,8 +62,8 @@ name = "no_dead_code_policy"
 path = "tests/unit/no_dead_code_policy.rs"
 
 [features]
-# Default: full REST API (v2 + legacy routes)
-default = ["api-v2", "api-legacy"]
+# Default: API v2 with the shared default plugin set.
+default = ["api-v2"]
 
 # Shared REST server stack used by both published HTTP APIs.
 api-rest = [
@@ -67,24 +71,32 @@ api-rest = [
     "dep:tower-sessions", "dep:hyper-util", "tokio/net",
 ]
 
+# Default plugin set shared by the published HTTP APIs and AT interface.
+default-plugins = [
+    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+]
+
 # REST API v2 routes (/api/v2/...) — pulls in Axum automatically
 api-v2 = [
     "api-rest",
-    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+    "default-plugins",
 ]
 # Legacy API routes (/api/v1/... and root-path backward-compat) — same Axum stack
 api-legacy = [
     "api-rest",
-    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+    "default-plugins",
 ]
-# Serial AT command interface — independent of any REST API
-at-interface = ["dep:tokio-serial", "dep:ping", "dep:httparse", "tokio/net", "network", "network-manager", "date-time", "system", "logs", "files", "update"]
+# Serial AT command interface.
+at-interface = [
+    "dep:tokio-serial", "dep:ping", "dep:httparse", "tokio/net",
+    "default-plugins",
+]
 
 # NetworkManager-backed implementation used by the network plugin.
 network-manager = []
 
 # Network-facing routes, AT commands, and non-NetworkManager helpers.
-network = ["dep:neli", "dep:neli-proc-macros", "neli/async"]
+network = ["dep:neli", "neli/async"]
 date-time = []
 login = ["dep:rustix"]
 system = []
@@ -118,7 +130,7 @@ unauthenticated = []
 all-plugins = [
     "awm", "bluetooth", "chrony", "cww", "fips", "firewall", "log-forwarding",
     "provisioning", "radio-siso-mode", "stunnel", "unauthenticated",
-    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
+    "default-plugins",
 ]
 api-docs = ["dep:utoipa", "api-v2", "api-legacy"]
 runtime-docs = []
@@ -149,6 +161,7 @@ inventory      = "0.3"
 axum           = { version = "0.8.9", features = ["multipart"] }
 tower          = { version = "0.5", features = ["util"] }
 tokio-tungstenite = "0.29"
+utoipa         = { version = "5.5.0", features = ["axum_extras"] }
 
 [dependencies]
 tokio.workspace = true
@@ -174,7 +187,6 @@ tokio-openssl.workspace = true
 hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"], optional = true }
 ping           = { version = "0.7", optional = true }
 neli = { version = "0.7.4", default-features = false, features = ["async"], optional = true }
-neli-proc-macros = { version = "0.2.2", optional = true }
 tokio-udev = { version = "0.10.0", optional = true }
 swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
 inventory.workspace = true

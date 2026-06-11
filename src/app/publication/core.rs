@@ -14,7 +14,6 @@ pub struct PluginPublication {
     pub openapi_json: Option<super::http::OpenApiJsonFn>,
     #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
     pub route_policies: Option<&'static [super::http::RouteDocPolicy]>,
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub startup: Option<fn()>,
     /// Bluetooth device command handler contributed by a device plugin (HID,
     /// VSP, …). The core bluetooth plugin collects these across all
@@ -46,7 +45,6 @@ impl PluginPublication {
             openapi_json: None,
             #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
             route_policies: None,
-            #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
             startup: None,
             #[cfg(feature = "bluetooth")]
             bluetooth_command_handler: None,
@@ -83,7 +81,6 @@ impl PluginPublication {
         self
     }
 
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     pub const fn with_startup(mut self, startup: fn()) -> Self {
         self.startup = Some(startup);
         self

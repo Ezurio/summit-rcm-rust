@@ -1,6 +1,7 @@
 use super::*;
 use crate::config::tests;
 use crate::plugins::login::login_service::test_support;
+use test_support::{clear_test_state, set_boottime_secs};
 #[cfg(feature = "provisioning")]
 use crate::plugins::provisioning::service::{
     CertificateProvisioningService, ProvisioningState, ProvisioningWebTlsConfig,
@@ -30,7 +31,7 @@ struct ServerConfigTestCleanup;
 
 impl Drop for ServerConfigTestCleanup {
     fn drop(&mut self) {
-        test_support::clear_test_state();
+        clear_test_state();
         tests::clear_server_overrides();
         tests::delete_system_setting("session_timeout");
         #[cfg(feature = "provisioning")]
@@ -182,7 +183,7 @@ async fn expired_session_loses_access_to_protected_route() {
     let _settings_guard = tests::SETTINGS_LOCK.lock();
     test_env!();
     assert!(tests::set_system_setting("session_timeout", "1"));
-    test_support::set_boottime_secs(100);
+    set_boottime_secs(100);
 
     let app: Router = build_router();
 
@@ -196,7 +197,7 @@ async fn expired_session_loses_access_to_protected_route() {
     assert_eq!(login_response.status(), StatusCode::OK);
     let cookie = session_cookie(&login_response).expect("session cookie should be set");
 
-    test_support::set_boottime_secs(161);
+    set_boottime_secs(161);
 
     let request = Request::builder()
         .uri("/api/v2/login/users")

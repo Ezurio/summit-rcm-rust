@@ -292,8 +292,7 @@ impl Nl80211Client {
 
             let sta_attr = handle
                 .get_attribute(
-                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_STA_INFO)
-                        .into(),
+                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_STA_INFO),
                 )
                 .context("GET_STATION missing NL80211_ATTR_STA_INFO")?;
             let sta_handle: AttrHandle<

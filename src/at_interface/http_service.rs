@@ -184,6 +184,7 @@ impl HttpService {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_http1_request<IO>(
     io: IO,
     method: &str,

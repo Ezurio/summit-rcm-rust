@@ -12,9 +12,7 @@ pub(super) use nl80211_bindings::*;
 
 use anyhow::{Context, Result, anyhow};
 use neli::attr::{AttrHandle, Attribute};
-use neli::consts::{
-    genl::NlAttrType,
-};
+use neli::consts::genl::NlAttrType;
 use neli::genl::{
     AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
 };
@@ -29,8 +27,11 @@ pub(super) type Nl80211Iftype = u16;
 pub(super) type Nl80211StaInfo = u16;
 pub(super) type Nl80211StaBssParam = u16;
 pub(super) type Nl80211RateInfo = u16;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) type Nl80211BandAttr = u16;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) type Nl80211FrequencyAttr = u16;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) type Nl80211RegRuleAttr = u16;
 
 pub(super) type Nl80211Payload = Genlmsghdr<Nl80211Cmd, Nl80211Attr>;
@@ -89,6 +90,7 @@ pub(super) fn build_genl_message(
         .map_err(|error| anyhow!(error))
 }
 
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 pub(super) fn get_required_attr<T, K>(
     handle: &AttrHandle<'_, GenlBuffer<K, Buffer>, Nlattr<K, Buffer>>,
     key: K,

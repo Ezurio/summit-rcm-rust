@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use super::*;
 use crate::plugins::bluetooth::routes::shared::BluetoothDeviceModel;
 use std::{
@@ -28,6 +30,8 @@ use zbus::fdo::ObjectManager;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 static LIVE_BTVIRT_TEST_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 static PASSWORDLESS_SUDO: LazyLock<bool> = LazyLock::new(|| {
@@ -131,20 +135,20 @@ fn skip_reason() -> Option<String> {
 fn build_privileged_command(program: &Path, args: &[String]) -> anyhow::Result<Command> {
     if running_as_root() {
         let mut command = Command::new(program);
-        command.args(args);
+        command.stdin(Stdio::null()).args(args);
         return Ok(command);
     }
 
     let sudo = find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
     let mut command = Command::new(sudo);
-    command.arg("-n").arg(program).args(args);
+    command.stdin(Stdio::null()).arg("-n").arg(program).args(args);
     Ok(command)
 }
 
 fn run_privileged_output(program: &Path, args: &[String]) -> anyhow::Result<Output> {
     let mut command = if let Some(timeout) = find_binary("timeout") {
         let mut command = Command::new(timeout);
-        command.args(["--signal=KILL", "8"]);
+        command.stdin(Stdio::null()).args(["--signal=KILL", "8"]);
         if running_as_root() {
             command.arg(program).args(args);
         } else {
@@ -165,6 +169,7 @@ fn run_privileged_output(program: &Path, args: &[String]) -> anyhow::Result<Outp
 fn kill_privileged_match(pattern: &str) -> anyhow::Result<()> {
     if running_as_root() {
         let status = Command::new("pkill")
+            .stdin(Stdio::null())
             .args(["-f", pattern])
             .status()
             .context("failed to invoke pkill")?;
@@ -174,6 +179,7 @@ fn kill_privileged_match(pattern: &str) -> anyhow::Result<()> {
 
     let sudo = find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
     let status = Command::new(sudo)
+        .stdin(Stdio::null())
         .args(["-n", "pkill", "-f", pattern])
         .status()
         .context("failed to invoke sudo pkill")?;
@@ -246,6 +252,15 @@ impl LoggedChild {
         };
 
         let mut command = build_privileged_command(&exec_path, args)?;
+        #[cfg(unix)]
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let child = command
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -421,6 +436,10 @@ async fn wait_for_device_model(controller: &str, device: &str) -> anyhow::Result
     }
 }
 
+async fn current_device_model(controller: &str, device: &str) -> Option<BluetoothDeviceModel> {
+    BluetoothService::get_device_state_typed(controller, device).await.ok()
+}
+
 async fn wait_for_paired_device(controller: &str, device: &str) -> anyhow::Result<BluetoothDeviceModel> {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
@@ -471,15 +490,33 @@ async fn start_discovery(controller: &str) -> anyhow::Result<()> {
 }
 
 async fn stop_discovery(controller: &str) -> anyhow::Result<()> {
-    let (response, info_msg) = BluetoothService::handle_command_v2(
-        Some(controller),
-        None,
-        serde_json::from_value(json!({"command": "bleStopDiscovery"}))?,
-    )
-    .await?;
-    anyhow::ensure!(info_msg.is_empty(), "bleStopDiscovery returned info: {info_msg}");
-    anyhow::ensure!(response.started.is_none(), "bleStopDiscovery unexpectedly set started");
-    wait_for_discovering(controller, false).await
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let state = BluetoothService::get_controller_state(Some(controller), None).await?;
+        if !state.discovering {
+            return Ok(());
+        }
+
+        let (response, info_msg) = BluetoothService::handle_command_v2(
+            Some(controller),
+            None,
+            serde_json::from_value(json!({"command": "bleStopDiscovery"}))?,
+        )
+        .await?;
+
+        anyhow::ensure!(response.started.is_none(), "bleStopDiscovery unexpectedly set started");
+
+        if info_msg.is_empty() || info_msg.contains("org.bluez.Error.Failed: No discovery started") {
+            sleep(Duration::from_millis(200)).await;
+            continue;
+        }
+
+        anyhow::ensure!(
+            info_msg.contains("org.bluez.Error.InProgress") && Instant::now() < deadline,
+            "bleStopDiscovery returned info: {info_msg}"
+        );
+        sleep(Duration::from_millis(200)).await;
+    }
 }
 
 async fn pair_device(controller: &str, device: &str) -> anyhow::Result<BluetoothDeviceModel> {
@@ -514,7 +551,7 @@ async fn connect_device(controller: &str, device: &str) -> anyhow::Result<Blueto
             return wait_for_connected_device(controller, device, true).await;
         }
 
-        if let Ok(model) = wait_for_device_model(controller, device).await
+        if let Some(model) = current_device_model(controller, device).await
             && model.connected == Some(1) {
             return Ok(model);
         }

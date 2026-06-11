@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::{future::Future, path::Path, sync::LazyLock};
 use tokio::sync::OnceCell;
 
-const SUMMIT_RCM_VERSION: &str = env!("SUMMIT_RCM_BUILD_VERSION");
+const SUMMIT_RCM_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 type CachedResult<T> = std::result::Result<T, String>;
 

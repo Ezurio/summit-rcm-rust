@@ -20,6 +20,8 @@
 
 use axum::{extract::Path, response::IntoResponse};
 
+mod routes;
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 async fn hello() -> axum::response::Response {

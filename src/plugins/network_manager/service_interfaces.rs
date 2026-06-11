@@ -103,7 +103,6 @@ impl NetworkService {
     /// Apply the shared unmanaged/down-device filtering and wrap the per-device
     /// status map in the `{status, devices}` response envelope. When `normalize`
     /// is set (v2/modern shape) each device's keys are normalized.
-    #[cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
     fn finalize_status(mut status: Value, normalize: bool) -> Value {
         let unmanaged_devices: HashSet<String> = unmanaged_hardware_devices().into_iter().collect();
 

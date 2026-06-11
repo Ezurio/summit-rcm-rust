@@ -74,19 +74,19 @@ macro_rules! __declare_method_router_chain {
 #[macro_export]
 macro_rules! __declare_method_router {
     (GET => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!($crate::__axum::routing::get($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::web::__axum::routing::get($handler) $(, $($rest)*)?)
     };
     (POST => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!($crate::__axum::routing::post($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::web::__axum::routing::post($handler) $(, $($rest)*)?)
     };
     (PUT => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!($crate::__axum::routing::put($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::web::__axum::routing::put($handler) $(, $($rest)*)?)
     };
     (DELETE => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!($crate::__axum::routing::delete($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::web::__axum::routing::delete($handler) $(, $($rest)*)?)
     };
     (PATCH => $handler:expr $(, $($rest:tt)*)?) => {
-        $crate::__declare_method_router_chain!($crate::__axum::routing::patch($handler) $(, $($rest)*)?)
+        $crate::__declare_method_router_chain!($crate::web::__axum::routing::patch($handler) $(, $($rest)*)?)
     };
 }
 
@@ -96,7 +96,7 @@ macro_rules! __declare_route_publication {
     ($auth:ident $path:expr => { $($method:ident => $handler:expr),+ $(,)? }) => {{
         const ROUTES: &[$crate::publication::PublishedRoute] =
             $crate::published_routes!($path; $($method),+);
-        fn install(api: $crate::__axum::Router) -> $crate::__axum::Router {
+        fn install(api: $crate::web::__axum::Router) -> $crate::web::__axum::Router {
             api.route($path, $crate::__declare_method_router!($($method => $handler),+))
         }
         $crate::publication::RoutePublication {
@@ -408,7 +408,6 @@ macro_rules! declare_plugin {
     };
 
     (@with_openapi_json $publication:ident, $routes:expr) => {{
-        let _ = $routes;
         #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
         {
             $publication.with_openapi_json(openapi_json)
@@ -424,7 +423,6 @@ macro_rules! declare_plugin {
     };
 
     (@with_route_doc_policies $publication:ident, $routes:expr) => {{
-        let _ = $routes;
         #[cfg(all(feature = "api-docs", any(feature = "api-v2", feature = "api-legacy")))]
         {
             $publication.with_route_doc_policies(ROUTE_DOC_POLICIES)

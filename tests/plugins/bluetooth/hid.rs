@@ -1,9 +1,11 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader as StdBufReader, Read},
+    os::fd::AsRawFd,
     path::{Path, PathBuf},
+    fs::OpenOptions,
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard as StdMutexGuard},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -23,6 +25,25 @@ use zbus::{Connection, connection::Builder, fdo::ObjectManager};
 
 const TEST_DEVICE_ADDRESS: &str = "AA:BB:CC:DD:EE:FF";
 const BLUEZ_SERVICE: &str = "org.bluez";
+
+static UHID_TEST_LOCK: LazyLock<StdMutex<()>> = LazyLock::new(|| StdMutex::new(()));
+static PASSWORDLESS_SUDO: LazyLock<bool> = LazyLock::new(|| {
+    if running_as_root() {
+        return true;
+    }
+
+    Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+});
+
+fn running_as_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
 
 #[derive(Clone, Debug, Default)]
 struct MockDeviceState {
@@ -263,7 +284,15 @@ async fn wait_for_line(reader: &mut BufReader<TcpStream>, needle: &str) -> Strin
 
 fn compile_uhid_simulator() -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/uhid_barcode_scanner_sim.c");
-    let output = std::env::temp_dir().join("uhid_barcode_scanner_sim_test");
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let output = std::env::temp_dir().join(format!(
+        "uhid_barcode_scanner_sim_test-{}-{}",
+        std::process::id(),
+        unique
+    ));
     let status = Command::new("gcc")
         .args(["-O2", "-Wall", "-Wextra", "-std=c11"])
         .arg(&source)
@@ -276,19 +305,185 @@ fn compile_uhid_simulator() -> PathBuf {
 }
 
 fn spawn_uhid_simulator(binary: &Path, uniq: &str, barcode: &str) -> Child {
-    Command::new(binary)
+    let mut command = if running_as_root() {
+        Command::new(binary)
+    } else {
+        let mut command = Command::new("sudo");
+        command.arg("-n").arg(binary);
+        command
+    };
+
+    command
         .args([
             "--uniq",
             uniq,
             "--barcode",
             barcode,
             "--send-delay-ms",
-            "3000",
+            "200",
             "--hold-ms",
-            "3000",
+            "200",
         ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("simulator should start")
+}
+
+fn should_skip_uhid_test() -> Option<String> {
+    if *PASSWORDLESS_SUDO {
+        None
+    } else {
+        Some("skipping UHID test: requires root or passwordless sudo to launch the UHID simulator".to_string())
+    }
+}
+
+fn lock_uhid_test() -> StdMutexGuard<'static, ()> {
+    UHID_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn terminate_uhid_simulator(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn make_device_accessible(path: &Path, mode: &str) {
+    let mut command = if running_as_root() {
+        let mut command = Command::new("chmod");
+        command.stdin(Stdio::null());
+        command
+    } else {
+        let mut command = Command::new("sudo");
+        command.stdin(Stdio::null()).arg("-n").arg("chmod");
+        command
+    };
+
+    let output = command
+        .arg(mode)
+        .arg(path)
+        .output()
+        .expect("should be able to chmod test device node");
+    assert!(
+        output.status.success(),
+        "should make test device node accessible before opening {}; stdout={} stderr={}",
+        path.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn open_hidraw_or_fix_permissions(hidraw: &Path, child: &mut Child) -> File {
+    match File::open(hidraw) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            make_device_accessible(hidraw, "a+r");
+            File::open(hidraw).unwrap_or_else(|retry_error| {
+                terminate_uhid_simulator(child);
+                panic!(
+                    "hidraw device should be readable after chmod {}: initial={error} retry={retry_error}",
+                    hidraw.display()
+                )
+            })
+        }
+        Err(error) => {
+            terminate_uhid_simulator(child);
+            panic!("hidraw device should be readable: {error}")
+        }
+    }
+}
+
+struct EventDeviceGrab {
+    file: File,
+}
+
+impl Drop for EventDeviceGrab {
+    fn drop(&mut self) {
+        unsafe {
+            libc::ioctl(self.file.as_raw_fd(), eviocgrab_request(), 0);
+        }
+    }
+}
+
+fn eviocgrab_request() -> libc::c_ulong {
+    const IOC_NRBITS: u32 = 8;
+    const IOC_TYPEBITS: u32 = 8;
+    const IOC_SIZEBITS: u32 = 14;
+    const IOC_NRSHIFT: u32 = 0;
+    const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
+    const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
+    const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
+    const IOC_WRITE: u32 = 1;
+
+    ((IOC_WRITE << IOC_DIRSHIFT)
+        | ((b'E' as u32) << IOC_TYPESHIFT)
+        | (0x90 << IOC_NRSHIFT)
+        | ((std::mem::size_of::<libc::c_int>() as u32) << IOC_SIZESHIFT)) as libc::c_ulong
+}
+
+fn find_input_event_for_hidraw(hidraw: &Path) -> Option<PathBuf> {
+    let hidraw_name = hidraw.file_name()?;
+    let input_root = Path::new("/sys/class/hidraw").join(hidraw_name).join("device/input");
+    let entries = std::fs::read_dir(input_root).ok()?;
+
+    for entry in entries.flatten() {
+        let Ok(event_entries) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        for event_entry in event_entries.flatten() {
+            let event_name = event_entry.file_name();
+            let event_name = event_name.to_string_lossy();
+            if event_name.starts_with("event") {
+                return Some(Path::new("/dev/input").join(event_name.as_ref()));
+            }
+        }
+    }
+
+    None
+}
+
+fn wait_for_input_event_by_hidraw(hidraw: &Path) -> Option<PathBuf> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(event_path) = find_input_event_for_hidraw(hidraw) {
+            return Some(event_path);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn grab_input_event_for_hidraw(hidraw: &Path, child: &mut Child) -> Option<EventDeviceGrab> {
+    let event_path = wait_for_input_event_by_hidraw(hidraw)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&event_path)
+        .or_else(|error| {
+            if error.kind() != std::io::ErrorKind::PermissionDenied {
+                return Err(error);
+            }
+
+            make_device_accessible(&event_path, "a+rw");
+            OpenOptions::new().read(true).write(true).open(&event_path)
+        })
+        .unwrap_or_else(|error| {
+            terminate_uhid_simulator(child);
+            panic!("input event device should be openable for EVIOCGRAB {}: {error}", event_path.display())
+        });
+
+    let grab_result = unsafe { libc::ioctl(file.as_raw_fd(), eviocgrab_request(), 1) };
+    if grab_result != 0 {
+        let error = std::io::Error::last_os_error();
+        terminate_uhid_simulator(child);
+        panic!("EVIOCGRAB should succeed for {}: {error}", event_path.display());
+    }
+
+    Some(EventDeviceGrab { file })
 }
 
 fn wait_for_hidraw_by_uniq(uniq: &str) -> PathBuf {
@@ -314,14 +509,21 @@ fn wait_for_hidraw_by_uniq(uniq: &str) -> PathBuf {
 }
 
 #[test]
-#[ignore = "requires root access to /dev/uhid and /dev/hidraw* plus a local gcc toolchain"]
+#[ignore = "requires local gcc plus read access to /dev/hidraw* and root or passwordless sudo for the UHID simulator"]
 fn live_uhid_scanner_emits_expected_hid_reports() {
+    let _guard = lock_uhid_test();
+    if let Some(reason) = should_skip_uhid_test() {
+        eprintln!("{reason}");
+        return;
+    }
+
     let uniq = TEST_DEVICE_ADDRESS;
     let simulator = compile_uhid_simulator();
     let mut child = spawn_uhid_simulator(&simulator, uniq, "ABC123");
 
     let hidraw = wait_for_hidraw_by_uniq(uniq);
-    let mut file = File::open(&hidraw).expect("hidraw device should be readable");
+    let mut file = open_hidraw_or_fix_permissions(&hidraw, &mut child);
+    let _event_grab = grab_input_event_for_hidraw(&hidraw, &mut child);
     let mut reports = Vec::new();
     let mut buffer = [0u8; 8];
     for _ in 0..14 {
@@ -330,8 +532,15 @@ fn live_uhid_scanner_emits_expected_hid_reports() {
         reports.push(buffer);
     }
 
-    let status = child.wait().expect("simulator process should exit cleanly");
-    assert!(status.success(), "simulator should exit successfully");
+    let output = child
+        .wait_with_output()
+        .expect("simulator process should exit cleanly");
+    assert!(
+        output.status.success(),
+        "simulator should exit successfully; stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     assert_eq!(reports[0], [0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00]);
     assert_eq!(reports[1], [0x00; 8]);
@@ -350,8 +559,14 @@ fn live_uhid_scanner_emits_expected_hid_reports() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "requires root access to /dev/uhid and /dev/hidraw* plus a local gcc toolchain"]
+#[ignore = "requires local gcc plus read access to /dev/hidraw* and root or passwordless sudo for the UHID simulator"]
 async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
+    let _guard = lock_uhid_test();
+    if let Some(reason) = should_skip_uhid_test() {
+        eprintln!("{reason}");
+        return;
+    }
+
     let harness = MockBluezHarness::start()
         .await
         .expect("mock bluez harness should start");
@@ -365,8 +580,10 @@ async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
                 std::env::set_var(TEST_SYSTEM_BUS_ADDRESS_ENV, &harness.bus.address);
             }
 
-            let mut child = spawn_uhid_simulator(&simulator, TEST_DEVICE_ADDRESS, "ABC123");
-            let _hidraw = wait_for_hidraw_by_uniq(TEST_DEVICE_ADDRESS);
+            let mut child = spawn_uhid_simulator(&simulator, TEST_DEVICE_ADDRESS, "XYZ789");
+            let hidraw = wait_for_hidraw_by_uniq(TEST_DEVICE_ADDRESS);
+            let _hidraw_file = open_hidraw_or_fix_permissions(&hidraw, &mut child);
+            let _event_grab = grab_input_event_for_hidraw(&hidraw, &mut child);
 
             let (response, info_msg) = BluetoothService::handle_command_v2(
                 Some("controller0"),
@@ -377,12 +594,12 @@ async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
             .await
             .expect("hidConnect should succeed");
             assert!(info_msg.is_empty(), "{}", info_msg);
-            assert_eq!(response.port, Some(i32::from(tcp_port)));
+            assert_eq!(response.port, None);
 
             let stream = connect_tcp_client(tcp_port).await;
             let mut reader = BufReader::new(stream);
 
-            let barcode_line = wait_for_line(&mut reader, "ABC123").await;
+            let barcode_line = wait_for_line(&mut reader, "XYZ789").await;
             assert!(barcode_line.contains("\"Received\""));
             let disconnect_line = wait_for_line(&mut reader, "\"Connected\":0").await;
             assert!(disconnect_line.contains("\"Connected\":0"));
@@ -397,8 +614,15 @@ async fn live_uhid_hid_connect_streams_barcode_with_mock_bluez() {
             .expect("hidDisconnect should succeed");
             assert!(info_msg.is_empty(), "{}", info_msg);
 
-            let status = child.wait().expect("simulator process should exit cleanly");
-            assert!(status.success(), "simulator should exit successfully");
+            let output = child
+                .wait_with_output()
+                .expect("simulator process should exit cleanly");
+            assert!(
+                output.status.success(),
+                "simulator should exit successfully; stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
 
             unsafe {
                 std::env::remove_var(TEST_SYSTEM_BUS_ADDRESS_ENV);
