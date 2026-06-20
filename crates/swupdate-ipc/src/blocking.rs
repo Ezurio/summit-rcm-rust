@@ -112,6 +112,69 @@ pub fn get_status_timeout(timeout: Duration) -> Result<Option<IpcMessage>> {
     }
 }
 
+/// Waits for a terminal SWUpdate install result within `timeout`, using the
+/// control status socket.
+///
+/// Polls [`get_status_timeout`] in a loop and guards against acting on stale
+/// `Success`/`Failure` state left over from a previous install by tracking:
+///
+/// - **`seen_active`** — set when any in-progress status (`Start`, `Run`,
+///   `Download`, `Progress`, `Done`, `Subprocess`) is observed.
+/// - **`changed_since_start`** — true when `(current, last_result)` differs
+///   from the pair seen on the first reply.
+///
+/// Returns `Ok(())` on success, `Err(Error::InstallFailed)` on failure, and
+/// `Err(Error::Timeout)` if the deadline elapses.
+pub fn await_install_result(timeout: Duration) -> Result<()> {
+    let mut seen_active = false;
+    let mut initial: Option<(i32, i32)> = None;
+
+    loop {
+        let msg = match get_status_timeout(timeout)? {
+            Some(msg) => msg,
+            None => return Err(Error::Timeout),
+        };
+
+        // SAFETY: get_status replies always use the `status` union member.
+        let (current_raw, last_result_raw) = unsafe {
+            (msg.data.status.current, msg.data.status.last_result)
+        };
+
+        if initial.is_none() {
+            initial = Some((current_raw, last_result_raw));
+        }
+        let changed_since_start = initial
+            .map(|(ic, ilr)| current_raw != ic || last_result_raw != ilr)
+            .unwrap_or(false);
+
+        let current = RecoveryStatus::try_from(current_raw).ok();
+        let last_result = RecoveryStatus::try_from(last_result_raw).ok();
+
+        match current {
+            Some(RecoveryStatus::Start)
+            | Some(RecoveryStatus::Run)
+            | Some(RecoveryStatus::Download)
+            | Some(RecoveryStatus::Progress)
+            | Some(RecoveryStatus::Done)
+            | Some(RecoveryStatus::Subprocess) => {
+                seen_active = true;
+            }
+            Some(RecoveryStatus::Success) if seen_active || changed_since_start => {
+                return Ok(());
+            }
+            Some(RecoveryStatus::Failure) if seen_active || changed_since_start => {
+                return Err(Error::InstallFailed);
+            }
+            Some(RecoveryStatus::Idle) if seen_active => match last_result {
+                Some(RecoveryStatus::Success) => return Ok(()),
+                Some(RecoveryStatus::Failure) => return Err(Error::InstallFailed),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
 /// Runs a post-update action, equivalent to `ipc_postupdate`. The optional
 /// `info` payload is forwarded in the `procmsg` buffer. Returns the daemon's
 /// reply frame.

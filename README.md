@@ -24,7 +24,6 @@ The runtime is assembled from a small set of top-level modules:
 - `src/web/` contains web-only middleware and guards such as session auth and security headers.
 - `src/openapi/` contains the OpenAPI generator used by the runtime docs endpoint and the standalone `generate_openapi` binary.
 - `crates/plugin-api/` defines the dynamic plugin ABI.
-- `crates/plugin-example/` contains a sample plugin crate that targets that ABI.
 
 Current top-level source layout:
 
@@ -100,7 +99,7 @@ cargo check --features "api-v2 api-legacy at-interface" --all-targets
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"
 cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"
-cargo check -p generate-nl80211
+cargo check --bin generate_nl80211_bindings
 ```
 
 Example production-style web build with only v2 routes:
@@ -178,26 +177,26 @@ Notes:
 
 ### nl80211 bindings
 
-`crates/generate-nl80211` regenerates `src/plugins/network/nl80211/generated.rs` from a
+`src/bin/generate_nl80211_bindings.rs` regenerates `src/plugins/network/nl80211/generated.rs` from a
 `linux/nl80211.h` header using bindgen with the `prettyplease` formatter.
 
 Regenerate against the host system headers:
 
 ```bash
-cargo run -p generate-nl80211
+cargo run --bin generate_nl80211_bindings
 ```
 
 Regenerate against a cross sysroot (Buildroot `STAGING_DIR`, Yocto `SDKTARGETSYSROOT`, etc.):
 
 ```bash
-STAGING_DIR=/path/to/sysroot cargo run -p generate-nl80211
+STAGING_DIR=/path/to/sysroot cargo run --bin generate_nl80211_bindings
 # or any of: NL80211_INCLUDE_DIR  BR2_SYSROOT  SDKTARGETSYSROOT  OECORE_TARGET_SYSROOT
 ```
 
 An explicit output path can be passed as a positional argument:
 
 ```bash
-cargo run -p generate-nl80211 -- /tmp/nl80211_generated.rs
+cargo run --bin generate_nl80211_bindings -- /tmp/nl80211_generated.rs
 ```
 
 The generator searches for `linux/nl80211.h` under the sysroot in this order:

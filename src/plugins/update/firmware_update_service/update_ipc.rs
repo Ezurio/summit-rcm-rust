@@ -7,6 +7,7 @@
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use swupdate_ipc::r#async::{self as swupdate, InstallConn};
 use swupdate_ipc::{RunType, SwupdateRequest};
@@ -71,4 +72,13 @@ pub(super) async fn handle_stream(data: Bytes) -> std::result::Result<(), Update
         }
         Err(_) => Err(UpdateStreamError::Internal),
     }
+}
+
+/// Ends the IPC connection and waits for a terminal result from the control
+/// status socket.
+pub(super) async fn finish() -> Result<()> {
+    close();
+    swupdate::await_install_result(Duration::from_secs(120))
+        .await
+        .map_err(|e| anyhow!("{e}"))
 }

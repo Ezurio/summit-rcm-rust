@@ -39,6 +39,14 @@ pub enum Error {
     /// A caller-supplied argument was invalid.
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
+
+    /// Timed out waiting for SWUpdate to report an install result.
+    #[error("timed out waiting for SWUpdate install result")]
+    Timeout,
+
+    /// SWUpdate reported that the installation failed.
+    #[error("SWUpdate reported installation failure")]
+    InstallFailed,
 }
 
 /// Convenience result alias for this crate.

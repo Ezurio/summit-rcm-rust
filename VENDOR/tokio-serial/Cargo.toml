@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "tokio-serial"
-version = "5.4.5"
+version = "5.5.0"
 authors = ["Zac Berkowitz <zac.berkowitz@gmail.com>"]
 build = false
 autolib = false
@@ -37,10 +37,21 @@ license = "MIT"
 repository = "https://github.com/berkowski/tokio-serial"
 
 [package.metadata]
-msrv = "1.46.0"
+msrv = "1.71.0"
 
 [package.metadata.docs.rs]
 features = ["codec"]
+
+[features]
+codec = [
+    "tokio-util/codec",
+    "tokio-util/io",
+    "bytes",
+]
+default = []
+libudev = ["mio-serial/libudev"]
+rt = ["tokio/rt-multi-thread"]
+serde = ["mio-serial/serde"]
 
 [lib]
 name = "tokio_serial"
@@ -70,7 +81,10 @@ default-features = false
 [dependencies.cfg-if]
 version = "1"
 
-[dependencies.futures]
+[dependencies.futures-core]
+version = "0.3"
+
+[dependencies.futures-sink]
 version = "0.3"
 
 [dependencies.log]
@@ -106,6 +120,10 @@ version = "0.15.3"
 [dev-dependencies.env_logger]
 version = "0.10.0"
 
+[dev-dependencies.futures-util]
+version = "0.3"
+default-features = false
+
 [dev-dependencies.tokio]
 version = "^1.8"
 features = [
@@ -123,12 +141,3 @@ default-features = false
 version = "0.7.12"
 features = ["codec"]
 default-features = false
-
-[features]
-codec = [
-    "tokio-util/codec",
-    "bytes",
-]
-default = []
-libudev = ["mio-serial/libudev"]
-rt = ["tokio/rt-multi-thread"]

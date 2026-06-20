@@ -234,7 +234,10 @@ impl FirmwareUpdateService {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
             Some(StreamMode::Pipe) => update_pipe::finish_stream().await,
-            Some(StreamMode::Ipc)  => { update_ipc::close(); Ok(()) }
+            Some(StreamMode::Ipc) => update_ipc::finish().await.map_err(|e| {
+                log::error!("SWUpdate IPC finish failed: {}", e);
+                UpdateStreamError::Internal
+            }),
             Some(StreamMode::Url)  => Ok(()),
             None => Err(UpdateStreamError::NoUpdateInProgress),
         }

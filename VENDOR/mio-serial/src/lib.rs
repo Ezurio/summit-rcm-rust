@@ -60,12 +60,12 @@ mod os_prelude {
     pub use std::os::windows::io::{FromRawHandle, RawHandle};
     pub use std::path::Path;
     pub use std::ptr;
-    pub use winapi::um::commapi::SetCommTimeouts;
-    pub use winapi::um::fileapi::*;
-    pub use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-    pub use winapi::um::winbase::{COMMTIMEOUTS, FILE_FLAG_OVERLAPPED};
-    pub use winapi::um::winnt::{
-        FILE_ATTRIBUTE_NORMAL, GENERIC_READ, GENERIC_WRITE, HANDLE,
+    pub use windows_sys::Win32::Devices::Communication::{SetCommTimeouts, COMMTIMEOUTS};
+    pub use windows_sys::Win32::Foundation::{
+        GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+    };
+    pub use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OVERLAPPED, OPEN_EXISTING,
     };
 }
 use os_prelude::*;
@@ -550,11 +550,26 @@ impl TryFrom<NativeBlockingSerialPort> for SerialStream {
         let name = port
             .name()
             .ok_or_else(|| crate::Error::new(crate::ErrorKind::NoDevice, "Empty device name"))?;
-        let baud = port.baud_rate()?;
-        let parity = port.parity()?;
-        let data_bits = port.data_bits()?;
-        let stop_bits = port.stop_bits()?;
-        let flow_control = port.flow_control()?;
+        let baud = port
+            .baud_rate()
+            .inspect_err(|e| log::warn!("failed to read baud rate: {e}"))
+            .ok();
+        let parity = port
+            .parity()
+            .inspect_err(|e| log::warn!("failed to read parity: {e}"))
+            .ok();
+        let data_bits = port
+            .data_bits()
+            .inspect_err(|e| log::warn!("failed to read data bits: {e}"))
+            .ok();
+        let stop_bits = port
+            .stop_bits()
+            .inspect_err(|e| log::warn!("failed to read stop bits: {e}"))
+            .ok();
+        let flow_control = port
+            .flow_control()
+            .inspect_err(|e| log::warn!("failed to read flow control: {e}"))
+            .ok();
 
         let mut path = Vec::<u16>::new();
         path.extend(OsStr::new("\\\\.\\").encode_wide());
@@ -597,11 +612,21 @@ impl TryFrom<NativeBlockingSerialPort> for SerialStream {
             mem::ManuallyDrop::new(unsafe { serialport::COMPort::from_raw_handle(handle) });
 
         log::debug!("re-setting serial port parameters to original values from synchronous port");
-        com_port.set_baud_rate(baud)?;
-        com_port.set_parity(parity)?;
-        com_port.set_data_bits(data_bits)?;
-        com_port.set_stop_bits(stop_bits)?;
-        com_port.set_flow_control(flow_control)?;
+        if let Some(baud) = baud {
+            com_port.set_baud_rate(baud)?;
+        }
+        if let Some(parity) = parity {
+            com_port.set_parity(parity)?;
+        }
+        if let Some(data_bits) = data_bits {
+            com_port.set_data_bits(data_bits)?;
+        }
+        if let Some(stop_bits) = stop_bits {
+            com_port.set_stop_bits(stop_bits)?;
+        }
+        if let Some(flow_control) = flow_control {
+            com_port.set_flow_control(flow_control)?;
+        }
         sys::override_comm_timeouts(handle)?;
 
         Ok(Self {
@@ -668,7 +693,7 @@ mod io {
         }
     }
 
-    impl<'a> Read for &'a SerialStream {
+    impl Read for &SerialStream {
         fn read(&mut self, bytes: &mut [u8]) -> StdIoResult<usize> {
             uninterruptibly!(match unsafe {
                 libc::read(
@@ -683,7 +708,7 @@ mod io {
         }
     }
 
-    impl<'a> Write for &'a SerialStream {
+    impl Write for &SerialStream {
         fn write(&mut self, bytes: &[u8]) -> StdIoResult<usize> {
             uninterruptibly!(match unsafe {
                 libc::write(
@@ -792,7 +817,7 @@ mod sys {
     /// Overrides timeout value set by serialport-rs so that the read end will
     /// never wake up with 0-byte payload.
     pub(crate) fn override_comm_timeouts(handle: RawHandle) -> StdIoResult<()> {
-        let mut timeouts = COMMTIMEOUTS {
+        let timeouts = COMMTIMEOUTS {
             // wait at most 1ms between two bytes (0 means no timeout)
             ReadIntervalTimeout: 1,
             // disable "total" timeout to wait at least 1 byte forever
@@ -803,7 +828,7 @@ mod sys {
             WriteTotalTimeoutConstant: 0,
         };
 
-        let r = unsafe { SetCommTimeouts(handle, &mut timeouts) };
+        let r = unsafe { SetCommTimeouts(handle, &timeouts) };
         if r == 0 {
             return Err(io::Error::last_os_error());
         }

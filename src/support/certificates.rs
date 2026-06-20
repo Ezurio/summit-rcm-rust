@@ -43,8 +43,7 @@ impl CertificatesService {
 
             let value = entry
                 .data()
-                .as_utf8()
-                .map(|value| value.to_string())
+                .to_string()
                 .unwrap_or_else(|_| String::from_utf8_lossy(entry.data().as_slice()).into_owned());
             formatted.push_str(&value);
         }

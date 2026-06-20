@@ -2,6 +2,10 @@
 //!See the [implementation](https://docs.rs/configparser/*/configparser/ini/struct.Ini.html) documentation for more details.
 #[cfg(feature = "indexmap")]
 use indexmap::IndexMap as Map;
+#[cfg(feature = "serde")]
+use serde::de::{Deserialize, Deserializer};
+#[cfg(feature = "serde")]
+use serde::ser::{Serialize, Serializer};
 #[cfg(not(feature = "indexmap"))]
 use std::collections::HashMap as Map;
 #[cfg(feature = "tokio")]
@@ -31,6 +35,59 @@ pub struct Ini {
     boolean_values: HashMap<bool, Vec<String>>,
     case_sensitive: bool,
     multiline: bool,
+    enable_inline_comments: bool,
+    cascade_defaults: bool,
+}
+
+#[cfg(all(feature = "serde", not(feature = "indexmap")))]
+impl Serialize for Ini {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Delegate serialization to the internal map only
+        self.map.serialize(serializer)
+    }
+}
+
+#[cfg(all(feature = "serde", not(feature = "indexmap")))]
+impl<'de> Deserialize<'de> for Ini {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // First, deserialize the raw map
+        let map = Map::<String, Map<String, Option<String>>>::deserialize(deserializer)
+            .map_err(serde::de::Error::custom)?;
+        // Build an Ini with defaults, then replace its map
+        let mut ini = Ini::new();
+        ini.map = map;
+        Ok(ini)
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "indexmap"))]
+impl Serialize for Ini {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Delegate to IndexMap’s Serialize impl
+        serde::Serialize::serialize(&self.map, serializer)
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "indexmap"))]
+impl<'de> Deserialize<'de> for Ini {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map = serde::Deserialize::deserialize(deserializer)?;
+        let mut ini = Ini::new();
+        ini.map = map;
+        Ok(ini)
+    }
 }
 
 ///The `IniDefault` struct serves as a template to create other `Ini` objects from. It can be used to store and load
@@ -108,6 +165,28 @@ pub struct IniDefault {
     ///assert_eq!(default.multiline, false);
     ///```
     pub multiline: bool,
+    ///Denotes if the `Ini` object recognizes inline comments.
+    ///## Example
+    ///```rust
+    ///use configparser::ini::Ini;
+    ///
+    ///let mut config = Ini::new();
+    ///let default = config.defaults();
+    ///assert_eq!(default.enable_inline_comments, true);
+    ///```
+    pub enable_inline_comments: bool,
+    ///Cascade defaults automatically.  If a key is not defined in a get*()
+    ///call, but exists in the [DEFAULT] section, the value in the [DEFAULT]
+    ///section will be returned.
+    ///## Example
+    ///```rust
+    ///use configparser::ini::Ini;
+    ///
+    ///let mut config = Ini::new();
+    ///let default = config.defaults();
+    ///assert_eq!(default.cascade_defaults, false);
+    ///```
+    pub cascade_defaults: bool,
 }
 
 impl Default for IniDefault {
@@ -138,6 +217,8 @@ impl Default for IniDefault {
             .cloned()
             .collect(),
             case_sensitive: false,
+            enable_inline_comments: true, // retain compatibility with previous versions
+            cascade_defaults: false,      // retain backwards compatibility
         }
     }
 }
@@ -297,6 +378,8 @@ impl Ini {
             boolean_values: defaults.boolean_values,
             case_sensitive: defaults.case_sensitive,
             multiline: defaults.multiline,
+            enable_inline_comments: defaults.enable_inline_comments,
+            cascade_defaults: defaults.cascade_defaults,
         }
     }
 
@@ -318,6 +401,8 @@ impl Ini {
             boolean_values: self.boolean_values.to_owned(),
             case_sensitive: self.case_sensitive,
             multiline: self.multiline,
+            enable_inline_comments: self.enable_inline_comments,
+            cascade_defaults: self.cascade_defaults,
         }
     }
 
@@ -406,6 +491,25 @@ impl Ini {
         self.multiline = multiline;
     }
 
+    ///Sets the behavior around the cascading of defaults.  If this is set
+    ///to `true`, a get*() call for a section without a matching key value will
+    ///attempt to get that key value from the [DEFAULT] section if it exists
+    ///there.
+    ///## Example
+    ///```rust
+    ///use configparser::ini::Ini;
+    ///
+    ///let mut config = Ini::new();
+    ///config.set_cascade_defaults(true);
+    ///let map = config.load("tests/test_cascade_defaults.ini").unwrap();
+    ///
+    ///let val = config.get("mysection", "fallback_key");  // Will fall back to the [DEFAULT] section for "key"
+    ///assert_eq!(val, Some(String::from("fallback value")));
+    ///```
+    pub fn set_cascade_defaults(&mut self, cascade_defaults: bool) {
+        self.cascade_defaults = cascade_defaults;
+    }
+
     ///Gets all the sections of the currently-stored `Map` in a vector.
     ///## Example
     ///```rust
@@ -443,7 +547,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(s) => s,
         }) {
@@ -452,7 +556,46 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
+            }
+            Ok(map) => map,
+        };
+        Ok(self.map.clone())
+    }
+
+    /// Loads configuration data from any stream implementing `std::io::Read`, parses it, and applies it to the internal map.
+    ///
+    /// This function reads the entire stream into a string, parses it as an INI file, and updates the internal map.
+    /// On error, returns a descriptive message. The previous map is replaced with the new one.
+    ///
+    /// # Arguments
+    /// * `reader` - Any type that implements `std::io::Read`, such as a file, buffer, or network stream.
+    ///
+    /// # Returns
+    /// * `Result<Map<String, Map<String, Option<String>>>, String>` - The parsed map on success, or an error message on failure.
+    ///
+    /// # Example
+    /// ```rust
+    /// use configparser::ini::Ini;
+    ///
+    /// let mut config = Ini::new();
+    /// let input = "[section]\nkey=value";
+    /// config.load_from_stream(input.as_bytes()).unwrap();
+    ///
+    /// assert_eq!(config.get("section", "key").unwrap(), "value");
+    /// ```
+    pub fn load_from_stream<R: std::io::Read>(
+        &mut self,
+        mut reader: R,
+    ) -> Result<Map<String, Map<String, Option<String>>>, String> {
+        let mut buf = String::new();
+        if let Err(err) = reader.read_to_string(&mut buf) {
+            return Err(format!("couldn't read from stream: {}", err));
+        }
+
+        self.map = match self.parse(buf) {
+            Err(why) => {
+                return Err(format!("couldn't read from stream: {}", why));
             }
             Ok(map) => map,
         };
@@ -486,7 +629,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(s) => s,
         }) {
@@ -495,7 +638,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(map) => map,
         };
@@ -532,10 +675,7 @@ impl Ini {
         &mut self,
         input: String,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        self.map = match self.parse(input) {
-            Err(why) => return Err(why),
-            Ok(map) => map,
-        };
+        self.map = self.parse(input)?;
         Ok(self.map.clone())
     }
 
@@ -570,10 +710,7 @@ impl Ini {
         &mut self,
         input: String,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        let loaded = match self.parse(input) {
-            Err(why) => return Err(why),
-            Ok(map) => map,
-        };
+        let loaded = self.parse(input)?;
 
         for (section, section_map) in loaded.iter() {
             self.map
@@ -785,9 +922,13 @@ impl Ini {
                 continue;
             }
 
-            let line = match line.find(|c: char| inline_comment_symbols.contains(&c)) {
-                Some(idx) => &line[..idx],
-                None => line,
+            let line = if self.enable_inline_comments {
+                match line.find(|c: char| inline_comment_symbols.contains(&c)) {
+                    Some(idx) => &line[..idx],
+                    None => line,
+                }
+            } else {
+                line
             };
 
             let trimmed = line.trim();
@@ -816,7 +957,7 @@ impl Ini {
                         return Err(format!(
                             "line {}: Started with indentation but there is no current entry",
                             num,
-                        ))
+                        ));
                     }
                 };
 
@@ -903,7 +1044,19 @@ impl Ini {
     ///Returns `Some(value)` of type `String` if value is found or else returns `None`.
     pub fn get(&self, section: &str, key: &str) -> Option<String> {
         let (section, key) = self.autocase(section, key);
-        self.map.get(&section)?.get(&key)?.clone()
+        let val = match self.map.get(&section) {
+            Some(secmap) => match secmap.get(&key) {
+                Some(val) => val.clone(),
+                None => None,
+            },
+            None => None,
+        };
+
+        if val.is_none() && self.cascade_defaults {
+            return self.map.get(&self.default_section)?.get(&key)?.clone();
+        }
+
+        val
     }
 
     ///Parses the stored value from the key stored in the defined section to a `bool`.
@@ -928,11 +1081,26 @@ impl Ini {
                         Err(why) => Err(why.to_string()),
                         Ok(boolean) => Ok(Some(boolean)),
                     },
-                    None => Ok(None),
+                    None => {
+                        if self.cascade_defaults && section != self.default_section {
+                            return self.getbool(&self.default_section, &key);
+                        }
+                        Ok(None)
+                    }
                 },
-                None => Ok(None),
+                None => {
+                    if self.cascade_defaults && section != self.default_section {
+                        return self.getbool(&self.default_section, &key);
+                    }
+                    Ok(None)
+                }
             },
-            None => Ok(None),
+            None => {
+                if self.cascade_defaults && section != self.default_section {
+                    return self.getbool(&self.default_section, &key);
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -980,11 +1148,26 @@ impl Ini {
                             ))
                         }
                     }
-                    None => Ok(None),
+                    None => {
+                        if self.cascade_defaults && section != self.default_section {
+                            return self.getboolcoerce(&self.default_section, &key);
+                        }
+                        Ok(None)
+                    }
                 },
-                None => Ok(None),
+                None => {
+                    if self.cascade_defaults && section != self.default_section {
+                        return self.getboolcoerce(&self.default_section, &key);
+                    }
+                    Ok(None)
+                }
             },
-            None => Ok(None),
+            None => {
+                if self.cascade_defaults && section != self.default_section {
+                    return self.getboolcoerce(&self.default_section, &key);
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -1009,11 +1192,26 @@ impl Ini {
                         Err(why) => Err(why.to_string()),
                         Ok(int) => Ok(Some(int)),
                     },
-                    None => Ok(None),
+                    None => {
+                        if self.cascade_defaults && section != self.default_section {
+                            return self.getint(&self.default_section, &key);
+                        }
+                        Ok(None)
+                    }
                 },
-                None => Ok(None),
+                None => {
+                    if self.cascade_defaults && section != self.default_section {
+                        return self.getint(&self.default_section, &key);
+                    }
+                    Ok(None)
+                }
             },
-            None => Ok(None),
+            None => {
+                if self.cascade_defaults && section != self.default_section {
+                    return self.getint(&self.default_section, &key);
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -1038,11 +1236,26 @@ impl Ini {
                         Err(why) => Err(why.to_string()),
                         Ok(uint) => Ok(Some(uint)),
                     },
-                    None => Ok(None),
+                    None => {
+                        if self.cascade_defaults && section != self.default_section {
+                            return self.getuint(&self.default_section, &key);
+                        }
+                        Ok(None)
+                    }
                 },
-                None => Ok(None),
+                None => {
+                    if self.cascade_defaults && section != self.default_section {
+                        return self.getuint(&self.default_section, &key);
+                    }
+                    Ok(None)
+                }
             },
-            None => Ok(None),
+            None => {
+                if self.cascade_defaults && section != self.default_section {
+                    return self.getuint(&self.default_section, &key);
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -1067,11 +1280,26 @@ impl Ini {
                         Err(why) => Err(why.to_string()),
                         Ok(float) => Ok(Some(float)),
                     },
-                    None => Ok(None),
+                    None => {
+                        if self.cascade_defaults && section != self.default_section {
+                            return self.getfloat(&self.default_section, &key);
+                        }
+                        Ok(None)
+                    }
                 },
-                None => Ok(None),
+                None => {
+                    if self.cascade_defaults && section != self.default_section {
+                        return self.getfloat(&self.default_section, &key);
+                    }
+                    Ok(None)
+                }
             },
-            None => Ok(None),
+            None => {
+                if self.cascade_defaults && section != self.default_section {
+                    return self.getfloat(&self.default_section, &key);
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -1268,7 +1496,7 @@ impl Ini {
     }
 }
 
-#[cfg(feature = "async-std")]
+#[cfg(feature = "tokio")]
 impl Ini {
     ///Loads a file asynchronously from a defined path, parses it and puts the hashmap into our struct.
     ///At one time, it only stores one configuration, so each call to `load()` or `read()` will clear the existing `Map`, if present.
@@ -1287,7 +1515,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(s) => s,
         }) {
@@ -1296,7 +1524,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(map) => map,
         };
@@ -1321,7 +1549,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(s) => s,
         }) {
@@ -1330,7 +1558,7 @@ impl Ini {
                     "couldn't read {}: {}",
                     &path.as_ref().display(),
                     why
-                ))
+                ));
             }
             Ok(map) => map,
         };

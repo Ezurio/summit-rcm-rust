@@ -793,15 +793,17 @@ pub fn link_mem_intrinsics() {
 #[cfg_attr(target_feature = "atomics", thread_local)]
 static GLOBAL_EXNDATA: ThreadLocalWrapper<Cell<[u32; 2]>> = ThreadLocalWrapper(Cell::new([0; 2]));
 
-#[cfg(panic = "unwind")]
 #[no_mangle]
 pub static mut __instance_terminated: u32 = 0;
 
+fn no_op() {}
+
+pub static NO_OP_PTR: fn() = no_op;
+
 /// Stores the Wasm indirect-function-table index of the registered hard-abort
 /// callback.  Zero means no callback is registered.
-#[cfg(panic = "unwind")]
 #[no_mangle]
-pub static mut __abort_handler: u32 = 0;
+pub static mut __abort_handler: fn() = NO_OP_PTR;
 
 /// Register a callback invoked when a hard abort (instance termination) occurs.
 ///
@@ -813,29 +815,22 @@ pub static mut __abort_handler: u32 = 0;
 /// export call from within the handler is immediately blocked.  A throwing
 /// or panicking handler cannot suppress the original error.
 ///
-/// **Experimental — only available when built with `panic=unwind`.**
-/// On `panic=abort` builds the no-op stub always returns `None` and the
-/// callback will never fire.
-#[cfg(panic = "unwind")]
+/// **Experimental.** The callback fires automatically on `panic=unwind`
+/// builds. On `panic=abort` builds the abort machinery is only emitted when
+/// `wasm-bindgen` is run with `--force-enable-abort-handler`; without that flag
+/// the handler is registered but never fires.
 pub fn set_on_abort(f: fn()) -> Option<fn()> {
-    // On wasm32, function pointers are indices into the Wasm
-    // __indirect_function_table. Casting fn() -> usize -> u32 extracts
-    // that index without touching linear memory.
+    let prev = unsafe { __abort_handler };
     unsafe {
-        let prev = __abort_handler;
-        __abort_handler = f as usize as u32;
-        if prev != 0 {
-            Some(core::mem::transmute::<usize, fn()>(prev as usize))
-        } else {
-            None
-        }
+        __abort_handler = f;
     }
-}
 
-/// No-op stub for `panic=abort` builds — handler will never fire.
-#[cfg(not(panic = "unwind"))]
-pub fn set_on_abort(_f: fn()) -> Option<fn()> {
-    None
+    // TODO: If the MSRV reaches 1.85, use `core::ptr::fn_addr_eq` instead
+    if (prev as usize) != (NO_OP_PTR as usize) {
+        Some(prev)
+    } else {
+        None
+    }
 }
 
 /// Schedule the instance for reinitialization before the next export call.

@@ -445,6 +445,25 @@ impl ProgressMsg {
         let bytes: Vec<u8> = self.info[..len].iter().map(|&c| c as u8).collect();
         String::from_utf8_lossy(&bytes).into_owned()
     }
+
+    /// Overall installation progress as a percentage (0–100).
+    ///
+    /// Accounts for multi-step installs by combining completed steps with
+    /// the within-step percentage. Returns 100 on success and caps at 99
+    /// while still running.
+    pub fn overall_percent(&self) -> u32 {
+        if self.status == RecoveryStatus::Success as i32 {
+            return 100;
+        }
+        if self.nsteps > 0 && self.cur_step > 0 {
+            let completed = self.cur_step.saturating_sub(1).min(self.nsteps);
+            let total = completed
+                .saturating_mul(100)
+                .saturating_add(self.cur_percent.min(100));
+            return (total / self.nsteps).min(99);
+        }
+        self.cur_percent.max(self.dwl_percent).min(99)
+    }
 }
 
 /// Progress connect acknowledgement (`struct progress_connect_ack`).

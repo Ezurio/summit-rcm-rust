@@ -1,6 +1,6 @@
 [package]
 name = "tokio-serial"
-version = "5.4.5"
+version = "5.5.0"
 authors = ["Zac Berkowitz <zac.berkowitz@gmail.com>"]
 description = "A serial port implementation for tokio"
 license = "MIT"
@@ -13,7 +13,7 @@ categories = ["asynchronous", "hardware-support"]
 edition = "2018"
 
 [package.metadata]
-msrv = "1.46.0"
+msrv = "1.71.0"
 
 [package.metadata.docs.rs]
 features = ["codec"]
@@ -22,9 +22,13 @@ features = ["codec"]
 default = []
 libudev = ["mio-serial/libudev"]
 rt = ["tokio/rt-multi-thread"]
-codec = ["tokio-util/codec", "bytes"]
+codec = ["tokio-util/codec", "tokio-util/io", "bytes"]
+serde = ["mio-serial/serde"]
 
-[dependencies.futures]
+[dependencies.futures-core]
+version = "0.3"
+
+[dependencies.futures-sink]
 version = "0.3"
 
 [dependencies.tokio]
@@ -69,6 +73,10 @@ default-features = false
 
 [dev-dependencies]
 anyhow = "1.0.91"
+
+[dev-dependencies.futures-util]
+version = "0.3"
+default-features = false
 
 [dev-dependencies.tokio]
 version = "^1.8"

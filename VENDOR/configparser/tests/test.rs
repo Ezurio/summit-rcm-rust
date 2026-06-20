@@ -255,7 +255,7 @@ basic_option=basic_value
 }
 
 #[test]
-fn inline_comment_symbols() -> Result<(), Box<dyn Error>> {
+fn inline_comment_symbols_enabled() -> Result<(), Box<dyn Error>> {
     const FILE_CONTENTS: &str = "
 [basic_section]
 ; basic comment
@@ -324,6 +324,215 @@ empty_option=
     assert_eq!(
         config.get("basic_section", "basic_with_extra_inline"),
         Some(String::from("value ! comment"))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn inline_comment_symbols_disabled() -> Result<(), Box<dyn Error>> {
+    use configparser::ini::IniDefault;
+
+    const FILE_CONTENTS: &str = "
+[basic_section]
+; basic comment
+ ; comment with space
+basic_option=value
+basic_with_comment=value ; Simple comment
+basic_with_comment_hash=value # Simple comment
+basic_with_extra_inline=value ! comment
+empty_option=
+";
+
+    let mut parser_options = IniDefault::default();
+    // true tested in inline_comment_symbols_enabled()
+    parser_options.enable_inline_comments = false;
+
+    let mut config = Ini::new_from_defaults(parser_options);
+    config.read(FILE_CONTENTS.to_owned())?;
+
+    assert_eq!(
+        config.get("basic_section", "basic_with_comment"),
+        Some(String::from("value ; Simple comment"))
+    );
+    assert_eq!(
+        config.get("basic_section", "basic_with_comment_hash"),
+        Some(String::from("value # Simple comment"))
+    );
+    assert_eq!(
+        config.get("basic_section", "basic_with_extra_inline"),
+        Some(String::from("value ! comment"))
+    );
+    assert_eq!(
+        config.get("basic_section", "empty_option"),
+        Some(String::from(""))
+    );
+
+    config.set_inline_comment_symbols(Some(&['!']));
+    config.read(FILE_CONTENTS.to_owned())?;
+
+    assert_eq!(
+        config.get("basic_section", "basic_with_comment"),
+        Some(String::from("value ; Simple comment"))
+    );
+    assert_eq!(
+        config.get("basic_section", "basic_with_extra_inline"),
+        Some(String::from("value ! comment"))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_cascade_defaults() -> Result<(), Box<dyn Error>> {
+    use configparser::ini::IniDefault;
+
+    const FILE_CONTENTS: &str = "
+[DEFAULT]
+fallback_str = fallback value
+fallback_bool = true
+fallback_bool_c = 1
+fallback_int = -42
+fallback_uint = 42
+fallback_float = 3.1415
+
+[fallback_section]
+normal = section value
+other_bool = false
+other_int = -7
+other_uint = 7
+other_float = 1.1
+
+[override_section]
+other_key = some other value
+fallback_str = non-fallback value
+fallback_bool = false
+fallback_bool_c = 0
+fallback_int = -1
+fallback_uint = 1
+fallback_float = -1.1
+";
+
+    let mut parser_options = IniDefault::default();
+    // true tested in inline_comment_symbols_enabled()
+    parser_options.cascade_defaults = true;
+
+    let mut config = Ini::new_from_defaults(parser_options);
+    config.read(FILE_CONTENTS.to_owned())?;
+
+    assert!(config.defaults().cascade_defaults);
+    // test string values and basics
+    assert_eq!(
+        config.get("default", "fallback_str"),
+        Some(String::from("fallback value"))
+    );
+    assert_eq!(
+        config.get("fallback_section", "normal"),
+        Some(String::from("section value"))
+    );
+    assert_eq!(
+        config.get("fallback_section", "fallback_str"),
+        Some(String::from("fallback value"))
+    );
+    assert_eq!(
+        config.get("override_section", "fallback_str"),
+        Some(String::from("non-fallback value"))
+    );
+    assert_eq!(
+        config.get("override_section", "other_key"),
+        Some(String::from("some other value"))
+    );
+
+    // test bool parsing with fallback
+    assert_eq!(config.getbool("default", "fallback_bool"), Ok(Some(true)));
+    assert_eq!(
+        config.getbool("fallback_section", "fallback_bool"),
+        Ok(Some(true))
+    );
+    assert_eq!(
+        config.getbool("fallback_section", "other_bool"),
+        Ok(Some(false))
+    );
+    assert_eq!(
+        config.getbool("override_section", "fallback_bool"),
+        Ok(Some(false))
+    );
+    assert_eq!(
+        config.getboolcoerce("default", "fallback_bool_c"),
+        Ok(Some(true))
+    );
+    assert_eq!(
+        config.getboolcoerce("fallback_section", "fallback_bool_c"),
+        Ok(Some(true))
+    );
+    assert_eq!(
+        config.getboolcoerce("override_section", "fallback_bool_c"),
+        Ok(Some(false))
+    );
+
+    // test the getint and getuint fallbacks
+    assert_eq!(config.getint("default", "fallback_int"), Ok(Some(-42)));
+    assert_eq!(
+        config.getint("fallback_section", "fallback_int"),
+        Ok(Some(-42))
+    );
+    assert_eq!(config.getint("fallback_section", "other_int"), Ok(Some(-7)));
+    assert_eq!(
+        config.getint("override_section", "fallback_int"),
+        Ok(Some(-1))
+    );
+    assert_eq!(config.getuint("default", "fallback_uint"), Ok(Some(42)));
+    assert_eq!(
+        config.getuint("fallback_section", "fallback_uint"),
+        Ok(Some(42))
+    );
+    assert_eq!(
+        config.getuint("fallback_section", "other_uint"),
+        Ok(Some(7))
+    );
+    assert_eq!(
+        config.getuint("override_section", "fallback_uint"),
+        Ok(Some(1))
+    );
+
+    // test the float fallback
+    assert_eq!(
+        config.getfloat("default", "fallback_float"),
+        Ok(Some(3.1415))
+    );
+    assert_eq!(
+        config.getfloat("fallback_section", "fallback_float"),
+        Ok(Some(3.1415))
+    );
+    assert_eq!(
+        config.getfloat("fallback_section", "other_float"),
+        Ok(Some(1.1))
+    );
+    assert_eq!(
+        config.getfloat("override_section", "fallback_float"),
+        Ok(Some(-1.1))
+    );
+
+    // and finally, one last set of tests with cascade_defaults disabled to
+    // ensure backwards compatibility
+    config.set_cascade_defaults(false);
+    assert_eq!(config.get("fallback_section", "fallback_str"), None);
+    assert_eq!(
+        config.getbool("fallback_section", "fallback_bool"),
+        Ok(None)
+    );
+    assert_eq!(
+        config.getboolcoerce("fallback_section", "fallback_bool"),
+        Ok(None)
+    );
+    assert_eq!(config.getint("fallback_section", "fallback_int"), Ok(None));
+    assert_eq!(
+        config.getuint("fallback_section", "fallback_uint"),
+        Ok(None)
+    );
+    assert_eq!(
+        config.getfloat("fallback_section", "fallback_float"),
+        Ok(None)
     );
 
     Ok(())
@@ -412,7 +621,6 @@ Key3 = another value
 
 #[test]
 #[cfg(feature = "indexmap")]
-#[cfg(feature = "async-std")]
 #[cfg(feature = "tokio")]
 fn pretty_write_result_is_formatted_correctly() -> Result<(), Box<dyn Error>> {
     use configparser::ini::IniDefault;
@@ -468,7 +676,6 @@ Key3 = another value
 
 #[tokio::test]
 #[cfg(feature = "indexmap")]
-#[cfg(feature = "async-std")]
 #[cfg(feature = "tokio")]
 async fn async_pretty_print_result_is_formatted_correctly() -> Result<(), Box<dyn Error>> {
     use configparser::ini::IniDefault;
@@ -526,7 +733,6 @@ Key3 = another value
 }
 
 #[tokio::test]
-#[cfg(feature = "async-std")]
 #[cfg(feature = "tokio")]
 async fn async_load_write() -> Result<(), Box<dyn Error>> {
     const OUT_FILE_CONTENTS: &str = "defaultvalues=defaultvalues
@@ -570,7 +776,6 @@ async fn async_load_write() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-#[cfg(feature = "async-std")]
 #[cfg(feature = "tokio")]
 async fn async_load_and_append() -> Result<(), Box<dyn Error>> {
     let mut sync_content = Ini::new();
@@ -648,6 +853,122 @@ Key3=this is a haiku
 Key4=Four
 "
     );
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "serde")]
+fn serde_roundtrip() -> Result<(), Box<dyn Error>> {
+    // 1. Load original from file
+    let mut original = Ini::new();
+    let map1 = original.load("tests/test.ini")?;
+
+    // 2. Serialize to JSON
+    let json = serde_json::to_string(&original)?;
+
+    // 3. Deserialize back
+    let deserialized: Ini = serde_json::from_str(&json)?;
+    let map2 = deserialized
+        .get_map()
+        .expect("deserialized map should be non-empty");
+
+    // 4a. Quick equality check on the entire map
+    assert_eq!(map1, map2, "entire maps must match");
+
+    // 4b. Cross-check every section, key, and value
+    for (section, secmap) in &map1 {
+        // Ensure section exists
+        let sec2 = map2
+            .get(section)
+            .unwrap_or_else(|| panic!("section `{}` missing", section));
+        for (key, val1) in secmap {
+            let val2 = sec2
+                .get(key)
+                .unwrap_or_else(|| panic!("key `{}` missing in section `{}`", key, section));
+            assert_eq!(
+                val1, val2,
+                "mismatch at [{}] {}: {:?} != {:?}",
+                section, key, val1, val2
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+#[cfg(all(feature = "serde", feature = "indexmap"))]
+fn serde_indexmap_roundtrip() -> Result<(), Box<dyn Error>> {
+    // Same as above but with IndexMap ordering preserved
+    let mut original = Ini::new();
+    let map1 = original.load("tests/test.ini")?;
+
+    let json = serde_json::to_string(&original)?;
+    let deserialized: Ini = serde_json::from_str(&json)?;
+    let map2 = deserialized
+        .get_map()
+        .expect("deserialized map should be non-empty");
+
+    // Because IndexMap preserves insertion order, we still use equality
+    assert_eq!(
+        map1, map2,
+        "IndexMap-backed maps must match in content and order"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "serde")]
+fn serde_multiline_roundtrip() -> Result<(), Box<dyn Error>> {
+    // 1. Build a case-sensitive Ini with multiline enabled
+    let mut orig = Ini::new();
+    orig.set_multiline(true);
+
+    // 2. Load the multiline fixture
+    let map1 = orig.load("tests/test_multiline.ini")?;
+    // 3. Capture the Key3 value before Serde
+    let before = orig.get("Section", "Key3").unwrap();
+
+    // 4. Serialize to JSON and back
+    let json = serde_json::to_string(&orig)?;
+    let mut deser: Ini = serde_json::from_str(&json)?;
+
+    // 5. Re-enable multiline on the deserialized Ini
+    deser.set_multiline(true);
+    let after = deser.get("Section", "Key3").unwrap();
+
+    // 6. The entire map should match and Key3 must survive intact
+    let map2 = deser.get_map().unwrap();
+    assert_eq!(map1, map2);
+    assert_eq!(after, before);
+
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "serde")]
+fn serde_case_sensitive_roundtrip() -> Result<(), Box<dyn Error>> {
+    // 1. Load in case-sensitive mode
+    let mut orig = Ini::new_cs();
+    let map1 = orig.load("tests/test.ini")?;
+    // 2. Check that mixed-case keys work, lowercase doesn't
+    let v1 = orig.get("default", "defaultvalues").unwrap();
+    assert!(orig.get("default", "DefaultValues").is_none());
+
+    // 3. Serde round-trip
+    let json = serde_json::to_string(&orig)?;
+    let deser_plain: Ini = serde_json::from_str(&json)?;
+    let map2 = deser_plain.get_map().unwrap();
+
+    // 4. Reconstruct a case-sensitive Ini and inject the map
+    let mut deser_cs = Ini::new_cs();
+    *deser_cs.get_mut_map() = map2;
+
+    // 5. Assert the exact-case key still exists and lowercase still fails
+    let v2 = deser_cs.get("default", "defaultvalues").unwrap();
+    assert_eq!(v2, v1);
+    assert!(deser_cs.get("default", "DefaultValues").is_none());
 
     Ok(())
 }

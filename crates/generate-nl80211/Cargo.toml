@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 description = "Host tool: generates src/plugins/network/nl80211/generated.rs via bindgen"
 authors = ["Ezurio LLC"]
-license = "LicenseRef-Ezurio-Clause"
+license = "Ezurio-Clause"
 publish = false
-resolver = "2"
+resolver = "3"
 
 [[bin]]
 name = "generate_nl80211_bindings"
@@ -14,3 +14,16 @@ path = "src/main.rs"
 
 [dependencies]
 bindgen = "0.72"
+
+[profile.dev]
+incremental = true
+
+[profile.test]
+incremental = true
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

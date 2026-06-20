@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "mio-serial"
-version = "5.0.6"
+version = "5.0.7"
 authors = ["Zac Berkowitz <zac.berkowitz@gmail.com>"]
 build = false
 autolib = false
@@ -38,6 +38,11 @@ repository = "https://github.com/berkowski/mio-serial"
 
 [package.metadata]
 msrv = "1.78.0"
+
+[features]
+default = []
+libudev = ["serialport/libudev"]
+serde = ["serialport/serde"]
 
 [lib]
 name = "mio_serial"
@@ -72,20 +77,15 @@ default-features = false
 [dev-dependencies.env_logger]
 version = "0.11"
 
-[features]
-default = []
-libudev = ["serialport/libudev"]
-serde = ["serialport/serde"]
-
 [target."cfg(unix)".dependencies.nix]
-version = "0.29"
+version = "0.31.3"
 features = ["term"]
 
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3"
+[target."cfg(windows)".dependencies.windows-sys]
+version = ">=0.59.0,<0.62"
 features = [
-    "commapi",
-    "handleapi",
-    "winbase",
-    "std",
+    "Win32_Devices_Communication",
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Security",
 ]

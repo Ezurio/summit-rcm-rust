@@ -3,6 +3,275 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 # Change Log
 
+## [0.31.3] - 2026-05-11
+
+### Added
+
+- Enable module `ioctl` for Cygwin
+  ([#2715](https://github.com/nix-rust/nix/pull/2715))
+- Add
+  `CLOCK_BOOTTIME/CLOCK_PROCESS_CPUTIME_ID/CLOCK_THREAD_CPUTIME_ID/CLOCK_UPTIME`
+  to NetBSD-like platforms ([#2716](https://github.com/nix-rust/nix/pull/2716))
+- unistd: add mkfifo for redox
+  ([#2749](https://github.com/nix-rust/nix/pull/2749))
+- Added `kevent64` support on apple targets: `Kqueue::kevent64`, `KEvent64`,
+  and `Kevent64Flags`. ([#2781](https://github.com/nix-rust/nix/pull/2781))
+
+### Fixed
+
+- fix SaFlags_t definition on redox
+  ([#2751](https://github.com/nix-rust/nix/pull/2751))
+- Fixed `EpollEvent::events()` to use `from_bits_retain` instead of
+  `from_bits().unwrap()`, preventing panics when the kernel returns
+  unknown epoll flags. ([#2783](https://github.com/nix-rust/nix/pull/2783))
+- Fixed `KEvent::flags()` and `KEvent::fflags()` to use `from_bits_retain`
+  instead of `from_bits().unwrap()`, preventing panics when the kernel
+  returns unknown kqueue flags.
+  ([#2784](https://github.com/nix-rust/nix/pull/2784))
+
+
+## [0.31.2] - 2026-02-28
+
+### Added
+
+- Add WatchDescriptor::as_raw, to get libc id of WatchDescriptor.
+  ([#2718](https://github.com/nix-rust/nix/pull/2718))
+- Added process::pthread_getthreadid_np() on FreeBSD.
+  ([#2725](https://github.com/nix-rust/nix/pull/2725))
+- Added timerfd support on FreeBSD
+  ([#2728](https://github.com/nix-rust/nix/pull/2728))
+
+### Fixed
+
+- The libc requirement is now `0.2.181`, rather than pinned to 0.2.180.
+  ([#2744](https://github.com/nix-rust/nix/pull/2744))
+
+
+## [0.31.1] - 2026-01-23
+
+### Added
+
+- termios: Add definition for IUCLC to supported platforms
+  ([#2702](https://github.com/nix-rust/nix/pull/2702))
+- termios: Add definition for XCASE for supported platforms
+  ([#2703](https://github.com/nix-rust/nix/pull/2703))
+
+
+## [0.31.0] - 2026-01-22
+
+### Added
+
+- Added the UDP GSO/GRO socket options and CMsgs on Android. This includes the
+  following types:
+  - UdpGsoSegment
+  - UdpGroSegment
+  - ControlMessage::UdpGsoSegments
+  - ControlMessageOwned::UdpGroSegments
+
+  ([#2666](https://github.com/nix-rust/nix/pull/2666))
+- Define errno EWOULDBLOCK as an alias of EAGAIN to match the AIX libc
+  definition. ([#2692](https://github.com/nix-rust/nix/pull/2692))
+- Enable module `ifaddrs` on GNU Hurd
+  ([#2697](https://github.com/nix-rust/nix/pull/2697))
+- Add termios `OutputFlags::OFILL` for Linux, Android, Aix, Cygwin, Fuchsia,
+  Haiku,
+  GNU/Hurd, Nto, Redox, Illumos, Solaris and Apple OSes.
+  ([#2701](https://github.com/nix-rust/nix/pull/2701))
+- add sync() for cygwin ([#2708](https://github.com/nix-rust/nix/pull/2708))
+
+### Changed
+
+- changed `EpollEvent` methods to be `const`
+  ([#2656](https://github.com/nix-rust/nix/pull/2656))
+- Bumped libc to
+  [0.2.180](https://github.com/rust-lang/libc/releases/tag/0.2.180)
+  ([#2724](https://github.com/nix-rust/nix/pull/2724))
+
+### Fixed
+
+- Fixed `nix::sys::ptrace::syscall_info`, which was not setting the `data`
+  argument properly, causing garbage values to be returned.
+  ([#2653](https://github.com/nix-rust/nix/pull/2653))
+- Cast the 'addr' argument of 'madvise()' to '*mut u8' on AIX to match the
+  signature in the AIX libc.
+  ([#2655](https://github.com/nix-rust/nix/pull/2655))
+- Fixed the Dir module on NTO, Solaris, Hurd, and possibly other platforms.
+  The
+  d_name field was not copied correctly on those platforms.  For some other
+  platforms, it could be copied incorrectly for files with very long pathnames.
+  ([#2674](https://github.com/nix-rust/nix/pull/2674))
+- Fix the build on Illumos ([#2694](https://github.com/nix-rust/nix/pull/2694))
+
+### Removed
+
+- Removed `Eq` and `PartialEq` implementations from `SigHandler`, because they
+  never worked reliably.  The suggested alternative is `matches!`.  For
+  example:
+  ```
+  let h: SigHandler = ...
+  if matches!(h, SigHandler::SigIgn) {
+      ...
+  }
+  ``` ([#2642](https://github.com/nix-rust/nix/pull/2642))
+- Removed `IFF_NOTRAILERS` by NetBSD, as it has been removed upstream and from
+  libc ([#2724](https://github.com/nix-rust/nix/pull/2724))
+
+
+## [0.30.1] - 2025-05-04
+
+### Fixed
+
+- doc.rs build
+  ([#2634](https://github.com/nix-rust/nix/pull/2634))
+
+
+## [0.30.0] - 2025-04-29
+
+
+### Added
+
+- Add socket option `IPV6_PKTINFO` for BSDs/Linux/Android, also
+  `IPV6_RECVPKTINFO` for DragonFlyBSD
+  ([#2113](https://github.com/nix-rust/nix/pull/2113))
+- Add `fcntl`'s `F_PREALLOCATE` constant for Apple targets.
+  ([#2393](https://github.com/nix-rust/nix/pull/2393))
+- Improve support for extracting the TTL / Hop Limit from incoming packets
+  and support for DSCP (ToS / Traffic Class).
+  ([#2425](https://github.com/nix-rust/nix/pull/2425))
+- Add socket option IP_TOS (nix::sys::socket::sockopt::IpTos) IPV6_TCLASS
+  (nix::sys::socket::sockopt::Ipv6TClass) on Android/FreeBSD
+  ([#2464](https://github.com/nix-rust/nix/pull/2464))
+- Add `SeekData` and `SeekHole` to `Whence` for hurd and apple targets
+  ([#2473](https://github.com/nix-rust/nix/pull/2473))
+- Add `From` trait implementation between `SocketAddr` and `Sockaddr`,
+  `Sockaddr6` ([#2474](https://github.com/nix-rust/nix/pull/2474))
+- Added wrappers for `posix_spawn` API
+  ([#2475](https://github.com/nix-rust/nix/pull/2475))
+- Add the support for Emscripten.
+  ([#2477](https://github.com/nix-rust/nix/pull/2477))
+- Add fcntl constant `F_RDADVISE` for Apple target
+  ([#2480](https://github.com/nix-rust/nix/pull/2480))
+- Add fcntl constant `F_RDAHEAD` for Apple target
+  ([#2482](https://github.com/nix-rust/nix/pull/2482))
+- Add `F_LOG2PHYS` and `F_LOG2PHYS_EXT` for Apple target
+  ([#2483](https://github.com/nix-rust/nix/pull/2483))
+- `MAP_SHARED_VALIDATE` was added for all linux targets. & `MAP_SYNC` was added
+  for linux with the exclusion of mips architecures, and uclibc
+  ([#2499](https://github.com/nix-rust/nix/pull/2499))
+- Add `getregs()`/`getregset()`/`setregset()` for Linux/musl/aarch64
+  ([#2502](https://github.com/nix-rust/nix/pull/2502))
+- Add FcntlArgs `F_TRANSFEREXTENTS` constant for Apple targets
+  ([#2504](https://github.com/nix-rust/nix/pull/2504))
+- Add `MapFlags::MAP_STACK` in `sys::man` for netbsd
+  ([#2526](https://github.com/nix-rust/nix/pull/2526))
+- Add support for `libc::LOCAL_PEERTOKEN` in `getsockopt`.
+  ([#2529](https://github.com/nix-rust/nix/pull/2529))
+- Add support for `syslog`, `openlog`, `closelog` on all `unix`.
+  ([#2537](https://github.com/nix-rust/nix/pull/2537))
+- Add the `TCP_FUNCTION_BLK` sockopt, on FreeBSD.
+  ([#2539](https://github.com/nix-rust/nix/pull/2539))
+- Implements `Into<OwnedFd>` for `PtyMaster/Fanotify/Inotify/SignalFd/TimerFd`
+  ([#2548](https://github.com/nix-rust/nix/pull/2548))
+- Add `MremapFlags::MREMAP_DONTUNMAP` to `sys::mman::mremap` for linux target.
+  ([#2555](https://github.com/nix-rust/nix/pull/2555))
+- Added `sockopt_impl!` to the public API.  It's now possible for users to
+  define
+  their own sockopts without needing to make a PR to Nix.
+  ([#2556](https://github.com/nix-rust/nix/pull/2556))
+- Add the `TCP_FUNCTION_ALIAS` sockopt, on FreeBSD.
+  ([#2558](https://github.com/nix-rust/nix/pull/2558))
+- Add `sys::mman::MmapAdvise` `MADV_PAGEOUT`, `MADV_COLD`, `MADV_WIPEONFORK`,
+  `MADV_KEEPONFORK` for Linux and Android targets
+  ([#2559](https://github.com/nix-rust/nix/pull/2559))
+- Add socket protocol `Sctp`, as well as `MSG_NOTIFICATION` for non-Android
+  Linux targets. ([#2562](https://github.com/nix-rust/nix/pull/2562))
+- Added `from_owned_fd` constructor to `EventFd`
+  ([#2563](https://github.com/nix-rust/nix/pull/2563))
+- Add `sys::mman::MmapAdvise` `MADV_POPULATE_READ`, `MADV_POPULATE_WRITE` for
+  Linux and Android targets
+  ([#2565](https://github.com/nix-rust/nix/pull/2565))
+- Added `from_owned_fd` constructor to
+  `PtyMaster/Fanotify/Inotify/SignalFd/TimerFd`
+  ([#2566](https://github.com/nix-rust/nix/pull/2566))
+- Added `FcntlArg::F_READAHEAD` for FreeBSD target
+  ([#2569](https://github.com/nix-rust/nix/pull/2569))
+- Added `sockopt::LingerSec` for Apple targets
+  ([#2572](https://github.com/nix-rust/nix/pull/2572))
+- Added `sockopt::EsclBind` for solarish targets
+  ([#2573](https://github.com/nix-rust/nix/pull/2573))
+- Exposed the ```std::os::fd::AsRawFd``` trait method for
+  ```nix::sys::fanotify::Fanotify``` struct
+  ([#2575](https://github.com/nix-rust/nix/pull/2575))
+- Add support for syslog's `setlogmask` on all `unix`.
+  ([#2579](https://github.com/nix-rust/nix/pull/2579))
+- Added Fuchsia support for `ioctl`.
+  ([#2580](https://github.com/nix-rust/nix/pull/2580))
+- Add ```sys::socket::SockProtocol::EthIp```,
+  ```sys::socket::SockProtocol::EthIpv6```,
+  ```sys::socket::SockProtocol::EthLoop```
+  ([#2581](https://github.com/nix-rust/nix/pull/2581))
+- Add OpenHarmony target into CI and Update documents.
+  ([#2599](https://github.com/nix-rust/nix/pull/2599))
+- Added the TcpMaxSeg `setsockopt` option for apple targets
+  ([#2603](https://github.com/nix-rust/nix/pull/2603))
+- Add `FilAttach` and `FilDetach` to socket::sockopt for Illumos
+  ([#2611](https://github.com/nix-rust/nix/pull/2611))
+- Add `PeerPidfd` (`SO_PEERPIDFD`) to `socket::sockopt` for Linux
+  ([#2620](https://github.com/nix-rust/nix/pull/2620))
+- Added `socket::sockopt::AttachReusePortCbpf` for Linux
+  ([#2621](https://github.com/nix-rust/nix/pull/2621))
+- Add `ptrace::syscall_info` for linux/glibc
+  ([#2627](https://github.com/nix-rust/nix/pull/2627))
+
+### Changed
+
+- Module sys/signal now adopts I/O safety
+  ([#1936](https://github.com/nix-rust/nix/pull/1936))
+- Change the type of the `name` argument of `memfd_create()` from `&CStr` to
+  `<P: NixPath>(name: &P)` ([#2431](https://github.com/nix-rust/nix/pull/2431))
+- Public interfaces in `fcntl.rs` and `dir.rs` now use I/O-safe types.
+  ([#2434](https://github.com/nix-rust/nix/pull/2434))
+- Module `sys/stat` now adopts I/O safety.
+  ([#2439](https://github.com/nix-rust/nix/pull/2439))
+- Module unistd now adopts I/O safety.
+  ([#2440](https://github.com/nix-rust/nix/pull/2440))
+- Module sys/fanotify now adopts I/O safety
+  ([#2443](https://github.com/nix-rust/nix/pull/2443))
+- Socket option `IpTos` has been renamed to `Ipv4Tos`, the old symbol is
+  deprecated since 0.30.0 ([#2465](https://github.com/nix-rust/nix/pull/2465))
+- Rename Flags `EventFlag` to `EvFlags`, and `MemFdCreateFlag` to `MFdFlags`
+  ([#2476](https://github.com/nix-rust/nix/pull/2476))
+- Made `nix::sys::socket::UnknownCmsg` public and more readable
+  ([#2520](https://github.com/nix-rust/nix/pull/2520))
+- recvmsg: take slice for cmsg_buffer instead of Vec
+  ([#2524](https://github.com/nix-rust/nix/pull/2524))
+- linkat: allow distinct types for path arguments
+  ([#2582](https://github.com/nix-rust/nix/pull/2582))
+
+### Fixed
+
+- Disable unsupported signals on sparc-linux
+  ([#2454](https://github.com/nix-rust/nix/pull/2454))
+- Fix cmsg_len() return type on OpenHarmony
+  ([#2456](https://github.com/nix-rust/nix/pull/2456))
+- The `ns` argument of `sys::prctl::set_timerslack()` should be of type
+  `c_ulong` ([#2505](https://github.com/nix-rust/nix/pull/2505))
+- Properly exclude NUL characters from `OSString`s returned by `getsockopt`.
+  ([#2557](https://github.com/nix-rust/nix/pull/2557))
+- Fixes the build on OpenHarmony
+  ([#2587](https://github.com/nix-rust/nix/pull/2587))
+
+### Removed
+
+- Type `SigevNotify` is no longer `PartialEq`, `Eq` and `Hash` due to the use
+  of `BorrowedFd` ([#1936](https://github.com/nix-rust/nix/pull/1936))
+- `EventFd::defuse()` is removed because it does nothing, `EventFd::arm()` is
+  also removed for symmetry reasons.
+  ([#2452](https://github.com/nix-rust/nix/pull/2452))
+- Removed the `Copy` trait from `PollFd`
+  ([#2631](https://github.com/nix-rust/nix/pull/2631))
+
+
 ## [0.29.0] - 2024-05-24
 
 
