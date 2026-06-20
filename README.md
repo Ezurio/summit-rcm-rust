@@ -84,7 +84,7 @@ The workspace is configured for offline-friendly Cargo builds:
 
 - Cargo uses the default `target/` output directory.
 - `.cargo/config.toml` sets `rustflags = ["-Dwarnings"]`, so warnings fail the build.
-- Cargo resolves third-party crates from the checked-in `VENDOR/` directory.
+- Cargo resolves third-party crates from the checked-in `vendor/` directory.
 
 Standard release build:
 
@@ -108,21 +108,22 @@ Example production-style web build with only v2 routes:
 cargo build --release --no-default-features --features api-v2
 ```
 
-Refresh the vendored tree from the current lockfile with:
+Refresh `Cargo.lock` and the vendored tree from the current manifest requirements with:
 
 ```bash
 ./tools/cargo_revendor.sh
 ```
 
-If dependency declarations change and `Cargo.lock` must be re-resolved first, use:
+To pull the newest crate releases even when that requires rewriting the versions in
+`Cargo.toml`, use:
 
 ```bash
-./tools/cargo_revendor.sh --resolve
+./tools/cargo_revendor.sh --latest
 ```
 
-`--resolve` temporarily disables the repo's vendored source override, resolves `Cargo.lock`
-for the workspace with all features enabled, restores the vendored source config, and then
-rebuilds `VENDOR/` from the updated lockfile.
+The script temporarily disables the repo's vendored source override, updates dependencies
+online, resolves `Cargo.lock` for the workspace with all features enabled, restores the
+vendored source config, and then rebuilds `vendor/` from the updated lockfile.
 
 To verify offline dependency resolution explicitly:
 

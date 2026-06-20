@@ -1,9 +1,6 @@
-#[build]
-#rustflags = ["-Dwarnings"]
-
 [source.crates-io]
 registry = "sparse+https://index.crates.io/"
-#replace-with = "vendored-sources"
+replace-with = "vendored-sources"
 
 [source.vendored-sources]
-directory = "VENDOR"
+directory = "vendor"

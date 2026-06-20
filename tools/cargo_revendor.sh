@@ -4,40 +4,31 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: tools/cargo_revendor.sh [--resolve | --full-upgrade]
+Usage: tools/cargo_revendor.sh [--latest]
 
-Refresh the checked-in VENDOR tree.
+Refresh the checked-in vendor tree.
 
 Modes:
-    default    Temporarily disable vendored source replacement, run cargo update,
-                         then re-vendor.
-    --resolve  Temporarily disable vendored source replacement, resolve Cargo.lock
-                         for the full workspace with all features enabled, then re-vendor.
-    --full-upgrade
-                         Temporarily disable vendored source replacement, run cargo upgrade,
-                         resolve for the full workspace with all features enabled, then
-                         re-vendor.
+    default    Temporarily disable vendored source replacement, update Cargo.lock
+               from the current Cargo.toml requirements, resolve the full workspace
+               with all features enabled, then rebuild vendor/.
+    --latest   Rewrite Cargo.toml dependency requirements to the newest available
+               versions, resolve the full workspace with all features enabled, then
+               rebuild vendor/.
 EOF
 }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config_path="$repo_root/.cargo/config.toml"
-vendor_path="$repo_root/VENDOR"
+vendor_path="$repo_root/vendor"
 config_backup=""
-resolve_lockfile=false
-full_upgrade=false
-run_update=true
+use_latest=false
 
 case "${1-}" in
     "")
         ;;
-    --resolve)
-        resolve_lockfile=true
-        ;;
-    --full-upgrade)
-        full_upgrade=true
-        resolve_lockfile=true
-        run_update=false
+    --latest)
+        use_latest=true
         ;;
     -h|--help)
         usage
@@ -55,10 +46,15 @@ restore_config() {
     fi
 }
 
-disable_vendored_source_replace() {
+with_online_registry() {
     if [[ ! -f "$config_path" ]]; then
+        "$@"
         return
     fi
+
+    config_backup="$(mktemp "$repo_root/.cargo/config.toml.revendor.XXXXXX")"
+    cp "$config_path" "$config_backup"
+    trap restore_config EXIT
 
     awk '
         /^[[:space:]]*replace-with[[:space:]]*=[[:space:]]*"vendored-sources"[[:space:]]*$/ {
@@ -68,44 +64,27 @@ disable_vendored_source_replace() {
         { print }
     ' "$config_path" > "$config_path.tmp"
     mv "$config_path.tmp" "$config_path"
-}
 
-if $resolve_lockfile || $full_upgrade || $run_update; then
-    if [[ -f "$config_path" ]]; then
-        config_backup="$(mktemp "$repo_root/.cargo/config.toml.revendor.XXXXXX")"
-        cp "$config_path" "$config_backup"
-        trap restore_config EXIT
-        disable_vendored_source_replace
-    fi
-
-    if $run_update; then
-        (
-            cd "$repo_root"
-            cargo update --workspace
-        )
-    fi
-
-    if $full_upgrade; then
-        (
-            cd "$repo_root"
-            cargo upgrade
-        )
-    fi
-
-    if $resolve_lockfile; then
-        (
-            cd "$repo_root"
-            cargo metadata --all-features --format-version=1 >/dev/null
-        )
-    fi
+    "$@"
 
     restore_config
     trap - EXIT
     config_backup=""
-fi
+}
+
+refresh_lockfile() {
+    if $use_latest; then
+        cargo upgrade --workspace
+    else
+        cargo update --workspace
+    fi
+
+    cargo metadata --all-features --format-version=1 >/dev/null
+}
 
 (
     cd "$repo_root"
+    with_online_registry refresh_lockfile
     rm -rf "$vendor_path"
-    cargo vendor --locked VENDOR
+    cargo vendor --locked
 )
