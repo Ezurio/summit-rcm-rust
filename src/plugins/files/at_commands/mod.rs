@@ -7,13 +7,14 @@
 
 use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
 use crate::at_interface::commands::params::CsvParams;
-use crate::at_interface::at_files_service::AtFilesService;
+use crate::at_interface::data_mode::{DataModeFinish, DataModeSession};
 use crate::at_interface::fsm::FsmHandle;
 use crate::plugins::files::FilesService;
 #[cfg(feature = "network-manager")]
 use crate::plugins::network_manager::service::NetworkService;
 use std::fmt::Write as _;
 use log::error;
+use std::time::Duration;
 
 const FILESEXP_MAX_CHUNK_SIZE: usize = 128 * 1024;
 
@@ -92,14 +93,13 @@ pub async fn execute_files_upload(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     }
 
     FsmHandle::at_output(b"> ", false, false);
-
-    let (done, data, _len) = AtFilesService::write_upload_body(length, 256).await;
-
-    if !done {
-        return CommandOutcome::PendingInput;
+    let mut session = DataModeSession::new(Duration::from_secs(60), Some(0x1a));
+    let body = session.read_to_length(length).await;
+    if body.finish != DataModeFinish::Complete {
+        return CommandOutcome::Error;
     }
 
-    match FilesService::upload_file(file_type, name, &data).await {
+    match FilesService::upload_file(file_type, name, &body.data).await {
         Ok(_) => CommandOutcome::Ok,
         Err(error) => {
             error!("Files upload error: {}", error);

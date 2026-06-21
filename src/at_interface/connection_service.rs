@@ -6,6 +6,7 @@
 //! AT-interface connection service – manages up to 6 TCP/UDP/SSL connections.
 
 use crate::at_interface::ssl::AtSslConfig;
+use crate::at_interface::data_mode::{DataModeFinish, DataModeSession};
 use anyhow::Result;
 use log::error;
 use std::collections::HashMap;
@@ -147,59 +148,32 @@ impl ConnectionService {
     }
 
     pub async fn send_data(id: usize, length: usize) -> (bool, i32) {
-        use crate::at_interface::fsm::FsmHandle;
-
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-        let listener_id = FsmHandle::register_listener(tx);
-
-        let mut buf = Vec::new();
-        let result = loop {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                rx.recv(),
-            )
-            .await
-            {
-                Ok(Some(data)) => {
-                    if data.contains(&0x1a) {
-                        FsmHandle::deregister_listener(listener_id);
-                        return (true, -1);
-                    }
-                    buf.extend_from_slice(&data);
-                    if buf.len() >= length {
-                        buf.truncate(length);
-                        break buf;
-                    }
-                }
-                Ok(None) | Err(_) => {
-                    FsmHandle::deregister_listener(listener_id);
-                    return (true, -1);
-                }
-            }
-        };
-
-        FsmHandle::deregister_listener(listener_id);
+        let mut session = DataModeSession::new(std::time::Duration::from_secs(30), Some(0x1a));
+        let body = session.read_to_length(length).await;
+        if body.finish != DataModeFinish::Complete {
+            return (true, -1);
+        }
 
         let Some(mut connection) = Self::instance().lock().unwrap().connections.remove(&id) else {
             return (true, 0);
         };
 
         let sent = match &mut connection.stream {
-                Some(ConnStream::Tcp(stream)) => match stream.write_all(&result).await {
-                    Ok(_) => result.len() as i32,
+                Some(ConnStream::Tcp(stream)) => match stream.write_all(&body.data).await {
+                    Ok(_) => body.data.len() as i32,
                     Err(error) => {
                         error!("CIP send TCP error: {}", error);
                         0
                     }
                 },
-                Some(ConnStream::Tls(stream)) => match stream.write_all(&result).await {
-                    Ok(_) => result.len() as i32,
+                Some(ConnStream::Tls(stream)) => match stream.write_all(&body.data).await {
+                    Ok(_) => body.data.len() as i32,
                     Err(error) => {
                         error!("CIP send TLS error: {}", error);
                         0
                     }
                 },
-                Some(ConnStream::Udp(stream)) => match stream.send(&result).await {
+                Some(ConnStream::Udp(stream)) => match stream.send(&body.data).await {
                     Ok(n) => n as i32,
                     Err(error) => {
                         error!("CIP send UDP error: {}", error);

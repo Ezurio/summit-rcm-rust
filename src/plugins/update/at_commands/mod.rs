@@ -6,6 +6,7 @@
 //! Firmware update AT commands owned by the update plugin.
 
 use bytes::Bytes;
+use crate::at_interface::data_mode::{DataModeRead, DataModeSession};
 use crate::at_interface::commands::{CommandOutcome, PublishedCommand};
 use crate::at_interface::commands::params::CsvParams;
 use crate::at_interface::fsm::FsmHandle;
@@ -30,22 +31,16 @@ fn parse_fw_update_image(raw_image: &str) -> Option<&'static str> {
 }
 
 async fn stream_fw_update_upload(length: usize) -> std::result::Result<(), UpdateStreamError> {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-    let listener_id = FsmHandle::register_listener(tx);
+    let mut session = DataModeSession::new(FW_UPDATE_UPLOAD_TIMEOUT, Some(0x1a));
 
     let result = async {
         let mut remaining = length;
 
         while remaining > 0 {
-            let data = match tokio::time::timeout(FW_UPDATE_UPLOAD_TIMEOUT, rx.recv()).await {
-                Ok(Some(data)) => data,
-                Ok(None) | Err(_) => return Err(UpdateStreamError::Internal),
-            };
-
-            let escaped = data.contains(&0x1a);
-            let mut chunk = match data.iter().position(|byte| *byte == 0x1a) {
-                Some(index) => data[..index].to_vec(),
-                None => data,
+            let (mut chunk, escaped) = match session.read().await {
+                DataModeRead::Data(data) => (data, false),
+                DataModeRead::Escape(data) => (data, true),
+                DataModeRead::Closed | DataModeRead::TimedOut => return Err(UpdateStreamError::Internal),
             };
 
             if chunk.len() > remaining {
@@ -65,8 +60,6 @@ async fn stream_fw_update_upload(length: usize) -> std::result::Result<(), Updat
         FirmwareUpdateService::finish_update_stream().await
     }
     .await;
-
-    FsmHandle::deregister_listener(listener_id);
 
     if result.is_err() {
         FirmwareUpdateService::cancel();

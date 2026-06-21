@@ -5,9 +5,10 @@
 
 pub mod commands;
 pub mod fsm;
-pub mod at_files_service;
+pub(crate) mod data_mode;
 pub(crate) mod connection_service;
-pub(crate) mod http_service;
+pub(crate) mod http_connector;
+pub mod http_service;
 pub(crate) mod ssl;
 
 pub async fn run(

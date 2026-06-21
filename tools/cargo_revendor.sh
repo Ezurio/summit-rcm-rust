@@ -74,7 +74,7 @@ with_online_registry() {
 
 refresh_lockfile() {
     if $use_latest; then
-        cargo upgrade --workspace
+        cargo upgrade
     else
         cargo update --workspace
     fi

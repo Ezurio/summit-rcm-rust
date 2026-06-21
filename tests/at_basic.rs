@@ -3,59 +3,72 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm::at_interface::commands::{
-    execute_registered_command,
-    lookup_command_in_registry,
-    parse_command_params,
-    CommandOutcome,
-};
-use summit_rcm::at_interface::fsm::FsmHandle;
+#![cfg(feature = "at-interface")]
 
-fn run_command(command: &str) -> CommandOutcome {
-    let (spec, params, _) = lookup_command_in_registry(command).expect("command should resolve");
-    let parsed = parse_command_params(spec, params).expect("params should parse");
-    let runtime = tokio::runtime::Runtime::new().expect("runtime should build");
-    runtime.block_on(async { execute_registered_command(spec, &FsmHandle, &parsed).await })
+mod at_test_harness;
+
+use std::time::Duration;
+
+use at_test_harness::{AtHarness, lock_test};
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn communication_check_returns_ok() {
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    let response = harness.run_command_expect_ok("AT", Duration::from_secs(2));
+    assert!(response.contains("OK"), "response: {response}");
+    harness.shutdown().await;
 }
 
-#[test]
-fn communication_check_returns_ok() {
-    let response = run_command("AT");
-    assert!(matches!(response, CommandOutcome::Ok));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn empty_returns_empty_response() {
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    harness.send_bytes(b"\r");
+    let response = String::from_utf8_lossy(
+        &harness.read_until_contains(b"\r\nOK\r\n", Duration::from_secs(2)),
+    )
+    .into_owned();
+    assert!(response.contains("OK"), "response: {response}");
+    harness.shutdown().await;
 }
 
-#[test]
-fn empty_returns_empty_response() {
-    let response = run_command("");
-    assert!(matches!(response, CommandOutcome::Ok));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ping_rejects_invalid_timeout() {
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    harness.send_command("AT+PING=127.0.0.1,nope,4");
+    let response = harness.read_until_contains(b"\r\nERROR\r\n", Duration::from_secs(2));
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.contains("ERROR"), "response: {response}");
+    harness.shutdown().await;
 }
 
-#[test]
-fn ping_rejects_invalid_timeout() {
-    let response = run_command("AT+PING=127.0.0.1,nope,4");
-    assert!(matches!(response, CommandOutcome::Error));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ping_rejects_invalid_protocol() {
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    harness.send_command("AT+PING=127.0.0.1,1,5");
+    let response = harness.read_until_contains(b"\r\nERROR\r\n", Duration::from_secs(2));
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.contains("ERROR"), "response: {response}");
+    harness.shutdown().await;
 }
 
-#[test]
-fn ping_rejects_invalid_protocol() {
-    let response = run_command("AT+PING=127.0.0.1,1,5");
-    assert!(matches!(response, CommandOutcome::Error));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fwstatus_reports_numeric_status_only() {
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    let response = harness.run_command_expect_ok("AT+FWSTATUS", Duration::from_secs(2));
+    assert!(response.contains("+FWSTATUS: 2"), "response: {response}");
+    harness.shutdown().await;
 }
 
-#[test]
-fn fwstatus_reports_numeric_status_only() {
-    let response = run_command("AT+FWSTATUS");
-    match response {
-        CommandOutcome::WithData(data) => assert_eq!(data, "+FWSTATUS: 2"),
-        _ => panic!("AT+FWSTATUS should return data"),
-    }
-}
-
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ping_loopback_returns_rtt() {
-    let (spec, params, _) = lookup_command_in_registry("AT+PING=127.0.0.1,1,4")
-        .expect("AT+PING should resolve");
-    let parsed = parse_command_params(spec, params).expect("params should parse");
-    let response = execute_registered_command(spec, &FsmHandle, &parsed).await;
-    assert!(matches!(response, CommandOutcome::WithData(_)));
+    let _guard = lock_test();
+    let harness = AtHarness::start(3_000_000).await;
+    let response = harness.run_command_expect_ok("AT+PING=127.0.0.1,1,4", Duration::from_secs(6));
+    assert!(response.contains("+PING:"), "response: {response}");
+    harness.shutdown().await;
 }

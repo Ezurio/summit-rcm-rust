@@ -17,45 +17,6 @@ name = "generate_openapi"
 path = "src/openapi/generate.rs"
 required-features = ["api-docs"]
 
-[[test]]
-name = "at_lookup"
-path = "tests/at_lookup.rs"
-
-[[test]]
-name = "legacy_response"
-path = "tests/legacy_response.rs"
-
-[[test]]
-name = "logs"
-path = "tests/logs.rs"
-required-features = ["logs"]
-
-[[test]]
-name = "shutdown"
-path = "tests/shutdown.rs"
-
-[[test]]
-name = "plugin_registry"
-path = "tests/plugin_registry.rs"
-
-[[test]]
-name = "plugins"
-path = "tests/plugins.rs"
-
-[[test]]
-name = "cww"
-path = "tests/cww.rs"
-required-features = ["cww"]
-
-[[test]]
-name = "at_basic"
-path = "tests/at_basic.rs"
-required-features = ["at-interface"]
-
-[[test]]
-name = "no_dead_code_policy"
-path = "tests/unit/no_dead_code_policy.rs"
-
 [features]
 # Default: API v2 with the shared default plugin set.
 default = ["api-v2"]
@@ -83,7 +44,7 @@ api-legacy = [
 ]
 # Serial AT command interface.
 at-interface = [
-    "dep:tokio-serial", "dep:ping", "dep:httparse", "tokio/net",
+    "dep:serial2-tokio", "dep:ping", "dep:ureq", "tokio/net",
     "default-plugins",
 ]
 
@@ -161,15 +122,14 @@ inventory = "0.3"
 axum = { version = "0.8.9", features = ["multipart"], optional = true }
 tower-sessions = { version = "0.15.0", optional = true }
 # AT interface (feature = "at-interface")
-tokio-serial   = { version = "5", optional = true }
-httparse       = { version = "1", optional = true }
+serial2-tokio  = { version = "0.1", optional = true }
 utoipa         = { version = "5.5.0", features = ["axum_extras"], optional = true }
+ureq          = { version = "~3.3", default-features = false, optional = true }
 
 [workspace]
 members = [
 ".",
-"crates/swupdate-ipc",
-"crates/generate-nl80211",
+"crates/*",
 ]
 
 [lints.rust]
@@ -178,6 +138,11 @@ warnings = "deny"
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 tokio-tungstenite = "0.29"
+rustix = { version = "1", features = ["fs", "termios"] }
+rustix-openpty = "0.2"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
 
 [build-dependencies]
 glob = "0.3"
@@ -194,3 +159,47 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[[test]]
+name = "at_lookup"
+path = "tests/at_lookup.rs"
+
+[[test]]
+name = "legacy_response"
+path = "tests/legacy_response.rs"
+
+[[test]]
+name = "logs"
+path = "tests/logs.rs"
+required-features = ["logs"]
+
+[[test]]
+name = "shutdown"
+path = "tests/shutdown.rs"
+
+[[test]]
+name = "plugin_registry"
+path = "tests/plugin_registry.rs"
+
+[[test]]
+name = "plugins"
+path = "tests/plugins.rs"
+
+[[test]]
+name = "cww"
+path = "tests/cww.rs"
+required-features = ["cww"]
+
+[[test]]
+name = "at_basic"
+path = "tests/at_basic.rs"
+required-features = ["at-interface"]
+
+[[test]]
+name = "at_http"
+path = "tests/at_http.rs"
+required-features = ["at-interface"]
+
+[[test]]
+name = "no_dead_code_policy"
+path = "tests/unit/no_dead_code_policy.rs"

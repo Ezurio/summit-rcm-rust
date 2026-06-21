@@ -8,7 +8,7 @@
 use crate::at_interface::commands;
 use std::sync::Mutex;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio_serial::SerialPortBuilderExt;
+use serial2_tokio::SerialPort;
 use log::error;
 
 #[derive(Clone, PartialEq)]
@@ -126,7 +126,7 @@ impl AtInterface {
         baud_rate: u32,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> anyhow::Result<()> {
-        let port = tokio_serial::new(&serial_port, baud_rate).open_native_async()?;
+        let port = SerialPort::open(&serial_port, baud_rate)?;
 
         let (mut reader, mut writer) = tokio::io::split(port);
         let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel::<String>();

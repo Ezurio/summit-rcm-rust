@@ -5,16 +5,23 @@
 
 //! AT-interface HTTP transaction service
 
+use crate::at_interface::data_mode::{DataModeRead, DataModeSession};
+use crate::at_interface::http_connector::AtOpenSslConnector;
 use crate::at_interface::ssl::AtSslConfig;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::pin::Pin;
+use std::io::Read;
 use std::sync::LazyLock;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tokio_openssl::SslStream;
+
+use ureq::Agent;
+use ureq::config::Config;
+use ureq::http::Request;
+use ureq::unversioned::resolver::DefaultResolver;
+use ureq::unversioned::transport::{Connector, TcpConnector};
+
+type HttpBodyReader = Box<dyn Read + Send>;
 
 #[derive(Debug, Default)]
 pub struct HttpService {
@@ -61,7 +68,7 @@ impl HttpService {
         self.response_headers_enabled = enabled;
     }
 
-    pub fn set_ssl_config(&mut self, ssl_config: AtSslConfig) {
+    pub(crate) fn set_ssl_config(&mut self, ssl_config: AtSslConfig) {
         self.ssl_config = Some(ssl_config);
     }
 
@@ -77,172 +84,178 @@ impl HttpService {
     }
 
     pub async fn execute_transaction(length: usize) -> anyhow::Result<(String, i32)> {
-        use crate::at_interface::fsm::FsmHandle;
-
         let svc = Self::instance().lock().await;
 
-        let body_bytes: Vec<u8> = if length > 0 {
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-            let listener_id = FsmHandle::register_listener(tx);
-            let mut buf = Vec::new();
-            while let Ok(Some(data)) = tokio::time::timeout(
-                std::time::Duration::from_secs(svc.timeout_secs + 5),
-                rx.recv(),
+        let host = svc.host.clone();
+        let port = svc.port;
+        let method = svc.method.clone();
+        let url = svc.url.clone();
+        let headers = svc.headers.clone();
+        let timeout_secs = svc.timeout_secs;
+        let ssl_config = svc.ssl_config.clone();
+        let include_response_headers = svc.response_headers_enabled;
+        drop(svc);
+
+        // Stream the request body straight from the AT FSM serial channel into
+        // ureq rather than buffering it up front; ureq frames it with the
+        // declared Content-Length (`length`).
+        let body_reader: Option<HttpBodyReader> = if length > 0 {
+            let reader = Box::new(AtBodyReader {
+                session: DataModeSession::new(Duration::from_secs(timeout_secs + 5), None),
+                handle: tokio::runtime::Handle::current(),
+                leftover: Vec::new(),
+                pos: 0,
+                remaining: length,
+            });
+            Some(reader)
+        } else {
+            None
+        };
+
+        let resp = tokio::task::spawn_blocking(move || {
+            run_blocking(
+                host,
+                port,
+                method,
+                url,
+                headers,
+                body_reader,
+                length,
+                timeout_secs,
+                ssl_config,
+                include_response_headers,
             )
-            .await
-            {
-                buf.extend_from_slice(&data);
-                if buf.len() >= length {
-                    buf.truncate(length);
-                    break;
-                }
-            }
-            FsmHandle::deregister_listener(listener_id);
-            buf
-        } else {
-            Vec::new()
-        };
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("HTTP task join error: {}", e));
 
-        let sent = body_bytes.len() as i32;
-        let is_tls = svc.ssl_config.is_some();
-        let default_port: u16 = if is_tls { 443 } else { 80 };
-        let connect_port = if svc.port > 0 { svc.port } else { default_port };
-        let connect_addr = format!("{}:{}", svc.host, connect_port);
-        let timeout = Duration::from_secs(svc.timeout_secs);
+        Ok((resp??, length as i32))
+    }
 
-        let tcp = tokio::time::timeout(timeout, TcpStream::connect(&connect_addr))
-            .await
-            .map_err(|_| anyhow::anyhow!("Connection timed out to {}", connect_addr))?
-            .map_err(|e| anyhow::anyhow!("Failed to connect to {}: {}", connect_addr, e))?;
+}
 
-        let method = if svc.method.is_empty() { "GET" } else { &svc.method }.to_uppercase();
-        let host_header = if svc.port > 0 {
-            format!("{}:{}", svc.host, svc.port)
-        } else {
-            svc.host.clone()
-        };
+/// Streaming reader that pulls the AT HTTP request body from the FSM serial
+/// channel on demand, bounded by the declared `Content-Length`. Each receive is
+/// bounded by `recv_timeout` so a withheld body cannot hang the request.
+struct AtBodyReader {
+    session: DataModeSession,
+    handle: tokio::runtime::Handle,
+    leftover: Vec<u8>,
+    pos: usize,
+    remaining: usize,
+}
 
-        enum EitherIo {
-            Plain(TcpStream),
-            Tls(SslStream<TcpStream>),
+impl Read for AtBodyReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.remaining == 0 {
+            return Ok(0);
         }
-
-        impl tokio::io::AsyncRead for EitherIo {
-            fn poll_read(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
-                match self.get_mut() {
-                    EitherIo::Plain(s) => Pin::new(s).poll_read(cx, buf),
-                    EitherIo::Tls(s) => Pin::new(s).poll_read(cx, buf),
+        while self.pos >= self.leftover.len() {
+            match self.handle.block_on(self.session.read()) {
+                DataModeRead::Data(data) => {
+                    self.leftover = data;
+                    self.pos = 0;
                 }
+                DataModeRead::Closed => return Ok(0),
+                DataModeRead::TimedOut => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "AT HTTP body receive timed out",
+                    ));
+                }
+                // HTTP data mode does not use an escape byte, so this branch is not expected.
+                DataModeRead::Escape(_) => return Ok(0),
             }
         }
-
-        impl tokio::io::AsyncWrite for EitherIo {
-            fn poll_write(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
-                match self.get_mut() {
-                    EitherIo::Plain(s) => Pin::new(s).poll_write(cx, buf),
-                    EitherIo::Tls(s) => Pin::new(s).poll_write(cx, buf),
-                }
-            }
-            fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
-                match self.get_mut() {
-                    EitherIo::Plain(s) => Pin::new(s).poll_flush(cx),
-                    EitherIo::Tls(s) => Pin::new(s).poll_flush(cx),
-                }
-            }
-            fn poll_shutdown(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
-                match self.get_mut() {
-                    EitherIo::Plain(s) => Pin::new(s).poll_shutdown(cx),
-                    EitherIo::Tls(s) => Pin::new(s).poll_shutdown(cx),
-                }
-            }
-        }
-
-        let io = if let Some(ref ssl_config) = svc.ssl_config {
-            let connector = ssl_config.build_openssl_connector()?;
-            let ssl = connector.configure()?.into_ssl(&svc.host)?;
-            let mut ssl_stream = SslStream::new(ssl, tcp)?;
-            tokio::time::timeout(timeout, Pin::new(&mut ssl_stream).connect())
-                .await
-                .map_err(|_| anyhow::anyhow!("TLS handshake timed out"))??;
-            EitherIo::Tls(ssl_stream)
-        } else {
-            EitherIo::Plain(tcp)
-        };
-        let resp = send_http1_request(
-            io,
-            &method,
-            &svc.url,
-            &host_header,
-            &svc.headers,
-            &body_bytes,
-            timeout,
-            svc.response_headers_enabled,
-        )
-        .await?;
-
-        Ok((resp, sent))
+        let avail = &self.leftover[self.pos..];
+        let n = avail.len().min(buf.len()).min(self.remaining);
+        buf[..n].copy_from_slice(&avail[..n]);
+        self.pos += n;
+        self.remaining -= n;
+        Ok(n)
     }
 }
 
+/// Runs a single AT HTTP transaction synchronously via ureq, which handles the
+/// HTTP protocol (redirects, chunked transfer-encoding, response parsing). TLS
+/// is provided by [`AtOpenSslConnector`] so the AT interface keeps its OpenSSL
+/// mutual-auth and selective certificate verification behaviour.
 #[allow(clippy::too_many_arguments)]
-async fn send_http1_request<IO>(
-    io: IO,
-    method: &str,
-    uri: &str,
-    host: &str,
-    extra_headers: &HashMap<String, String>,
-    body: &[u8],
-    timeout: Duration,
+fn run_blocking(
+    host: String,
+    port: u16,
+    method: String,
+    url: String,
+    headers: HashMap<String, String>,
+    body_reader: Option<HttpBodyReader>,
+    length: usize,
+    timeout_secs: u64,
+    ssl_config: Option<AtSslConfig>,
     include_response_headers: bool,
-) -> anyhow::Result<String>
-where
-    IO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    let uri = if uri.is_empty() { "/" } else { uri };
-
-    // Serialize request
-    let mut request = format!("{} {} HTTP/1.1\r\nHost: {}\r\n", method, uri, host);
-    for (k, v) in extra_headers {
-        let _ = writeln!(request, "{}: {}\r", k, v);
-    }
-    if !body.is_empty() {
-        let _ = writeln!(request, "Content-Length: {}\r", body.len());
-    }
-    request.push_str("Connection: close\r\n\r\n");
-
-    let mut io = io;
-    tokio::time::timeout(timeout, async {
-        io.write_all(request.as_bytes()).await?;
-        if !body.is_empty() {
-            io.write_all(body).await?;
-        }
-        io.flush().await
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Request write timed out"))??;
-
-    // Read entire response (server closes after Connection: close)
-    let mut raw = Vec::new();
-    tokio::time::timeout(timeout, io.read_to_end(&mut raw))
-        .await
-        .map_err(|_| anyhow::anyhow!("Response read timed out"))??;
-
-    // Parse status + headers
-    let mut headers = [httparse::EMPTY_HEADER; 64];
-    let mut resp = httparse::Response::new(&mut headers);
-    let header_len = match resp.parse(&raw)? {
-        httparse::Status::Complete(n) => n,
-        httparse::Status::Partial => anyhow::bail!("Incomplete HTTP response"),
+) -> anyhow::Result<String> {
+    let scheme = if ssl_config.is_some() { "https" } else { "http" };
+    let authority = if port > 0 {
+        format!("{host}:{port}")
+    } else {
+        host.clone()
     };
+    let path = if url.is_empty() {
+        "/".to_string()
+    } else if url.starts_with('/') {
+        url.clone()
+    } else {
+        format!("/{url}")
+    };
+    let uri = format!("{scheme}://{authority}{path}");
+
+    let connector = ()
+        .chain(TcpConnector::default())
+        .chain(AtOpenSslConnector { ssl_config });
+
+    let config = Config::builder()
+        .timeout_global(Some(Duration::from_secs(timeout_secs)))
+        .build();
+    let agent = Agent::with_parts(config, connector, DefaultResolver::default());
+
+    let method = if method.is_empty() { "GET".to_string() } else { method };
+    let mut builder = Request::builder().method(method.as_str()).uri(uri.as_str());
+    for (k, v) in &headers {
+        builder = builder.header(k, v);
+    }
+
+    let mut response = if let Some(reader) = body_reader {
+        let request = builder
+            .header("content-length", length.to_string())
+            .body(ureq::SendBody::from_owned_reader(reader))?;
+        agent.run(request)
+    } else {
+        let request = builder.body(&[][..])?;
+        agent.run(request)
+    }
+    .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+
+    let status = response.status();
+    let resp_headers = response.headers().clone();
+    let mut body_vec = Vec::new();
+    response
+        .body_mut()
+        .as_reader()
+        .read_to_end(&mut body_vec)
+        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
 
     let mut resp_str = String::new();
     if include_response_headers {
-        for h in resp.headers.iter() {
-            let _ = writeln!(resp_str, "{}: {}\r", h.name, String::from_utf8_lossy(h.value));
+        for (name, value) in &resp_headers {
+            let _ = writeln!(
+                resp_str,
+                "{}: {}\r",
+                name,
+                String::from_utf8_lossy(value.as_bytes())
+            );
         }
-        let _ = writeln!(resp_str, "Status: {}\r", resp.code.unwrap_or(0));
+        let _ = writeln!(resp_str, "Status: {}\r", status.as_u16());
     }
-    resp_str.push_str(&String::from_utf8_lossy(&raw[header_len..]));
+    resp_str.push_str(&String::from_utf8_lossy(&body_vec));
 
     Ok(resp_str)
 }
