@@ -7,9 +7,9 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
-use rustix::io::{Errno, read, write};
-use rustix::termios::{OptionalActions, tcgetattr, tcsetattr};
+use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+use rustix::io::{read, write, Errno};
+use rustix::termios::{tcgetattr, tcsetattr, OptionalActions};
 use rustix_openpty::openpty;
 use summit_rcm_at::fsm::AtInterface;
 

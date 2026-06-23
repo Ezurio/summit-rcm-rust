@@ -33,7 +33,7 @@ inventory.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 # Colocated unit tests drive the shared configuration override seam and use a
@@ -41,7 +41,7 @@ zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
 summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
 rustix = { workspace = true, features = ["process"] }
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { workspace = true, default-features = false, features = ["std", "sink"] }
 tower = { workspace = true, features = ["util"] }
 tokio-tungstenite.workspace = true
 

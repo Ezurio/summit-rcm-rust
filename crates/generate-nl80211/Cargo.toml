@@ -16,4 +16,4 @@ name = "generate_nl80211_bindings"
 path = "src/main.rs"
 
 [dependencies]
-bindgen = "0.72"
+bindgen.workspace = true

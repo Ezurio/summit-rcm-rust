@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Summit RCM firmware update (SWUpdate) plugin"
 authors.workspace = true
 license.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -30,7 +31,7 @@ summit-rcm-at = { path = "../summit-rcm-at", optional = true }
 inventory.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { workspace = true, default-features = false, features = ["std", "sink"] }
 log.workspace = true
 rustix = { workspace = true, features = ["process"] }
 serde = { workspace = true, features = ["derive"] }
@@ -39,12 +40,14 @@ swupdate-ipc = { path = "../swupdate-ipc", features = ["async"] }
 
 [dev-dependencies]
 rustix = { workspace = true, features = ["fs", "termios", "process"] }
-rustix-openpty = "0.2"
+rustix-openpty.workspace = true
 
 [[test]]
 name = "at_lookup"
 path = "tests/at_lookup.rs"
+required-features = ["update", "at-interface"]
 
 [[test]]
 name = "at_status"
 path = "tests/at_status.rs"
+required-features = ["update", "at-interface"]

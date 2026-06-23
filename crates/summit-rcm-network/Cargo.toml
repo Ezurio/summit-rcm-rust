@@ -33,5 +33,5 @@ log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
-neli = { version = "0.7.4", default-features = false, features = ["async"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
+neli = { workspace = true, default-features = false, features = ["async"] }

@@ -23,15 +23,15 @@ openssl.workspace = true
 tokio-openssl.workspace = true
 serial2-tokio.workspace = true
 ping.workspace = true
-ureq = { version = "~3.3", default-features = false }
+ureq = { workspace = true, default-features = false }
 
 [dev-dependencies]
-bytes.workspace = true
-http-body-util = "0.1"
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
 rustix = { workspace = true, features = ["fs", "termios"] }
-rustix-openpty = "0.2"
+rustix-openpty.workspace = true
+bytes.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
 
 [[test]]
 name = "at_lookup"

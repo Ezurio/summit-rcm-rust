@@ -29,7 +29,7 @@ inventory.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }

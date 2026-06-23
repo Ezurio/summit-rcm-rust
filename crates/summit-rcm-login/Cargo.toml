@@ -34,7 +34,7 @@ inventory.workspace = true
 log.workspace = true
 openssl.workspace = true
 serde = { workspace = true, features = ["derive"] }
-tower-sessions = { version = "0.15.0" }
+tower-sessions.workspace = true
 rustix = { workspace = true, features = ["time"] }
 
 [dev-dependencies]

@@ -14,6 +14,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use at_test_harness::{AtHarness, lock_test};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -23,8 +24,6 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-
-use at_test_harness::{AtHarness, lock_test};
 
 async fn serve_one(
     content_length: usize,
@@ -159,42 +158,39 @@ async fn post_streams_body_and_returns_response() {
         "HTTPEXE prompt response: {:?}",
         String::from_utf8_lossy(&prompt_resp)
     );
-
     harness.send_bytes(BODY);
-    let data_resp = harness.read_until_contains(b"\r\nOK\r\n", Duration::from_secs(4));
-    let data_resp_str = String::from_utf8_lossy(&data_resp);
-    assert!(data_resp_str.contains("ok"), "HTTPEXE data response: {data_resp_str}");
+    let resp = harness.read_until_contains(b"\r\nOK\r\n", Duration::from_secs(3));
+    let resp = String::from_utf8_lossy(&resp).into_owned();
+    assert!(resp.contains("ok"), "HTTPEXE response: {resp}");
     harness.shutdown().await;
 
-    let (request_line, received_body) = server.await.expect("HTTP server task join");
+    let (request_line, body) = server.await.expect("HTTP server task join");
     assert!(request_line.starts_with("POST /submit "), "request line: {request_line}");
-    assert_eq!(received_body, BODY);
+    assert_eq!(body, BODY, "request body");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn response_headers_are_included_when_enabled() {
+async fn post_without_content_type_is_rejected() {
     let _guard = lock_test().await;
 
     let (port, _server) = serve_one(
         0,
         StatusCode::OK,
-        vec![("x-custom", "yes"), ("content-length", "0"), ("connection", "close")],
+        vec![("content-length", "0"), ("connection", "close")],
         b"",
     )
     .await;
 
     let harness = AtHarness::start(3_000_000).await;
-    let conf = harness.run_command_expect_ok(
-        &format!("AT+HTTPCONF=127.0.0.1,{port},GET,/,10"),
+    let conf_resp = harness.run_command_expect_ok(
+        &format!("AT+HTTPCONF=127.0.0.1,{port},POST,/submit,10"),
         Duration::from_secs(2),
     );
-    assert!(conf.contains("OK"), "HTTPCONF response: {conf}");
+    assert!(conf_resp.contains("OK"), "HTTPCONF response: {conf_resp}");
 
-    let hdr = harness.run_command_expect_ok("AT+HTTPRSHDR=1", Duration::from_secs(2));
-    assert!(hdr.contains("OK"), "HTTPRSHDR response: {hdr}");
-
-    let resp = harness.run_command_expect_ok("AT+HTTPEXE=0", Duration::from_secs(3));
-    assert!(resp.contains("x-custom: yes"), "response: {resp}");
-    assert!(resp.contains("Status: 200"), "response: {resp}");
+    harness.send_command("AT+HTTPEXE=5");
+    let response = harness.read_until_contains(b"\r\nERROR\r\n", Duration::from_secs(2));
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.contains("ERROR"), "response: {response}");
     harness.shutdown().await;
 }

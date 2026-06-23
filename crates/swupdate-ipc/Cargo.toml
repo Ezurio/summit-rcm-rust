@@ -11,9 +11,9 @@ license = "Ezurio-Clause"
 async = ["dep:tokio", "dep:futures-util"]
 
 [dependencies]
-thiserror = "2"
-tokio = { version = "1", features = ["net", "io-util", "time"], optional = true }
-futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "time"], optional = true }
+futures-util = { workspace = true, default-features = false, features = ["std"], optional = true }
 
 [lib]
 crate-type = ["rlib"]

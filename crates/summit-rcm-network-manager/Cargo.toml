@@ -30,11 +30,11 @@ summit-rcm-at = { path = "../summit-rcm-at", optional = true }
 inventory.workspace = true
 summit-rcm-network = { path = "../summit-rcm-network", optional = true }
 anyhow.workspace = true
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { workspace = true, default-features = false, features = ["std", "sink"] }
 log.workspace = true
 openssl.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 time = { workspace = true, features = ["formatting", "local-offset", "macros", "parsing"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }

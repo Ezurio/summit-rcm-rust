@@ -206,12 +206,12 @@ serde_json     = "1"
 configparser   = "3"
 hex            = "0.4"
 log            = "0.4"
-env_filter     = "1.0.1"
+env_filter     = { version = "1.0.1", default-features = false }
 systemd-journal-logger = "2.2.2"
 tracing        = "0.1.44"
 anyhow         = "1"
-futures-util   = "0.3"
-zbus           = "5.16.0"
+futures-util   = { version = "0.3", default-features = false }
+zbus           = { version = "5.16.0", default-features = false }
 base64         = "0.22"
 time           = "0.3"
 rustix         = "1"
@@ -226,12 +226,18 @@ utoipa         = "5.5.0"
 axum           = "0.8.9"
 tower          = "0.5"
 tower-sessions = "0.15.0"
+hyper          = "1"
+http-body-util = "0.1"
 hyper-util     = "0.1"
 tokio-tungstenite = "0.29"
 tokio-udev = "0.10.0"
 serial2-tokio  = "0.1"
 ping           = "0.7"
-ureq           = "~3.3"
+ureq           = { version = "~3.3", default-features = false }
+rustix-openpty = "0.2"
+bindgen        = "0.72"
+neli           = { version = "0.7.4", default-features = false }
+thiserror      = "2"
 
 [dependencies]
 summit-rcm-core = { path = "crates/summit-rcm-core", default-features = false }
@@ -260,10 +266,10 @@ summit-rcm-unauthenticated = { path = "crates/summit-rcm-unauthenticated", optio
 summit-rcm-update = { path = "crates/summit-rcm-update", optional = true, default-features = false }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 log.workspace = true
-env_filter = { version = "1.0.1", default-features = false }
+env_filter = { workspace = true, default-features = false }
 systemd-journal-logger.workspace = true
 anyhow.workspace = true
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { workspace = true, default-features = false, features = ["std", "sink"] }
 serde_json.workspace = true
 
 [dev-dependencies]
@@ -271,12 +277,12 @@ axum = { workspace = true, features = ["multipart"] }
 tower = { workspace = true, features = ["util"] }
 tokio-tungstenite.workspace = true
 bytes.workspace = true
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
-rustix = { version = "1", features = ["fs", "termios", "process"] }
-rustix-openpty = "0.2"
-hyper = { version = "1", features = ["server", "http1"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
+rustix = { workspace = true, features = ["fs", "termios", "process"] }
+rustix-openpty.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
-http-body-util = "0.1"
+http-body-util.workspace = true
 
 [profile.dev]
 incremental = true

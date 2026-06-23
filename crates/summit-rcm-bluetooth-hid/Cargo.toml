@@ -24,14 +24,14 @@ summit-rcm-core = { path = "../summit-rcm-core" }
 summit-rcm-bluetooth = { path = "../summit-rcm-bluetooth" }
 summit-rcm-web = { path = "../summit-rcm-web", optional = true }
 anyhow.workspace = true
-futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+futures-util = { workspace = true, default-features = false, features = ["std", "sink"] }
 inventory.workspace = true
 log.workspace = true
 rustix = { workspace = true, features = ["fs"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-udev.workspace = true
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+zbus = { workspace = true, default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }
