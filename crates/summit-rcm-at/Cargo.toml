@@ -1,0 +1,46 @@
+[package]
+name = "summit-rcm-at"
+version = "0.1.0"
+edition = "2024"
+description = "Summit RCM AT command interface (parser, FSM, serial runtime, command registry)"
+authors = ["Ezurio LLC"]
+license = "LicenseRef-Ezurio-Clause"
+
+[lib]
+name = "summit_rcm_at"
+path = "src/lib.rs"
+
+[features]
+at-interface = []
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+anyhow.workspace = true
+inventory.workspace = true
+log.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
+openssl.workspace = true
+tokio-openssl.workspace = true
+serial2-tokio.workspace = true
+ping.workspace = true
+ureq = { version = "~3.3", default-features = false }
+
+[dev-dependencies]
+bytes.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+rustix = { workspace = true, features = ["fs", "termios"] }
+rustix-openpty = "0.2"
+
+[[test]]
+name = "at_lookup"
+path = "tests/at_lookup.rs"
+
+[[test]]
+name = "at_basic"
+path = "tests/at_basic.rs"
+
+[[test]]
+name = "at_http"
+path = "tests/at_http.rs"

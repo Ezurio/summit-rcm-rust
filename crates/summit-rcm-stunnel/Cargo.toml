@@ -1,0 +1,28 @@
+[package]
+name = "summit-rcm-stunnel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM stunnel plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_stunnel"
+path = "src/lib.rs"
+
+[features]
+stunnel = []
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+anyhow.workspace = true

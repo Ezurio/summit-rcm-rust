@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use rustix::process::{kill_process, Pid, Signal};
+
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let unique = format!(
         "{}-{}-{}",
@@ -54,12 +56,11 @@ fn generate_tls_assets(cert_path: &Path, key_path: &Path) {
     assert!(status.success(), "openssl should generate test TLS assets");
 }
 
-fn write_server_config(path: &Path, cert_path: &Path, key_path: &Path, plugin_dir: &Path) {
+fn write_server_config(path: &Path, cert_path: &Path, key_path: &Path) {
     std::fs::write(
         path,
         format!(
-            "[/]\ntools.sessions.on = false\n\n[plugins]\n\n[summit-rcm]\ndefault_username = root\ndefault_password = summit\nallow_multiple_user_sessions = true\nnetwork_status_restricted = false\nlog_routes_loaded = false\nplugin_dir = {}\n\n[global]\nserver.ssl_private_key = {}\nserver.ssl_certificate = {}\nserver.ssl_certificate_chain = {}\n",
-            plugin_dir.display(),
+            "[/]\ntools.sessions.on = false\n\n[plugins]\n\n[summit-rcm]\ndefault_username = root\ndefault_password = summit\nallow_multiple_user_sessions = true\nnetwork_status_restricted = false\nlog_routes_loaded = false\n\n[global]\nserver.ssl_private_key = {}\nserver.ssl_certificate = {}\nserver.ssl_certificate_chain = {}\n",
             key_path.display(),
             cert_path.display(),
             cert_path.display(),
@@ -122,12 +123,10 @@ fn shutdown_signal_returns_on_sigterm() {
     let server_config_path = temp_dir.join("summit-rcm.ini");
     let cert_path = temp_dir.join("server.crt");
     let key_path = temp_dir.join("server.key");
-    let plugin_dir = temp_dir.join("plugins");
-    std::fs::create_dir_all(&plugin_dir).expect("plugin directory should be created");
 
     write_settings_file(&settings_path);
     generate_tls_assets(&cert_path, &key_path);
-    write_server_config(&server_config_path, &cert_path, &key_path, &plugin_dir);
+    write_server_config(&server_config_path, &cert_path, &key_path);
     let bind_addr = reserve_bind_addr();
 
     let binary = summit_rcm_binary();
@@ -144,9 +143,11 @@ fn shutdown_signal_returns_on_sigterm() {
 
     wait_for_listening(&mut child, &bind_addr, Duration::from_secs(5));
 
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
-    }
+    let pid = i32::try_from(child.id())
+        .ok()
+        .and_then(Pid::from_raw)
+        .expect("child pid should fit in rustix::process::Pid");
+    kill_process(pid, Signal::TERM).expect("SIGTERM should be sent to child");
 
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {

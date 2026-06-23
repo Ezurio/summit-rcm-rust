@@ -1,0 +1,36 @@
+[package]
+name = "summit-rcm-cww"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM custom Wi-Fi (CWW) plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_cww"
+path = "src/lib.rs"
+
+[features]
+cww = []
+# Interface gates: forwarded from the umbrella, mirrored to web and the system
+# dependency for standalone consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2", "dep:summit-rcm-system", "summit-rcm-system/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy", "dep:summit-rcm-system", "summit-rcm-system/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs", "dep:summit-rcm-system", "summit-rcm-system/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-system = { path = "../summit-rcm-system", optional = true }
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[dev-dependencies]
+# Colocated route tests drive the handlers through a minimal axum router.
+tower = { workspace = true, features = ["util"] }

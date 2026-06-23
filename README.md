@@ -1,44 +1,58 @@
-# Summit RCM - Rust / Axum port
+# Summit RCM - split Rust crate workspace
 
-This repository contains the Rust rewrite of the original Python-based Summit RCM service.
-It builds a single feature-gated binary that can expose any combination of:
+This repository is the split-crate variant of the Summit RCM Rust service.
+It keeps the same feature-gated runtime surfaces as the main `summit-rcm-rust`
+tree while factoring the implementation into reusable crates:
 
 - REST API v2 routes
 - legacy REST API routes
 - the serial AT command interface
-- built-in Rust plugins
-- dynamically loaded `.so` plugins for web builds
+- inventory-registered Rust plugin crates
 - generated OpenAPI output and optional Swagger UI
 
 ## Architecture
 
-The runtime is assembled from a small set of top-level modules:
+The workspace is composed around one embeddable root library crate plus shared
+library crates under `crates/`:
 
-- `src/main.rs` is the composition root. It enables the web server, AT interface, OpenAPI docs, and plugin loading through Cargo features.
-- `src/app/loader.rs` is the dynamic plugin loader for web builds. It scans the configured plugin directory, loads shared libraries, and wires their published routes into the Axum router.
-- `src/app/publication.rs` defines the publication metadata used by built-in plugins and dynamic plugins.
-- `src/plugins/` contains built-in feature-gated plugins. These own route registration, AT command publication, and plugin-specific services.
-- `src/at_interface/` contains the AT parser, FSM, command registry, and serial runtime.
-- `src/services/` holds shared helpers used across plugins and interfaces, including HTTP, SSL, connection, and AT file services.
-- `src/support/` contains common infrastructure such as config loading, D-Bus helpers, certificate utilities, archive helpers, response shaping, and misc utilities.
-- `src/web/` contains web-only middleware and guards such as session auth and security headers.
-- `src/openapi/` contains the OpenAPI generator used by the runtime docs endpoint and the standalone `generate_openapi` binary.
-- `crates/plugin-api/` defines the dynamic plugin ABI.
+- `src/lib.rs` is the reusable composition root for Summit RCM. It exposes the
+  default `run()` entrypoint used by the packaged daemon binary and can also be
+  called from an external binary crate.
+- `src/main.rs` is the thin default binary wrapper around `src/lib.rs`.
+- `build.rs` emits `plugin_links.rs`, which retains each enabled plugin crate so
+  its `inventory::submit!` registrations survive linking.
+- `crates/summit-rcm-core/` contains shared infrastructure such as config,
+  D-Bus helpers, certificates, publication macros, shutdown handling, and
+  startup hooks.
+- `crates/summit-rcm-web/` contains the Axum web runtime, auth/security
+  middleware, HTTP response helpers, and OpenAPI integration.
+- `crates/summit-rcm-at/` contains the AT parser, FSM, HTTP bridge, and serial
+  runtime.
+- `crates/summit-rcm-*` plugin crates each own one feature-gated plugin and its
+  routes, services, AT commands, and OpenAPI publications.
 
-Current top-level source layout:
+Current top-level workspace layout:
 
 ```text
-src/
-├── main.rs
-├── lib.rs
-├── app/               # dynamic plugin loading and publication metadata
-├── at_interface/      # AT command parser, FSM, and serial runtime
-├── openapi/           # optional OpenAPI generation
-├── plugins/           # built-in feature-gated plugins
-├── services/          # shared service helpers
-├── support/           # config, dbus, archive, certificates, responses, utils
-├── systemd/           # systemd helpers
-└── web/               # auth and security middleware
+.
+├── Cargo.toml                 # workspace root + summit-rcm lib/bin package
+├── build.rs                   # generate link-retention shim for enabled plugins
+├── src/
+│   ├── lib.rs                 # embeddable composition root
+│   ├── main.rs                # default binary wrapper
+│   └── bin/generate_openapi.rs
+├── crates/
+│   ├── summit-rcm-core/
+│   ├── summit-rcm-web/
+│   ├── summit-rcm-at/
+│   ├── summit-rcm-awm/
+│   ├── summit-rcm-bluetooth/
+│   ├── summit-rcm-bluetooth-hid/
+│   ├── summit-rcm-bluetooth-vsp/
+│   ├── ...
+│   └── summit-rcm-update/
+└── tests/
+  └── app.rs                 # assembled-application integration tests
 ```
 
 ## Feature flags
@@ -51,13 +65,21 @@ Default features enable both web API surfaces:
 Additional runtime surfaces and capabilities are controlled independently:
 
 - `at-interface` enables the serial AT interface.
-- Core plugin features: `network`, `network-manager`, `date-time`, `login`, `system`, `logs`, `files`, `update`.
-- Optional plugin features: `awm`, `bluetooth`, `chrony`, `fips`, `firewall`, `log-forwarding`, `provisioning`, `radio-siso-mode`, `stunnel`, `unauthenticated`.
-- `all-plugins` enables all built-in plugin features.
+- Plugin features include `awm`, `bluetooth`, `bluetooth-hid`,
+  `bluetooth-vsp`, `chrony`, `cww`, `date-time`, `files`, `fips`,
+  `firewall`, `log-forwarding`, `login`, `logs`, `network`,
+  `network-manager`, `provisioning`, `radio-siso-mode`, `stunnel`, `system`,
+  `unauthenticated`, and `update`.
+- `all-plugins` enables the full built-in plugin set.
 - `api-docs` enables generated OpenAPI output.
-- `swagger-ui` serves Swagger UI and implies `api-docs`.
+- `runtime-docs` and `swagger-ui` enable hosted API documentation in the web runtime.
+- `notifications` is the shared websocket notification transport used by
+  Bluetooth websocket support.
+- `test-support` enables cross-crate testing seams used by the assembled-app
+  integration tests.
 
-Plugin features do not expose any interface on their own. A built-in plugin only becomes reachable when the matching runtime surface is also enabled:
+Plugin features do not expose an interface by themselves. A plugin only becomes
+reachable when the matching runtime surface is also enabled:
 
 - plugin + `api-v2` publishes v2 routes
 - plugin + `api-legacy` publishes legacy routes
@@ -65,18 +87,21 @@ Plugin features do not expose any interface on their own. A built-in plugin only
 
 ## Plugin model
 
-This repository supports two plugin models:
+This workspace currently supports one plugin model:
 
-- Built-in Rust plugins under `src/plugins/`, compiled in through Cargo features.
-- Dynamic shared libraries loaded at runtime through `src/app/loader.rs` using the ABI in `crates/plugin-api`.
+- feature-gated Rust plugin crates linked into the final binary and registered
+  through `inventory`
 
-Dynamic plugin discovery reads `plugin_dir` from the `[summit-rcm]` section of the server config. If it is not set, the loader defaults to `/usr/lib/summit-rcm/plugins`.
+The root `Cargo.toml` dependency list is the source of truth for which plugin
+crates exist. `build.rs` reads the enabled plugin features and generates a tiny
+link-retention shim so the linker keeps each enabled plugin crate and its
+`declare_plugin!` publications.
 
-Each dynamic plugin must export:
+The Bluetooth family is split across three crates:
 
-```c
-extern "C" PluginHandle *summit_rcm_plugin_create(void);
-```
+- `summit-rcm-bluetooth` for the shared controller/device API and command dispatcher
+- `summit-rcm-bluetooth-hid` for HID barcode/socket bridging
+- `summit-rcm-bluetooth-vsp` for BLE serial/GATT socket bridging
 
 ## Building
 
@@ -84,7 +109,7 @@ The workspace is configured for offline-friendly Cargo builds:
 
 - Cargo uses the default `target/` output directory.
 - `.cargo/config.toml` sets `rustflags = ["-Dwarnings"]`, so warnings fail the build.
-- Cargo resolves third-party crates from the checked-in `vendor/` directory.
+- Cargo resolves third-party crates from the checked-in `VENDOR/` directory.
 
 Standard release build:
 
@@ -99,7 +124,7 @@ cargo check --features "api-v2 api-legacy at-interface" --all-targets
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"
 cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"
-cargo check --bin generate_nl80211_bindings
+cargo check -p generate-nl80211
 ```
 
 Example production-style web build with only v2 routes:
@@ -108,22 +133,21 @@ Example production-style web build with only v2 routes:
 cargo build --release --no-default-features --features api-v2
 ```
 
-Refresh `Cargo.lock` and the vendored tree from the current manifest requirements with:
+Refresh the vendored tree from the current lockfile with:
 
 ```bash
 ./tools/cargo_revendor.sh
 ```
 
-To pull the newest crate releases even when that requires rewriting the versions in
-`Cargo.toml`, use:
+If dependency declarations change and `Cargo.lock` must be re-resolved first, use:
 
 ```bash
-./tools/cargo_revendor.sh --latest
+./tools/cargo_revendor.sh --resolve
 ```
 
-The script temporarily disables the repo's vendored source override, updates dependencies
-online, resolves `Cargo.lock` for the workspace with all features enabled, restores the
-vendored source config, and then rebuilds `vendor/` from the updated lockfile.
+`--resolve` temporarily disables the repo's vendored source override, resolves `Cargo.lock`
+for the workspace with all features enabled, restores the vendored source config, and then
+rebuilds `VENDOR/` from the updated lockfile.
 
 To verify offline dependency resolution explicitly:
 
@@ -148,56 +172,31 @@ Then run:
 ./tools/generate_sboms.sh
 ```
 
-## NetworkManager connection profile generation
-
-The NetworkManager connection-profile route model is generated from a pinned NetworkManager source tree,
-not during Cargo builds.
-
-The generator script lives at `tools/generate_nm_connection_profile.py` and reads the preserved
-NetworkManager metadata and merged settings docs from the source tree you point it at.
-
-Regenerate the Rust connection-profile module with:
-
-```bash
-python3 tools/generate_nm_connection_profile.py \
-  --nm-source /path/to/lrd-network-manager
-```
-
-This updates `src/plugins/network_manager/routes/connection_profile.rs`.
-
-Notes:
-
-- The NetworkManager source path is environment-specific and must be provided manually.
-- This generator is intentionally build-time independent so normal Cargo builds do not depend on a host
-  libnm installation or on an embedded-target filesystem.
-- The expected source tree must include the preserved NetworkManager metadata inputs at
-  `src/libnm-core-impl/gen-metadata-nm-settings-libnm-core.xml.in` and
-  `src/libnmc-setting/settings-docs.h.in`.
-
 ## Host code generators
 
 ### nl80211 bindings
 
-`src/bin/generate_nl80211_bindings.rs` regenerates `src/plugins/network/nl80211/generated.rs` from a
+`crates/generate-nl80211` regenerates the nl80211 bindings used by the split
+network plugin crates from a
 `linux/nl80211.h` header using bindgen with the `prettyplease` formatter.
 
 Regenerate against the host system headers:
 
 ```bash
-cargo run --bin generate_nl80211_bindings
+cargo run -p generate-nl80211
 ```
 
 Regenerate against a cross sysroot (Buildroot `STAGING_DIR`, Yocto `SDKTARGETSYSROOT`, etc.):
 
 ```bash
-STAGING_DIR=/path/to/sysroot cargo run --bin generate_nl80211_bindings
+STAGING_DIR=/path/to/sysroot cargo run -p generate-nl80211
 # or any of: NL80211_INCLUDE_DIR  BR2_SYSROOT  SDKTARGETSYSROOT  OECORE_TARGET_SYSROOT
 ```
 
 An explicit output path can be passed as a positional argument:
 
 ```bash
-cargo run --bin generate_nl80211_bindings -- /tmp/nl80211_generated.rs
+cargo run -p generate-nl80211 -- /tmp/nl80211_generated.rs
 ```
 
 The generator searches for `linux/nl80211.h` under the sysroot in this order:
@@ -205,8 +204,8 @@ The generator searches for `linux/nl80211.h` under the sysroot in this order:
 
 ## OpenAPI and Swagger UI
 
-With `api-docs` enabled, the running service exposes generated OpenAPI JSON at `/api-docs/openapi.json`.
-With `swagger-ui` enabled, it also serves Swagger UI at `/swagger-ui/`.
+With `api-docs` enabled, the running service exposes generated OpenAPI JSON.
+With `swagger-ui` enabled, it also serves Swagger UI.
 
 Generate the document without starting the server (pass the same `--features` as the target build,
 plus `api-docs`):
@@ -217,8 +216,7 @@ SUMMIT_RCM_OPENAPI_OUTPUT=./openapi.json \
   --features api-v2,api-legacy,all-plugins,api-docs
 ```
 
-The `generate_openapi` binary is built only when `api-docs` is enabled and is the same
-generator used by `tests/parity/api_parity.py openapi`.
+The `generate_openapi` binary is built only when `api-docs` is enabled.
 
 ## Running
 
@@ -237,7 +235,7 @@ The AT interface starts when `at-interface` is enabled and the server config pro
 
 ## Configuration
 
-The service reads the same two primary configuration files as the Python implementation:
+The service reads the same two primary configuration files as the main `summit-rcm` implementation:
 
 - `/etc/summit-rcm.ini` for server and startup configuration
 - `/etc/summit-rcm/summit-rcm-settings.ini` for persisted runtime settings
@@ -249,21 +247,21 @@ Common runtime knobs include:
 
 - `SUMMIT_RCM_BIND` to override the web bind address
 - `RUST_LOG` to control tracing verbosity
-- `plugin_dir` in `[summit-rcm]` to change the dynamic plugin search directory
+
 
 ## Tests and parity
 
-The repository includes Rust tests plus Python-based parity harnesses that compare the Rust implementation against the sibling Python implementation.
+The workspace includes Rust tests plus parity harnesses under `tests/parity/`.
 
-Key test entry points:
+Key Rust test entry points:
 
 - `cargo test`
-- `tests/plugin_registry.rs` verifies that the built-in plugin registry generated by `build.rs` matches the modules present under `src/plugins/`.
-- `tests/parity/api_parity.py` checks OpenAPI parity, response parity, coverage, response-case scaffolding, and legacy-only WebLCM response parity. The `openapi` mode compares the Python baseline's `generate_docs.py` output against the Rust `generate_openapi` helper binary.
-- `tests/parity/api_remote_parity.py` runs response parity against remote Rust and Python targets and can also perform direct live websocket parity.
-- `tests/parity/at_parity.py` compares serial AT behavior.
-- `tests/parity/plugin_response_logic_check.py` validates plugin response logic against system state.
-- `tests/parity/provisioning_tls_check.py` validates provisioning TLS behavior.
+- `tests/plugin_links.rs` verifies that the generated link-retention shim is
+  available to binaries and integration tests.
+- `tests/plugins.rs` is the assembled integration-test entrypoint that includes
+  submodules under `tests/plugins/`.
+- `tests/app.rs` contains full-application integration tests that run against
+  the composed router when the needed features are enabled.
 
 Common local commands:
 
@@ -271,13 +269,13 @@ Common local commands:
 # Fast default Rust test run
 cargo test
 
-# Registry sanity check only
-cargo test --test plugin_registry
+# Link-retention sanity check only
+cargo test --test plugin_links
 
 # One integration test target
 cargo test --test plugins
 
-# Feature-gated integration tests in tests/plugins/parity_contract.rs
+# Feature-gated integration tests
 cargo test --test plugins --features "unauthenticated radio-siso-mode"
 
 # Build-graph and parity feature-matrix validation used during route/plugin migrations
@@ -291,14 +289,11 @@ Common targeted filters:
 
 ```bash
 # Provisioning-only host response parity against the sibling Python summit-rcm baseline
-"$(realpath ../summit-rcm)/.venv/bin/python" tests/parity/api_parity.py responses \
+../summit-rcm/.venv/bin/python tests/parity/api_parity.py responses \
   --cases tests/parity/provisioning_response_cases.json \
   --python-repo ../summit-rcm \
   --legacy-python-repo ../summit-rcm \
   --plugins provisioning
-
-# One Rust test by name
-cargo test builtin_plugin_registry_matches_source_tree -- --exact
 
 # One integration test by name inside tests/plugins.rs
 cargo test --test plugins v2_unauthenticated_get_does_not_return_sdcerr -- --exact
@@ -323,34 +318,9 @@ python3 tests/parity/at_parity.py --python-repo ../summit-rcm
 
 Notes:
 
-- `tests/plugins.rs` is only the Rust integration-test entrypoint that includes submodules under `tests/plugins/`; it is not part of plugin discovery or parity coverage.
-- `tests/parity/api_parity.py` discovers Rust plugin names from `src/plugins/`, so the parity harness does not test itself.
-- Most plugin-specific Rust tests are feature-gated. If a test target appears to run zero tests, rerun it with the plugin feature enabled.
-- The parity scripts expect the sibling Python repository at `../summit-rcm` unless `--python-repo` points elsewhere.
-- The `weblcm` mode is legacy-only. WebLCM does not support OpenAPI parity or `/api/v2` parity, so `weblcm` mode only runs live legacy response cases and ignores `/api/v2` entries in the case manifest.
-- Use `responses` for `summit-rcm` baselines and `weblcm` for `weblcm-python` baselines. Do not use `openapi`, `coverage`, `schema`, `scaffold`, `auto`, or `all` with a `weblcm` baseline.
-- In `tests/parity/api_remote_parity.py`, use `--python-runtime weblcm` for current WebLCM targets. That filters `/api/v2` response cases out of remote parity and limits `websockets` mode to the legacy `/bluetoothWebsocket/ws` route.
-
-The parity harnesses use temporary config and TLS assets so they do not depend on persistent `/etc` state.
-
-## Embedded target testing
-
-See [docs/embedded-testing.md](docs/embedded-testing.md) for the full device workflow, including Buildroot rebuilds, deployment, smoke checks, remote parity, and AT testing.
-
-For AT-specific parity scope, case authoring, and troubleshooting details, see [docs/at-interface-parity.md](docs/at-interface-parity.md).
-
-Quick links:
-
-```bash
-# Rebuild from Buildroot output
-make -C /devel/cp_linux/output/som60sd_fips_11_rust summit-rcm-rust-rebuild
-
-# Remote API parity against deployed Rust and Python targets
-python3 tests/parity/api_remote_parity.py responses --rust-ssh root@target --python-ssh root@target
-
-# Remote legacy-only parity against a WebLCM Python target
-python3 tests/parity/api_remote_parity.py responses --rust-ip <rust-target> --python-ip <python-target> --python-runtime weblcm
-
-# Remote legacy websocket smoke parity against a WebLCM Python target
-python3 tests/parity/api_remote_parity.py websockets --rust-ip <rust-target> --python-ip <python-target> --python-runtime weblcm
-```
+- Most plugin-specific Rust tests are feature-gated. If a test target appears
+  to run zero tests, rerun it with the needed plugin feature enabled.
+- The parity scripts expect the sibling Python repository at `../summit-rcm`
+  unless `--python-repo` points elsewhere.
+- The parity harnesses use temporary config and TLS assets so they do not
+  depend on persistent `/etc` state.

@@ -27,6 +27,7 @@ from api_parity import (
     ParityError,
     ensure_rust_binary,
     parse_plugin_names,
+    parity_timeout,
     python_parity_path,
     python_runtime_executable,
     resolve_python_runtime,
@@ -40,6 +41,14 @@ DEFAULT_READ_TIMEOUT_SECONDS = 8.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 20.0
 DEFAULT_IDLE_TIMEOUT_SECONDS = 0.25
 TERMINAL_STATUS_LINES = {"OK", "ERROR"}
+DEFAULT_AT_PLUGINS = [
+    "date-time",
+    "files",
+    "logs",
+    "network",
+    "network-manager",
+    "update",
+]
 
 
 @dataclass
@@ -91,7 +100,12 @@ class SerialEndpoint:
 
 
 def rust_at_features(plugins: list[str]) -> str:
-    feature_names = ["api-v2", "api-legacy", "at-interface", *[PLUGIN_SPECS[plugin].rust_feature for plugin in plugins]]
+    feature_names = [
+        "api-v2",
+        "api-legacy",
+        "at-interface",
+        *[PLUGIN_SPECS[plugin].rust_feature if plugin in PLUGIN_SPECS else plugin for plugin in plugins],
+    ]
     return ",".join(feature_names)
 
 
@@ -106,6 +120,7 @@ def plugin_names_from_case(case: dict[str, Any]) -> list[str]:
 
 def selected_plugins(cases: list[dict[str, Any]], requested_plugins: list[str]) -> list[str]:
     plugins = set(requested_plugins)
+    plugins.update(DEFAULT_AT_PLUGINS)
     for case in cases:
         plugins.update(plugin_names_from_case(case))
     return sorted(plugins)
@@ -124,9 +139,6 @@ def write_test_config(
     settings_path = temp_dir / "summit-rcm-settings.ini"
     rust_config_path = temp_dir / "rust-summit-rcm.ini"
     python_config_path = temp_dir / "python-summit-rcm.ini"
-    plugin_dir = temp_dir / "plugins"
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-
     subprocess.run(
         [
             "openssl",
@@ -188,7 +200,6 @@ def write_test_config(
                     "allow_multiple_user_sessions = true",
                     "network_status_restricted = false",
                     "log_routes_loaded = false",
-                    f"plugin_dir = {plugin_dir}",
                     "",
                     "[global]",
                     f"server.ssl_private_key = {key_path}",
@@ -601,7 +612,7 @@ def compare_responses(
         raise ParityError("--plugins is not supported with live serial targets because runtimes are already running")
 
     enabled_plugins = selected_plugins(cases, requested_plugins)
-    python_executable = python_runtime_executable(python_repo)
+    python_executable = python_runtime_executable(python_repo, python_runtime)
     features = rust_at_features(enabled_plugins)
     rust_binary = ensure_rust_binary(bin_name="summit-rcm", features=features)
 
@@ -874,6 +885,11 @@ def parse_args() -> argparse.Namespace:
         help="How long the serial line must stay quiet before a response is considered complete.",
     )
     parser.add_argument(
+        "--total-timeout-seconds",
+        type=float,
+        help="Optional end-to-end timeout for the entire AT parity run.",
+    )
+    parser.add_argument(
         "--plugins",
         action="append",
         default=[],
@@ -898,23 +914,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        if args.read_timeout_seconds <= 0:
-            raise ParityError("--read-timeout-seconds must be > 0")
-        python_repo = args.python_repo.resolve()
-        python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
-        compare_responses(
-            python_repo,
-            load_cases(args.cases.resolve(), args.case_id),
-            python_runtime=python_runtime,
-            baud_rate=args.baud_rate,
-            startup_timeout_seconds=args.startup_timeout_seconds,
-            read_timeout_seconds=args.read_timeout_seconds,
-            idle_timeout_seconds=args.idle_timeout_seconds,
-            requested_plugins=parse_plugin_names(args.plugins),
-            rust_serial_path=args.rust_serial_path,
-            python_serial_path=args.python_serial_path,
-            wait_for_ready_banner=args.wait_for_ready_banner,
-        )
+        with parity_timeout(args.total_timeout_seconds, label="AT parity run"):
+            if args.read_timeout_seconds <= 0:
+                raise ParityError("--read-timeout-seconds must be > 0")
+            python_repo = args.python_repo.resolve()
+            python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
+            compare_responses(
+                python_repo,
+                load_cases(args.cases.resolve(), args.case_id),
+                python_runtime=python_runtime,
+                baud_rate=args.baud_rate,
+                startup_timeout_seconds=args.startup_timeout_seconds,
+                read_timeout_seconds=args.read_timeout_seconds,
+                idle_timeout_seconds=args.idle_timeout_seconds,
+                requested_plugins=parse_plugin_names(args.plugins),
+                rust_serial_path=args.rust_serial_path,
+                python_serial_path=args.python_serial_path,
+                wait_for_ready_banner=args.wait_for_ready_banner,
+            )
     except ParityError as error:
         print(str(error), file=sys.stderr)
         return 1

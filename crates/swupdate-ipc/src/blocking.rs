@@ -9,6 +9,7 @@
 //! linked; the client speaks the IPC protocol directly over Unix sockets.
 
 use std::io::{Read, Write};
+use std::ffi::c_char;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
@@ -184,7 +185,7 @@ pub fn postupdate(info: &[u8]) -> Result<IpcMessage> {
     unsafe {
         let len = info.len().min(msg.data.procmsg.buf.len());
         for (slot, &byte) in msg.data.procmsg.buf.iter_mut().zip(info.iter()).take(len) {
-            *slot = byte as libc::c_char;
+            *slot = byte as c_char;
         }
         msg.data.procmsg.len = len as u32;
     }

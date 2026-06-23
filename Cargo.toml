@@ -1,151 +1,282 @@
-[package]
-name = "summit-rcm"
+[workspace]
+resolver = "3"
+members = [
+    ".",
+    "crates/*",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "Summit RCM - Remote Configuration Manager (Rust/Axum port)"
+rust-version = "1.88"
 authors = ["Ezurio LLC"]
 license = "Ezurio-Clause"
+
+[workspace.metadata.summit-rcm]
+public-version = "0.0.0.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_results = "deny"
+warnings = "deny"
+
+[package]
+name = "summit-rcm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM - Remote Configuration Manager (Rust/Axum port)"
+authors.workspace = true
+license.workspace = true
 autotests = false
-rust-version = "1.88"
-resolver = "3"
+
+[lib]
+name = "summit_rcm"
+path = "src/lib.rs"
 
 [[bin]]
 name = "summit-rcm"
+path = "src/main.rs"
 
 [[bin]]
 name = "generate_openapi"
-path = "src/openapi/generate.rs"
+path = "src/bin/generate_openapi.rs"
 required-features = ["api-docs"]
 
+# The binary is a transparent feature aggregator: each interface feature forwards
+# to the shared `summit-rcm-core` crate, the common web/AT hubs, and every
+# enabled plugin crate (via the optional `crate?/feature` form); each plugin
+# feature pulls in that plugin's crate. The manifest dependency list is the
+# single source of truth for which plugins exist — build.rs derives the
+# link-retention list from it.
 [features]
-# Default: API v2 with the shared default plugin set.
-default = ["api-v2"]
+default = ["api-v2", "api-legacy"]
 
-# Shared REST server stack used by both published HTTP APIs.
-api-rest = [
-    "dep:axum",
-    "dep:tower-sessions", "dep:hyper-util", "tokio/net",
-]
-
-# Default plugin set shared by the published HTTP APIs and AT interface.
-default-plugins = [
-    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
-]
-
-# REST API v2 routes (/api/v2/...) — pulls in Axum automatically
 api-v2 = [
-    "api-rest",
-    "default-plugins",
+    "summit-rcm-core/api-v2",
+    "summit-rcm-web/api-v2",
+    "summit-rcm-awm?/api-v2",
+    "summit-rcm-bluetooth?/api-v2",
+    "summit-rcm-bluetooth-hid?/api-v2",
+    "summit-rcm-bluetooth-vsp?/api-v2",
+    "summit-rcm-chrony?/api-v2",
+    "summit-rcm-cww?/api-v2",
+    "summit-rcm-date-time?/api-v2",
+    "summit-rcm-files?/api-v2",
+    "summit-rcm-fips?/api-v2",
+    "summit-rcm-firewall?/api-v2",
+    "summit-rcm-log-forwarding?/api-v2",
+    "summit-rcm-login?/api-v2",
+    "summit-rcm-logs?/api-v2",
+    "summit-rcm-network?/api-v2",
+    "summit-rcm-network-manager?/api-v2",
+    "summit-rcm-provisioning?/api-v2",
+    "summit-rcm-radio-siso-mode?/api-v2",
+    "summit-rcm-stunnel?/api-v2",
+    "summit-rcm-system?/api-v2",
+    "summit-rcm-unauthenticated?/api-v2",
+    "summit-rcm-update?/api-v2",
 ]
-# Legacy API routes (/api/v1/... and root-path backward-compat) — same Axum stack
 api-legacy = [
-    "api-rest",
-    "default-plugins",
+    "summit-rcm-core/api-legacy",
+    "summit-rcm-web/api-legacy",
+    "summit-rcm-awm?/api-legacy",
+    "summit-rcm-bluetooth?/api-legacy",
+    "summit-rcm-bluetooth-hid?/api-legacy",
+    "summit-rcm-bluetooth-vsp?/api-legacy",
+    "summit-rcm-chrony?/api-legacy",
+    "summit-rcm-cww?/api-legacy",
+    "summit-rcm-date-time?/api-legacy",
+    "summit-rcm-files?/api-legacy",
+    "summit-rcm-fips?/api-legacy",
+    "summit-rcm-firewall?/api-legacy",
+    "summit-rcm-log-forwarding?/api-legacy",
+    "summit-rcm-login?/api-legacy",
+    "summit-rcm-logs?/api-legacy",
+    "summit-rcm-network?/api-legacy",
+    "summit-rcm-network-manager?/api-legacy",
+    "summit-rcm-provisioning?/api-legacy",
+    "summit-rcm-radio-siso-mode?/api-legacy",
+    "summit-rcm-stunnel?/api-legacy",
+    "summit-rcm-system?/api-legacy",
+    "summit-rcm-unauthenticated?/api-legacy",
+    "summit-rcm-update?/api-legacy",
 ]
-# Serial AT command interface.
 at-interface = [
-    "dep:serial2-tokio", "dep:ping", "dep:ureq", "tokio/net",
-    "default-plugins",
+    "summit-rcm-core/at-interface",
+    "summit-rcm-at/at-interface",
+    "summit-rcm-awm?/at-interface",
+    "summit-rcm-chrony?/at-interface",
+    "summit-rcm-date-time?/at-interface",
+    "summit-rcm-files?/at-interface",
+    "summit-rcm-fips?/at-interface",
+    "summit-rcm-log-forwarding?/at-interface",
+    "summit-rcm-logs?/at-interface",
+    "summit-rcm-network?/at-interface",
+    "summit-rcm-network-manager?/at-interface",
+    "summit-rcm-radio-siso-mode?/at-interface",
+    "summit-rcm-system?/at-interface",
+    "summit-rcm-update?/at-interface",
 ]
 
-# NetworkManager-backed implementation used by the network plugin.
-network-manager = []
+# Plugin features — each only pulls in the matching plugin crate. The umbrella
+# interface features above decide which API/AT/doc surfaces are enabled, so
+# these plugin selectors never spell out interface layers themselves.
+awm          = ["dep:summit-rcm-awm"]
+chrony       = ["dep:summit-rcm-chrony"]
+cww          = ["dep:summit-rcm-cww"]
+date-time    = ["dep:summit-rcm-date-time"]
+files        = ["dep:summit-rcm-files"]
+fips         = ["dep:summit-rcm-fips"]
+firewall     = ["dep:summit-rcm-firewall"]
+log-forwarding = ["dep:summit-rcm-log-forwarding"]
+login        = ["dep:summit-rcm-login"]
+logs         = ["dep:summit-rcm-logs"]
+network      = ["dep:summit-rcm-network"]
+network-manager = ["dep:summit-rcm-network-manager", "summit-rcm-files?/network-manager"]
+provisioning = ["dep:summit-rcm-provisioning"]
+radio-siso-mode = ["dep:summit-rcm-radio-siso-mode"]
+stunnel      = ["dep:summit-rcm-stunnel"]
+system       = ["dep:summit-rcm-system"]
+unauthenticated = ["dep:summit-rcm-unauthenticated"]
+update       = ["dep:summit-rcm-update"]
 
-# Network-facing routes, AT commands, and non-NetworkManager helpers.
-network = ["dep:neli", "neli/async"]
-date-time = []
-login = ["dep:rustix"]
-system = []
-logs = []
-files = []
-update = ["dep:swupdate-ipc", "swupdate-ipc/async"]
-cww = []
+# Bluetooth plugin plus HID/VSP device-profile plugins. HID/VSP depend on the
+# shared Bluetooth plugin, but bluetooth itself must not imply HID/VSP.
+bluetooth = ["dep:summit-rcm-bluetooth"]
+bluetooth-hid = [
+    "bluetooth",
+    "dep:summit-rcm-bluetooth-hid",
+]
+bluetooth-vsp = [
+    "bluetooth",
+    "dep:summit-rcm-bluetooth-vsp",
+]
+bluetooth-websocket = ["bluetooth", "summit-rcm-bluetooth/bluetooth-websocket", "notifications"]
+notifications = ["summit-rcm-web?/notifications"]
 
-# Optional plugins — fully independent; no interface implied.
-# Routes are wired only when the matching interface feature is also active:
-#   plugin + api-v2     → v2 routes
-#   plugin + api-legacy → legacy routes
-#   plugin + at-interface → AT commands
-awm             = []
-bluetooth       = []
-# Bluetooth subfeatures — standalone device plugins that extend the bluetooth
-# plugin's service surface, so they require the bluetooth plugin itself.
-bluetooth-hid   = ["bluetooth", "dep:tokio-udev"]
-bluetooth-vsp   = ["bluetooth"]
-bluetooth-websocket = ["bluetooth", "notifications"]
-# Application-wide websocket notification channel (payload-agnostic transport).
-notifications = ["axum/ws"]
-chrony          = []
-fips            = []
-firewall        = []
-log-forwarding  = []
-provisioning    = ["dep:rustix", "date-time"]
-radio-siso-mode = []
-stunnel         = []
-unauthenticated = []
 all-plugins = [
     "awm", "bluetooth", "chrony", "cww", "fips", "firewall", "log-forwarding",
     "provisioning", "radio-siso-mode", "stunnel", "unauthenticated",
-    "default-plugins",
+    "network", "network-manager", "date-time", "login", "system", "logs", "files", "update",
 ]
-api-docs = ["dep:utoipa", "api-v2", "api-legacy"]
-runtime-docs = []
-swagger-ui = ["runtime-docs"]
+# API documentation generation. Like the other interface features, this is
+# forwarded from the umbrella to every enabled doc-capable child crate. That
+# lets each child keep `utoipa` optional so non-doc builds do not pull it
+# in, while any external plugin still needs explicit root-manifest wiring.
+api-docs = [
+    "summit-rcm-core/api-docs",
+    "summit-rcm-web/api-docs",
+    "summit-rcm-awm?/api-docs",
+    "summit-rcm-bluetooth?/api-docs",
+    "summit-rcm-bluetooth-hid?/api-docs",
+    "summit-rcm-bluetooth-vsp?/api-docs",
+    "summit-rcm-chrony?/api-docs",
+    "summit-rcm-cww?/api-docs",
+    "summit-rcm-date-time?/api-docs",
+    "summit-rcm-files?/api-docs",
+    "summit-rcm-fips?/api-docs",
+    "summit-rcm-firewall?/api-docs",
+    "summit-rcm-log-forwarding?/api-docs",
+    "summit-rcm-login?/api-docs",
+    "summit-rcm-logs?/api-docs",
+    "summit-rcm-network?/api-docs",
+    "summit-rcm-network-manager?/api-docs",
+    "summit-rcm-provisioning?/api-docs",
+    "summit-rcm-radio-siso-mode?/api-docs",
+    "summit-rcm-stunnel?/api-docs",
+    "summit-rcm-system?/api-docs",
+    "summit-rcm-unauthenticated?/api-docs",
+    "summit-rcm-update?/api-docs",
+]
+runtime-docs = ["summit-rcm-web?/runtime-docs"]
+swagger-ui = ["summit-rcm-web?/swagger-ui"]
+
+# Enables the cross-crate test-support seams (configuration overrides and the
+# login boot-time override) used by the application integration tests in
+# `tests/app.rs`. Intended for `cargo test` only.
+test-support = ["summit-rcm-core/test-support", "summit-rcm-login?/test-support"]
+
+[workspace.dependencies]
+# Versions declared once here; workspace members reference them with .workspace = true
+tokio          = "1"
+bytes          = "1"
+serde          = "1"
+serde_json     = "1"
+configparser   = "3"
+hex            = "0.4"
+log            = "0.4"
+env_filter     = "1.0.1"
+systemd-journal-logger = "2.2.2"
+tracing        = "0.1.44"
+anyhow         = "1"
+futures-util   = "0.3"
+zbus           = "5.16.0"
+base64         = "0.22"
+time           = "0.3"
+rustix         = "1"
+openssl        = "0.10"
+openssl-sys    = "0.9"
+tokio-openssl  = "0.6"
+inventory      = "0.3"
+# `utoipa` stays optional in child crates so ungated OpenAPI derives fail to
+# compile when docs are off while the dependency itself stays out of non-doc
+# builds.
+utoipa         = "5.5.0"
+axum           = "0.8.9"
+tower          = "0.5"
+tower-sessions = "0.15.0"
+hyper-util     = "0.1"
+tokio-tungstenite = "0.29"
+tokio-udev = "0.10.0"
+serial2-tokio  = "0.1"
+ping           = "0.7"
+ureq           = "~3.3"
 
 [dependencies]
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
-bytes = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-configparser = { version = "3", features = ["tokio"] }
-hex = "0.4"
-log = "0.4"
+summit-rcm-core = { path = "crates/summit-rcm-core", default-features = false }
+summit-rcm-web = { path = "crates/summit-rcm-web", optional = true, default-features = false }
+summit-rcm-at = { path = "crates/summit-rcm-at", optional = true, default-features = false }
+summit-rcm-awm = { path = "crates/summit-rcm-awm", optional = true, default-features = false }
+summit-rcm-bluetooth = { path = "crates/summit-rcm-bluetooth", optional = true, default-features = false }
+summit-rcm-bluetooth-hid = { path = "crates/summit-rcm-bluetooth-hid", optional = true, default-features = false }
+summit-rcm-bluetooth-vsp = { path = "crates/summit-rcm-bluetooth-vsp", optional = true, default-features = false }
+summit-rcm-chrony = { path = "crates/summit-rcm-chrony", optional = true, default-features = false }
+summit-rcm-cww = { path = "crates/summit-rcm-cww", optional = true, default-features = false }
+summit-rcm-date-time = { path = "crates/summit-rcm-date-time", optional = true, default-features = false }
+summit-rcm-files = { path = "crates/summit-rcm-files", optional = true, default-features = false }
+summit-rcm-fips = { path = "crates/summit-rcm-fips", optional = true, default-features = false }
+summit-rcm-firewall = { path = "crates/summit-rcm-firewall", optional = true, default-features = false }
+summit-rcm-log-forwarding = { path = "crates/summit-rcm-log-forwarding", optional = true, default-features = false }
+summit-rcm-login = { path = "crates/summit-rcm-login", optional = true, default-features = false }
+summit-rcm-logs = { path = "crates/summit-rcm-logs", optional = true, default-features = false }
+summit-rcm-network = { path = "crates/summit-rcm-network", optional = true, default-features = false }
+summit-rcm-network-manager = { path = "crates/summit-rcm-network-manager", optional = true, default-features = false }
+summit-rcm-provisioning = { path = "crates/summit-rcm-provisioning", optional = true, default-features = false }
+summit-rcm-radio-siso-mode = { path = "crates/summit-rcm-radio-siso-mode", optional = true, default-features = false }
+summit-rcm-stunnel = { path = "crates/summit-rcm-stunnel", optional = true, default-features = false }
+summit-rcm-system = { path = "crates/summit-rcm-system", optional = true, default-features = false }
+summit-rcm-unauthenticated = { path = "crates/summit-rcm-unauthenticated", optional = true, default-features = false }
+summit-rcm-update = { path = "crates/summit-rcm-update", optional = true, default-features = false }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+log.workspace = true
 env_filter = { version = "1.0.1", default-features = false }
-systemd-journal-logger = "2.2.2"
-tracing = { version = "0.1.44", default-features = false, features = ["release_max_level_off"] }
-anyhow = "1"
+systemd-journal-logger.workspace = true
+anyhow.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
-zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
-base64 = "0.22"
-time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
-libc = "0.2"
-rustix = { version = "1", features = ["time", "fs"], optional = true }
-openssl = "0.10"
-openssl-sys = "0.9"
-tokio-openssl = "0.6"
-hyper-util = { version = "0.1", features = ["server", "http1", "tokio", "service"], optional = true }
-ping           = { version = "0.7", optional = true }
-neli = { version = "0.7.4", default-features = false, features = ["async"], optional = true }
-tokio-udev = { version = "0.10.0", optional = true }
-swupdate-ipc = { path = "crates/swupdate-ipc", features = ["async"], optional = true }
-inventory = "0.3"
-axum = { version = "0.8.9", features = ["multipart"], optional = true }
-tower-sessions = { version = "0.15.0", optional = true }
-# AT interface (feature = "at-interface")
-serial2-tokio  = { version = "0.1", optional = true }
-utoipa         = { version = "5.5.0", features = ["axum_extras"], optional = true }
-ureq          = { version = "~3.3", default-features = false, optional = true }
-
-[workspace]
-members = [
-".",
-"crates/*",
-]
-
-[lints.rust]
-warnings = "deny"
+serde_json.workspace = true
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
-tokio-tungstenite = "0.29"
-rustix = { version = "1", features = ["fs", "termios"] }
+axum = { workspace = true, features = ["multipart"] }
+tower = { workspace = true, features = ["util"] }
+tokio-tungstenite.workspace = true
+bytes.workspace = true
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+rustix = { version = "1", features = ["fs", "termios", "process"] }
 rustix-openpty = "0.2"
 hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util = "0.1"
-
-[build-dependencies]
-glob = "0.3"
 
 [profile.dev]
 incremental = true
@@ -161,45 +292,13 @@ strip = true
 panic = "abort"
 
 [[test]]
-name = "at_lookup"
-path = "tests/at_lookup.rs"
-
-[[test]]
-name = "legacy_response"
-path = "tests/legacy_response.rs"
-
-[[test]]
-name = "logs"
-path = "tests/logs.rs"
-required-features = ["logs"]
+name = "app"
+path = "tests/app.rs"
 
 [[test]]
 name = "shutdown"
 path = "tests/shutdown.rs"
 
 [[test]]
-name = "plugin_registry"
-path = "tests/plugin_registry.rs"
-
-[[test]]
-name = "plugins"
-path = "tests/plugins.rs"
-
-[[test]]
-name = "cww"
-path = "tests/cww.rs"
-required-features = ["cww"]
-
-[[test]]
-name = "at_basic"
-path = "tests/at_basic.rs"
-required-features = ["at-interface"]
-
-[[test]]
-name = "at_http"
-path = "tests/at_http.rs"
-required-features = ["at-interface"]
-
-[[test]]
 name = "no_dead_code_policy"
-path = "tests/unit/no_dead_code_policy.rs"
+path = "tests/no_dead_code_policy.rs"

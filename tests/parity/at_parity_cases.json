@@ -328,7 +328,7 @@
   {
     "id": "at_filesexp_usage",
     "command": "AT+FILESEXP?",
-    "expected_rust_response": "AT+FILESEXP",
+    "expected_rust_response": "AT+FILESEXP=<mode>,<type>[,<password>][,<chunk size>,<offset>]",
     "expected_python_response": "ERROR"
   },
   {

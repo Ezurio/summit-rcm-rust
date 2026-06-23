@@ -1,11 +1,15 @@
 [package]
 name = "generate-nl80211"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Host tool: generates src/plugins/network/nl80211/generated.rs via bindgen"
-authors = ["Ezurio LLC"]
-license = "Ezurio-Clause"
+authors.workspace = true
+license.workspace = true
 publish = false
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "generate_nl80211_bindings"

@@ -11,38 +11,22 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static const uint8_t KEYBOARD_REPORT_DESCRIPTOR[] = {
-    0x05, 0x01,
-    0x09, 0x06,
+/*
+ * Expose a hidraw-capable vendor-defined device rather than a real keyboard.
+ * The test service reads the raw 8-byte reports directly from hidraw and does
+ * its own HID keycode decoding, so the descriptor does not need to advertise a
+ * desktop keyboard to the host input stack.
+ */
+static const uint8_t BARCODE_REPORT_DESCRIPTOR[] = {
+    0x06, 0x00, 0xFF,
+    0x09, 0x01,
     0xA1, 0x01,
-    0x05, 0x07,
-    0x19, 0xE0,
-    0x29, 0xE7,
     0x15, 0x00,
-    0x25, 0x01,
-    0x75, 0x01,
+    0x26, 0xFF, 0x00,
+    0x75, 0x08,
     0x95, 0x08,
+    0x09, 0x01,
     0x81, 0x02,
-    0x95, 0x01,
-    0x75, 0x08,
-    0x81, 0x01,
-    0x95, 0x05,
-    0x75, 0x01,
-    0x05, 0x08,
-    0x19, 0x01,
-    0x29, 0x05,
-    0x91, 0x02,
-    0x95, 0x01,
-    0x75, 0x03,
-    0x91, 0x01,
-    0x95, 0x06,
-    0x75, 0x08,
-    0x15, 0x00,
-    0x25, 0x65,
-    0x05, 0x07,
-    0x19, 0x00,
-    0x29, 0x65,
-    0x81, 0x00,
     0xC0,
 };
 
@@ -85,8 +69,8 @@ static int create_device(int fd, const char *uniq) {
     snprintf((char *)event.u.create2.name, sizeof(event.u.create2.name), "%s", "Summit UHID Scanner");
     snprintf((char *)event.u.create2.phys, sizeof(event.u.create2.phys), "%s", "uhid/summit_scanner");
     snprintf((char *)event.u.create2.uniq, sizeof(event.u.create2.uniq), "%s", uniq);
-    event.u.create2.rd_size = sizeof(KEYBOARD_REPORT_DESCRIPTOR);
-    memcpy(event.u.create2.rd_data, KEYBOARD_REPORT_DESCRIPTOR, sizeof(KEYBOARD_REPORT_DESCRIPTOR));
+    event.u.create2.rd_size = sizeof(BARCODE_REPORT_DESCRIPTOR);
+    memcpy(event.u.create2.rd_data, BARCODE_REPORT_DESCRIPTOR, sizeof(BARCODE_REPORT_DESCRIPTOR));
     event.u.create2.bus = BUS_BLUETOOTH;
     event.u.create2.vendor = 0x0001;
     event.u.create2.product = 0x0001;

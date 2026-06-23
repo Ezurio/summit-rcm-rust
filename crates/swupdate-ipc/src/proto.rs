@@ -9,7 +9,7 @@
 //! in-memory layout is byte-for-byte identical to the structures the SWUpdate
 //! daemon reads and writes over the Unix domain sockets.
 
-use libc::c_char;
+use std::ffi::c_char;
 use std::mem::{MaybeUninit, size_of};
 use std::slice;
 

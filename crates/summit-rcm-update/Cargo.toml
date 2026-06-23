@@ -1,0 +1,50 @@
+[package]
+name = "summit-rcm-update"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM firmware update (SWUpdate) plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_update"
+path = "src/lib.rs"
+
+[features]
+update = ["swupdate-ipc/async"]
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+at-interface = ["dep:summit-rcm-at"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-at = { path = "../summit-rcm-at", optional = true }
+inventory.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+log.workspace = true
+rustix = { workspace = true, features = ["process"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+swupdate-ipc = { path = "../swupdate-ipc", features = ["async"] }
+
+[dev-dependencies]
+rustix = { workspace = true, features = ["fs", "termios", "process"] }
+rustix-openpty = "0.2"
+
+[[test]]
+name = "at_lookup"
+path = "tests/at_lookup.rs"
+
+[[test]]
+name = "at_status"
+path = "tests/at_status.rs"

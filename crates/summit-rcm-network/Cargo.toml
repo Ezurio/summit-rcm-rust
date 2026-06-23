@@ -1,0 +1,37 @@
+[package]
+name = "summit-rcm-network"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM network plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_network"
+path = "src/lib.rs"
+
+[features]
+network = []
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+at-interface = ["dep:summit-rcm-at"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-at = { path = "../summit-rcm-at", optional = true }
+inventory.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+neli = { version = "0.7.4", default-features = false, features = ["async"] }

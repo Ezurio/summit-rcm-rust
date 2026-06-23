@@ -1,0 +1,42 @@
+[package]
+name = "summit-rcm-core"
+version = "0.1.0"
+edition = "2024"
+description = "Summit RCM shared infrastructure (support, web, AT interface, plugin publication)"
+authors = ["Ezurio LLC"]
+license = "LicenseRef-Ezurio-Clause"
+
+[lib]
+name = "summit_rcm_core"
+path = "src/lib.rs"
+
+[features]
+# Interface policy, declared at the top level and forwarded here. These carry no
+# code in this crate; they exist so the umbrella and child crates can share the
+# same feature names.
+api-v2 = []
+api-legacy = []
+at-interface = []
+api-docs = []
+
+# Exposes `config::test_support` (and an always-active configuration override
+# seam) so downstream plugin crates can drive configuration-dependent behavior
+# from their own colocated unit tests. Intended for use as a dev-dependency
+# feature only.
+test-support = []
+
+[dependencies]
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+configparser = { workspace = true, features = ["tokio"] }
+hex.workspace = true
+log.workspace = true
+anyhow.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+time = { workspace = true, features = ["formatting", "local-offset", "macros", "parsing"] }
+rustix = { workspace = true, features = ["rand", "time"] }
+openssl.workspace = true
+openssl-sys.workspace = true
+inventory.workspace = true

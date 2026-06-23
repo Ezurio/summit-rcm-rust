@@ -1,0 +1,40 @@
+[package]
+name = "summit-rcm-web"
+version = "0.1.0"
+edition = "2024"
+description = "Summit RCM web server, route/response publication, OpenAPI, and notification websocket"
+authors = ["Ezurio LLC"]
+license = "LicenseRef-Ezurio-Clause"
+
+[lib]
+name = "summit_rcm_web"
+path = "src/lib.rs"
+
+[features]
+api-v2 = []
+api-legacy = []
+# Application-wide websocket notification channel (payload-agnostic transport).
+notifications = ["axum/ws"]
+api-docs = ["dep:utoipa"]
+runtime-docs = []
+swagger-ui = ["runtime-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+log.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+openssl.workspace = true
+tokio-openssl.workspace = true
+inventory.workspace = true
+axum = { workspace = true, features = ["multipart"] }
+tower-sessions.workspace = true
+hyper-util = { workspace = true, features = ["server", "http1", "tokio", "service"] }
+utoipa = { workspace = true, optional = true, features = ["axum_extras"] }
+
+[dev-dependencies]
+# The `default_bind_addr` unit test drives the shared configuration override seam.
+summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }

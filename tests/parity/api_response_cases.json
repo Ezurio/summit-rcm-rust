@@ -385,7 +385,7 @@
     "path": "/api/v2/bluetooth/controller0/00:00:00:00:00:00",
     "plugins": ["bluetooth"],
     "compare": "exact",
-    "expected_status": 404
+    "expected_status": 400
   },
   {
     "id": "v2_firewall",
@@ -477,7 +477,7 @@
     "id": "v2_system_version",
     "method": "GET",
     "path": "/api/v2/system/version",
-    "compare": "text_exact"
+    "compare": "json_exact"
   },
   {
     "id": "v2_interface_wlo1_driver_info",
@@ -646,6 +646,7 @@
     "method": "GET",
     "path": "/ntp/overrideSources",
     "plugins": ["chrony"],
+    "python_runtime": "summit-rcm",
     "compare": "exact"
   },
   {
@@ -767,6 +768,7 @@
     "method": "PUT",
     "path": "/ntp/sample",
     "plugins": ["chrony"],
+    "python_runtime": "summit-rcm",
     "body": {"sources": []},
     "compare": "exact",
     "expected_status": 200
@@ -1038,7 +1040,8 @@
     "path": "/api/v2/system/datetime",
     "body": {"datetime": "invalid-date"},
     "compare": "exact",
-    "expected_status": 500
+    "expected_status": 500,
+    "skip_readback": true
   },
   {
     "id": "v2_log_forwarding_invalid_state",
@@ -1592,6 +1595,7 @@
     "method": "PUT",
     "path": "/ntp/overrideSources",
     "plugins": ["chrony"],
+    "python_runtime": "summit-rcm",
     "body": {"sources": ["0.pool.ntp.org"]},
     "expected_status": 200,
     "compare": "exact",

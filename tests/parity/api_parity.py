@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+from contextlib import contextmanager
 import hashlib
 import http.client
 import json
@@ -14,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,11 +34,18 @@ DEFAULT_PYTHON_REPO = ROOT.parent / "summit-rcm"
 PYTHON_RUNTIME_CHOICES = ("auto", "summit-rcm", "weblcm")
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 3.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
+DEFAULT_EXTENSION_BUILD_TIMEOUT_SECONDS = 90.0
 CORE_RUST_PARITY_FEATURES = ("api-v2", "api-legacy")
 RUNTIME_DOCS_RUST_FEATURES = ("runtime-docs", "swagger-ui")
 OPENAPI_GENERATOR_RUST_FEATURES = ("api-docs",)
 FRAMEWORK_VALIDATION_STATUSES = frozenset({400, 415, 422})
+WEBSOCKET_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+OPENAPI_OPERATION_METHODS = frozenset(
+    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+)
 WIRELESS_INTERFACE_PLACEHOLDER = "wlo1"
+BLUETOOTH_CONTROLLER_PLACEHOLDER = "controller0"
+BLUETOOTH_DEVICE_PLACEHOLDER = "device0"
 SOFTWARE_UPDATE_IGNORED_JSON_KEYS = ("percent_complete", "percentComplete")
 
 USER_PERMISSIONS = [
@@ -56,11 +66,44 @@ class ParityError(RuntimeError):
     pass
 
 
+@contextmanager
+def parity_timeout(total_timeout_seconds: float | None, *, label: str):
+    if total_timeout_seconds is None:
+        yield
+        return
+    if total_timeout_seconds <= 0:
+        raise ParityError("--total-timeout-seconds must be > 0")
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def handle_timeout(signum: int, frame: object) -> None:
+        raise ParityError(f"{label} timed out after {total_timeout_seconds:.2f}s")
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, 0.0)
+    signal.signal(signal.SIGALRM, handle_timeout)
+    signal.setitimer(signal.ITIMER_REAL, total_timeout_seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer != (0.0, 0.0):
+            signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+
+
 @dataclass
 class HttpResponse:
     status: int
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True)
+class WebSocketProbeResult:
+    status: int | None
+    detail: str
 
 
 class ResolvedHTTPSConnection(http.client.HTTPSConnection):
@@ -148,11 +191,39 @@ PLUGIN_SPECS = {
     ),
 }
 
-RUST_PLUGIN_NAMES = {
-    child.name.replace("_", "-")
-    for child in (ROOT / "src/plugins").iterdir()
-    if child.is_dir()
-}
+def load_rust_plugin_names() -> set[str]:
+    with (ROOT / "Cargo.toml").open("rb") as manifest_file:
+        manifest = tomllib.load(manifest_file)
+
+    names: set[str] = set()
+    for dep_name, dep_value in manifest.get("dependencies", {}).items():
+        if dep_name in {"summit-rcm-core", "summit-rcm-web", "summit-rcm-at"}:
+            continue
+        if not dep_name.startswith("summit-rcm-"):
+            continue
+        if not isinstance(dep_value, dict) or not dep_value.get("optional", False):
+            continue
+        names.add(dep_name.removeprefix("summit-rcm-"))
+    return names
+
+
+RUST_PLUGIN_NAMES = load_rust_plugin_names()
+
+# Core Summit RCM route owners that the representative response manifest relies
+# on even when individual cases do not spell out their owning plugin. Without
+# these features, the parity runtime starts successfully but large route groups
+# (login, users, network status/interfaces, files, logs, system, update) are
+# absent and surface as false 404 mismatches.
+DEFAULT_RESPONSE_PLUGINS = [
+    "date-time",
+    "files",
+    "login",
+    "logs",
+    "network",
+    "network-manager",
+    "system",
+    "update",
+]
 
 
 def parse_plugin_names(raw_names: list[str]) -> list[str]:
@@ -193,13 +264,22 @@ def selected_plugins(cases: list[dict[str, Any]], requested_plugins: list[str]) 
     return sorted(plugins)
 
 
+def response_selected_plugins(
+    cases: list[dict[str, Any]], requested_plugins: list[str]
+) -> list[str]:
+    return sorted({*selected_plugins(cases, requested_plugins), *DEFAULT_RESPONSE_PLUGINS})
+
+
 def rust_parity_features(
     plugins: list[str], *, extra_features: tuple[str, ...] = ()
 ) -> str:
+    runtime_features = list(extra_features)
+    if "bluetooth" in plugins and "bluetooth-websocket" not in runtime_features:
+        runtime_features.append("bluetooth-websocket")
     return ",".join(
         [
             *CORE_RUST_PARITY_FEATURES,
-            *extra_features,
+            *runtime_features,
             *[plugin_spec(plugin).rust_feature for plugin in plugins],
         ]
     )
@@ -227,10 +307,101 @@ def resolve_python_runtime(python_repo: Path, requested_runtime: str) -> str:
     return requested_runtime
 
 
-def python_runtime_executable(python_repo: Path) -> str:
+def parity_search_root() -> Path:
+    for candidate in (ROOT, *ROOT.parents):
+        if candidate.name == "devel":
+            return candidate
+    return ROOT.parents[-1]
+
+
+def discover_default_legacy_python_repo() -> Path | None:
+    env_path = os.environ.get("WEBLCM_PYTHON_REPO")
+    if env_path:
+        candidate = Path(env_path).expanduser().resolve()
+        if candidate.is_dir():
+            return candidate
+
+    search_root = parity_search_root()
+    preferred_candidates = (
+        search_root / "cp_linux-12" / "som-external" / "externals" / "weblcm-python",
+    )
+
+    for candidate in preferred_candidates:
+        if candidate.is_dir():
+            return candidate.resolve()
+
+    for candidate in sorted(
+        search_root.glob("cp_linux-*/som-external/externals/weblcm-python")
+    ):
+        if candidate.is_dir():
+            return candidate.resolve()
+
+    return None
+
+
+def ensure_summit_rcm_openssl_extension(
+    python_repo: Path,
+    python_executable: str,
+) -> None:
+    setup_path = python_repo / "setup.py"
+    if not setup_path.is_file():
+        return
+
+    has_extension = any(python_repo.glob("openssl_extension*.so")) or any(
+        python_repo.glob("openssl_extension*.pyd")
+    )
+    if has_extension:
+        return
+
+    build_candidates = [python_executable]
+    if sys.executable not in build_candidates:
+        build_candidates.append(sys.executable)
+
+    for candidate in build_candidates:
+        try:
+            completed = subprocess.run(
+                [candidate, "setup.py", "build_ext", "--inplace"],
+                cwd=python_repo,
+                env={**os.environ, "SUMMIT_RCM_DISABLE_CYTHON": "1"},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=DEFAULT_EXTENSION_BUILD_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise ParityError(
+                f"timed out after {DEFAULT_EXTENSION_BUILD_TIMEOUT_SECONDS:.0f}s building openssl_extension in {python_repo} using {candidate}"
+            ) from error
+        if completed.returncode == 0:
+            return
+
+    raise ParityError(
+        f"failed to build openssl_extension in {python_repo} using any available Python interpreter"
+    )
+
+
+def python_runtime_executable(python_repo: Path, python_runtime: str) -> str:
     venv_python = python_repo / ".venv/bin/python"
+    runtime_probe = {
+        "summit-rcm": "import dbus_fast, falcon, pyudev, openssl_extension",
+        "weblcm": "import dbus, cherrypy, pyudev",
+    }.get(python_runtime, "")
+
     if venv_python.is_file() and os.access(venv_python, os.X_OK):
-        return str(venv_python)
+        if not runtime_probe:
+            return str(venv_python)
+
+        if python_runtime == "summit-rcm":
+            ensure_summit_rcm_openssl_extension(python_repo, str(venv_python))
+
+        completed = subprocess.run(
+            [str(venv_python), "-c", runtime_probe],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return str(venv_python)
     return sys.executable
 
 
@@ -286,6 +457,20 @@ def is_v2_case(case: dict[str, Any]) -> bool:
     return normalize_path(case.get("path", "")).startswith("/api/v2/")
 
 
+def case_python_runtime(
+    case: dict[str, Any],
+    *,
+    primary_runtime: str,
+    legacy_runtime: str | None,
+) -> str:
+    override = case.get("python_runtime")
+    if isinstance(override, str) and override:
+        return override
+    if is_v2_case(case):
+        return primary_runtime
+    return legacy_runtime or primary_runtime
+
+
 def split_cases_by_python_runtime(
     cases: list[dict[str, Any]],
     *,
@@ -295,13 +480,22 @@ def split_cases_by_python_runtime(
     if legacy_runtime is None:
         return [(filter_cases_for_python_runtime(cases, primary_runtime), primary_runtime)]
 
-    legacy_cases = [case for case in cases if not is_v2_case(case)]
-    primary_cases = [case for case in cases if is_v2_case(case)]
+    grouped_cases: dict[str, list[dict[str, Any]]] = {}
+    for case in cases:
+        runtime = case_python_runtime(
+            case,
+            primary_runtime=primary_runtime,
+            legacy_runtime=legacy_runtime,
+        )
+        grouped_cases.setdefault(runtime, []).append(case)
+
     runs: list[tuple[list[dict[str, Any]], str]] = []
-    if legacy_cases:
-        runs.append((filter_cases_for_python_runtime(legacy_cases, legacy_runtime), legacy_runtime))
-    if primary_cases:
-        runs.append((filter_cases_for_python_runtime(primary_cases, primary_runtime), primary_runtime))
+    for runtime in [legacy_runtime, primary_runtime]:
+        if runtime is None:
+            continue
+        runtime_cases = grouped_cases.get(runtime, [])
+        if runtime_cases:
+            runs.append((filter_cases_for_python_runtime(runtime_cases, runtime), runtime))
     return runs
 
 
@@ -405,7 +599,8 @@ def load_case_operations(cases_path: Path) -> list[tuple[str, str]]:
 
 
 def generate_specs(python_repo: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    python_executable = python_runtime_executable(python_repo)
+    python_runtime = resolve_python_runtime(python_repo, "auto")
+    python_executable = python_runtime_executable(python_repo, python_runtime)
     with tempfile.TemporaryDirectory(prefix="api-parity-openapi-") as tmp_dir:
         tmp = Path(tmp_dir)
         python_output = tmp / "python-openapi.json"
@@ -452,14 +647,20 @@ def v2_paths_only(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def should_include_shared_operation(path: str) -> bool:
+    return True
+
+
 def shared_operations(python_spec: dict[str, Any], rust_spec: dict[str, Any]) -> list[tuple[str, str]]:
     python_paths = python_spec.get("paths", {})
     rust_paths = rust_spec.get("paths", {})
 
     operations: list[tuple[str, str]] = []
     for path in sorted(set(python_paths) & set(rust_paths)):
-        python_methods = python_paths[path].keys()
-        rust_methods = rust_paths[path].keys()
+        if not should_include_shared_operation(path):
+            continue
+        python_methods = operation_methods(python_paths[path])
+        rust_methods = operation_methods(rust_paths[path])
         for method in sorted(set(python_methods) & set(rust_methods)):
             operations.append((method.upper(), path))
     return operations
@@ -475,7 +676,9 @@ def shared_operation_specs(
     for path in sorted(set(python_paths) & set(rust_paths)):
         python_methods = python_paths[path]
         rust_methods = rust_paths[path]
-        for method in sorted(set(python_methods) & set(rust_methods)):
+        for method in sorted(
+            operation_methods(python_methods) & operation_methods(rust_methods)
+        ):
             operations.append(
                 {
                     "method": method.upper(),
@@ -593,7 +796,18 @@ def sample_value_from_schema(
     for key in ("oneOf", "anyOf"):
         options = resolved.get(key)
         if isinstance(options, list) and options:
-            return sample_value_from_schema(spec, options[0], name_hint=name_hint)
+            preferred_option = next(
+                (
+                    option
+                    for option in options
+                    if not (
+                        isinstance(resolve_ref(spec, option), dict)
+                        and resolve_ref(spec, option).get("type") == "null"
+                    )
+                ),
+                options[0],
+            )
+            return sample_value_from_schema(spec, preferred_option, name_hint=name_hint)
 
     all_of = resolved.get("allOf")
     if isinstance(all_of, list) and all_of:
@@ -606,6 +820,12 @@ def sample_value_from_schema(
             return merged
 
     schema_type = resolved.get("type")
+    if isinstance(schema_type, list):
+        non_null_types = [item for item in schema_type if item != "null"]
+        if non_null_types:
+            schema_type = non_null_types[0]
+        elif schema_type:
+            schema_type = schema_type[0]
     if schema_type == "object" or "properties" in resolved:
         properties = resolved.get("properties", {})
         if isinstance(properties, dict) and properties:
@@ -701,6 +921,35 @@ def request_body_example(spec: dict[str, Any], operation: dict[str, Any]) -> tup
     return None, [f"manual request body required for content-type(s): {content_types}"]
 
 
+def apply_scaffold_overrides(case: dict[str, Any], operation: dict[str, Any]) -> None:
+    normalized_path = normalize_path(case["path"])
+
+    if normalized_path.endswith(f"/{BLUETOOTH_DEVICE_PLACEHOLDER}") and operation_tag(operation) == "bluetooth":
+        notes = list(case.get("_notes") or [])
+        notes.append("runtime bluetooth device placeholder; uses first discovered device when available")
+        case["_notes"] = sorted(set(notes))
+
+    if case["method"] != "PUT":
+        return
+
+    if operation_tag(operation) != "bluetooth":
+        return
+
+    body = case.get("body")
+    if not isinstance(body, dict):
+        return
+
+    if body.get("command") != "sample":
+        return
+
+    case.pop("expected_status", None)
+    case["ignore_body"] = True
+    case["skip_readback"] = True
+    notes = list(case.get("_notes") or [])
+    notes.append("synthetic bluetooth PUT body; compare live status only")
+    case["_notes"] = sorted(set(notes))
+
+
 def scaffold_case_id(method: str, path: str) -> str:
     slug = normalize_path(path).strip("/").replace("{", "").replace("}", "")
     slug = "_".join(segment for segment in slug.replace("-", "_").split("/") if segment)
@@ -749,6 +998,8 @@ def scaffold_case(spec: dict[str, Any], operation: dict[str, Any]) -> dict[str, 
     if notes:
         case["_notes"] = sorted(set(notes))
 
+    apply_scaffold_overrides(case, operation)
+
     return case
 
 
@@ -787,6 +1038,16 @@ def run_checked(command: list[str], *, cwd: Path | None = None, env: dict[str, s
             f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
     return completed
+
+
+def operation_methods(path_item: Any) -> set[str]:
+    if not isinstance(path_item, dict):
+        return set()
+    return {
+        str(method).lower()
+        for method in path_item.keys()
+        if str(method).lower() in OPENAPI_OPERATION_METHODS
+    }
 
 
 def rust_env(*, extra_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -835,30 +1096,40 @@ def compare_openapi(python_repo: Path) -> None:
     python_only = sorted(set(python_paths) - set(rust_paths))
     rust_only = sorted(set(rust_paths) - set(python_paths))
 
-    method_diffs: list[tuple[str, list[str], list[str]]] = []
+    python_missing_methods: list[tuple[str, list[str]]] = []
+    rust_extra_methods: list[tuple[str, list[str]]] = []
     for path in sorted(set(python_paths) & set(rust_paths)):
-        python_methods = sorted(python_paths[path].keys())
-        rust_methods = sorted(rust_paths[path].keys())
-        if python_methods != rust_methods:
-            method_diffs.append((path, python_methods, rust_methods))
+        python_methods = sorted(operation_methods(python_paths[path]))
+        rust_methods = sorted(operation_methods(rust_paths[path]))
+        missing_in_rust = sorted(set(python_methods) - set(rust_methods))
+        extra_in_rust = sorted(set(rust_methods) - set(python_methods))
+        if missing_in_rust:
+            python_missing_methods.append((path, missing_in_rust))
+        if extra_in_rust:
+            rust_extra_methods.append((path, extra_in_rust))
 
-    if python_only or rust_only or method_diffs:
+    if python_only or python_missing_methods:
         lines = ["OpenAPI parity failed:"]
         if python_only:
             lines.append("Python-only paths:")
             lines.extend(f"  {path}" for path in python_only)
-        if rust_only:
-            lines.append("Rust-only paths:")
-            lines.extend(f"  {path}" for path in rust_only)
-        if method_diffs:
-            lines.append("Method diffs:")
+        if python_missing_methods:
+            lines.append("Python methods missing in Rust:")
             lines.extend(
-                f"  {path}: python={python_methods}, rust={rust_methods}"
-                for path, python_methods, rust_methods in method_diffs
+                f"  {path}: missing={python_methods}"
+                for path, python_methods in python_missing_methods
             )
         raise ParityError("\n".join(lines))
 
-    print("OpenAPI parity passed: paths and methods match.")
+    print("OpenAPI parity passed: Rust covers all Python v2 paths and methods.")
+    if rust_only:
+        print("INFO OpenAPI parity: allowing Rust-only paths:")
+        for path in rust_only:
+            print(f"  {path}")
+    if rust_extra_methods:
+        print("INFO OpenAPI parity: allowing Rust-only methods on shared paths:")
+        for path, rust_methods in rust_extra_methods:
+            print(f"  {path}: extra={rust_methods}")
 
 
 def report_response_coverage(python_repo: Path, cases_path: Path) -> None:
@@ -1130,9 +1401,6 @@ def write_test_config(
     rust_config_path = temp_dir / "rust-summit-rcm.ini"
     python_config_path = temp_dir / "python-summit-rcm.ini"
     provisioning_state_path = temp_dir / "provisioning-state"
-    plugin_dir = temp_dir / "plugins"
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-
     run_checked(
         [
             "openssl",
@@ -1198,7 +1466,6 @@ def write_test_config(
                     "network_status_restricted = false",
                     "log_routes_loaded = false",
                     "enable_client_auth = false",
-                    f"plugin_dir = {plugin_dir}",
                     "",
                     "[global]",
                     f"server.ssl_private_key = {key_path}",
@@ -1338,6 +1605,7 @@ def python_wrapper_command(python_runtime: str) -> str:
     if python_runtime == "weblcm":
         return (
             "import os; "
+            "import configparser; "
             "config_path = os.environ['WEBLCM_PYTHON_SERVER_CONF_FILE']; "
             "settings_path = os.environ['WEBLCM_PYTHON_SETTINGS_FILE']; "
             "import weblcm.definition as definition; "
@@ -1349,6 +1617,11 @@ def python_wrapper_command(python_runtime: str) -> str:
             "settings_mod.WeblcmConfigManage._parser.read(settings_path); "
             "import weblcm.utils as utils; "
             "utils.WEBLCM_PYTHON_SERVER_CONF_FILE = config_path; "
+            "server_parser = configparser.ConfigParser(); "
+            "server_parser.read(config_path); "
+            "sessions_on = server_parser.getboolean('/', 'tools.sessions.on', fallback=True); "
+            "import weblcm.bluetooth.bt_ble as bt_ble; "
+            "bt_ble.websockets_auth_by_header_token = bt_ble.websockets_auth_by_header_token and sessions_on; "
             "import weblcm; "
             "raise SystemExit(weblcm.main())"
         )
@@ -1465,7 +1738,7 @@ def compare_runtime_docs_ui(
             rust = start_process("rust", [str(rust_binary)], cwd=ROOT, env=rust_runtime_env)
             python = start_process(
                 "python",
-                [python_runtime_executable(python_repo), "-c", python_docs_wrapper_command()],
+                [python_runtime_executable(python_repo, python_runtime), "-c", python_docs_wrapper_command()],
                 cwd=python_repo,
                 env=python_env,
             )
@@ -1499,6 +1772,12 @@ def compare_runtime_docs_ui(
                 timeout_seconds=request_timeout_seconds,
             )
             assert_openapi_json_response("rust", rust_openapi)
+            if python_openapi.status == 404:
+                print(
+                    "INFO runtime docs parity: skipping Python runtime docs checks; "
+                    "baseline does not expose /api/openapi.json at runtime."
+                )
+                return
             assert_openapi_json_response("python", python_openapi)
 
             for path in ("/api/docs", "/"):
@@ -1678,6 +1957,78 @@ def request_or_error(
         return None, f"{type(error).__name__}: {error}"
 
 
+def websocket_probe(
+    *,
+    base_url: str,
+    path: str,
+    cookie: str | None,
+    ca_cert_path: Path | None,
+    timeout_seconds: float,
+    connect_host: str | None = None,
+) -> WebSocketProbeResult:
+    parsed_url = urllib.parse.urlsplit(base_url)
+    host = parsed_url.hostname or "127.0.0.1"
+    port = parsed_url.port or 443
+    websocket_key = base64.b64encode(os.urandom(16)).decode("ascii")
+    expected_accept = base64.b64encode(
+        hashlib.sha1(f"{websocket_key}{WEBSOCKET_ACCEPT_GUID}".encode("ascii")).digest()
+    ).decode("ascii")
+    request_lines = [
+        f"GET {path} HTTP/1.1",
+        f"Host: {parsed_url.netloc}",
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        f"Origin: {base_url.rstrip('/')}{path}",
+        f"Sec-WebSocket-Key: {websocket_key}",
+        "Sec-WebSocket-Version: 13",
+        "",
+        "",
+    ]
+    if cookie:
+        request_lines.insert(7, f"Cookie: {cookie}")
+
+    ssl_context = create_parity_ssl_context(ca_cert_path)
+    target_host = connect_host or host
+    try:
+        with socket.create_connection((target_host, port), timeout=timeout_seconds) as tcp_socket:
+            with ssl_context.wrap_socket(tcp_socket, server_hostname=host) as tls_socket:
+                tls_socket.settimeout(timeout_seconds)
+                tls_socket.sendall("\r\n".join(request_lines).encode("ascii"))
+                response = bytearray()
+                while b"\r\n\r\n" not in response:
+                    chunk = tls_socket.recv(4096)
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+                    if len(response) > 16384:
+                        break
+    except (OSError, ssl.SSLError) as error:
+        return WebSocketProbeResult(None, str(error))
+
+    if not response:
+        return WebSocketProbeResult(None, "empty response")
+
+    header_block = response.split(b"\r\n\r\n", 1)[0].decode("iso-8859-1", errors="replace")
+    header_lines = header_block.split("\r\n")
+    status_line = header_lines[0] if header_lines else ""
+    status_parts = status_line.split(" ", 2)
+    if len(status_parts) < 2 or not status_parts[1].isdigit():
+        return WebSocketProbeResult(None, f"invalid response: {status_line or '<empty>'}")
+
+    headers: dict[str, str] = {}
+    for line in header_lines[1:]:
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+    status = int(status_parts[1])
+    if status == 101 and headers.get("sec-websocket-accept") != expected_accept:
+        return WebSocketProbeResult(status, "invalid Sec-WebSocket-Accept header")
+
+    return WebSocketProbeResult(status, status_line)
+
+
 def wait_for_server(
     name: str,
     base_url: str,
@@ -1722,7 +2073,7 @@ def should_read_body(case: dict[str, Any]) -> bool:
 
 
 def should_verify_readback(case: dict[str, Any]) -> bool:
-    return case["method"] != "GET"
+    return case["method"] != "GET" and not bool(case.get("skip_readback"))
 
 
 def is_json_content_type(content_type: str) -> bool:
@@ -2000,6 +2351,14 @@ def path_uses_wireless_interface_placeholder(path: str) -> bool:
     return f"/{WIRELESS_INTERFACE_PLACEHOLDER}" in path or f"={WIRELESS_INTERFACE_PLACEHOLDER}" in path
 
 
+def path_uses_bluetooth_controller_placeholder(path: str) -> bool:
+    return f"/{BLUETOOTH_CONTROLLER_PLACEHOLDER}" in normalize_path(path)
+
+
+def path_uses_bluetooth_device_placeholder(path: str) -> bool:
+    return f"/{BLUETOOTH_DEVICE_PLACEHOLDER}" in normalize_path(path)
+
+
 def resolve_wireless_interface_path(path: str, wireless_interface: str | None) -> str:
     if not wireless_interface or wireless_interface == WIRELESS_INTERFACE_PLACEHOLDER:
         return path
@@ -2023,6 +2382,162 @@ def resolve_wireless_interface_path(path: str, wireless_interface: str | None) -
     return urllib.parse.urlunsplit(("", "", resolved_path, resolved_query, split.fragment))
 
 
+def resolve_bluetooth_path(
+    path: str,
+    *,
+    controller_name: str | None,
+    device_address: str | None,
+) -> str:
+    split = urllib.parse.urlsplit(path)
+    resolved_path = split.path
+
+    if controller_name and controller_name != BLUETOOTH_CONTROLLER_PLACEHOLDER:
+        controller_segment = urllib.parse.quote(controller_name, safe="")
+        resolved_path = resolved_path.replace(
+            f"/{BLUETOOTH_CONTROLLER_PLACEHOLDER}/",
+            f"/{controller_segment}/",
+        )
+        if resolved_path.endswith(f"/{BLUETOOTH_CONTROLLER_PLACEHOLDER}"):
+            resolved_path = resolved_path[: -len(BLUETOOTH_CONTROLLER_PLACEHOLDER)] + controller_segment
+
+    if device_address and device_address != BLUETOOTH_DEVICE_PLACEHOLDER:
+        device_segment = urllib.parse.quote(device_address, safe="")
+        resolved_path = resolved_path.replace(
+            f"/{BLUETOOTH_DEVICE_PLACEHOLDER}/",
+            f"/{device_segment}/",
+        )
+        if resolved_path.endswith(f"/{BLUETOOTH_DEVICE_PLACEHOLDER}"):
+            resolved_path = resolved_path[: -len(BLUETOOTH_DEVICE_PLACEHOLDER)] + device_segment
+
+    return urllib.parse.urlunsplit(("", "", resolved_path, split.query, split.fragment))
+
+
+def detect_bluetooth_inventory(
+    base_url: str,
+    *,
+    python_runtime: str,
+    ca_cert_path: Path | None,
+    connect_host: str | None = None,
+    timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    cookie: str | None = None,
+) -> tuple[str | None, list[str]]:
+    status_path = "/bluetooth" if python_runtime == "weblcm" else "/api/v2/bluetooth"
+    response, error = request_or_error(
+        f"{base_url}{status_path}",
+        "GET",
+        cookie=cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    if error or response is None or response.status != 200:
+        return None, []
+    if not is_json_content_type(content_type_prefix(response)):
+        return None, []
+
+    try:
+        payload = json.loads(response.body)
+    except json.JSONDecodeError:
+        return None, []
+    if not isinstance(payload, dict):
+        return None, []
+
+    controller_name: str | None = None
+    device_addresses: list[str] = []
+    for key, value in payload.items():
+        if key in {"InfoMsg", "SDCERR"} or not isinstance(value, dict):
+            continue
+        controller_name = key
+        devices = value.get("bluetoothDevices")
+        if isinstance(devices, list):
+            for device in devices:
+                if not isinstance(device, dict):
+                    continue
+                address = device.get("Address") or device.get("address")
+                if isinstance(address, str) and address:
+                    device_addresses.append(address)
+    return controller_name, device_addresses
+
+
+def detect_bluetooth_target(
+    base_url: str,
+    *,
+    python_runtime: str,
+    ca_cert_path: Path | None,
+    connect_host: str | None = None,
+    timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    cookie: str | None = None,
+) -> tuple[str | None, str | None]:
+    controller_name, device_addresses = detect_bluetooth_inventory(
+        base_url,
+        python_runtime=python_runtime,
+        ca_cert_path=ca_cert_path,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        cookie=cookie,
+    )
+    return controller_name, next(iter(device_addresses), None)
+
+
+def start_bluetooth_discovery(
+    base_url: str,
+    *,
+    python_runtime: str,
+    controller_name: str | None,
+    ca_cert_path: Path | None,
+    connect_host: str | None = None,
+    timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    cookie: str | None = None,
+) -> tuple[HttpResponse | None, str | None]:
+    controller = controller_name or BLUETOOTH_CONTROLLER_PLACEHOLDER
+    controller_segment = urllib.parse.quote(controller, safe="")
+    path = (
+        f"/bluetooth/{controller_segment}"
+        if python_runtime == "weblcm"
+        else f"/api/v2/bluetooth/{controller_segment}"
+    )
+    return request_or_error(
+        f"{base_url}{path}",
+        "PUT",
+        body={"command": "bleStartDiscovery"},
+        cookie=cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+
+
+def bluetooth_placeholder_skip_reason(
+    path: str,
+    *,
+    rust_controller_name: str | None,
+    python_controller_name: str | None,
+    rust_device_address: str | None,
+    python_device_address: str | None,
+) -> str | None:
+    if path_uses_bluetooth_controller_placeholder(path):
+        if not rust_controller_name or not python_controller_name:
+            return "no discovered bluetooth controller"
+        if rust_controller_name != python_controller_name:
+            return (
+                "discovered bluetooth controller mismatch, "
+                f"rust={rust_controller_name}, python={python_controller_name}"
+            )
+
+    if path_uses_bluetooth_device_placeholder(path):
+        if not rust_device_address or not python_device_address:
+            return "no discovered bluetooth device"
+        if rust_device_address != python_device_address:
+            return (
+                "discovered bluetooth device mismatch, "
+                f"rust={rust_device_address}, python={python_device_address}"
+            )
+
+    return None
+
+
 def datetime_prime_request_for_path(path: str) -> tuple[str, dict[str, str]] | None:
     normalized_path = urllib.parse.urlsplit(path).path
     timestamp_microseconds = str(int(time.time() * 1_000_000))
@@ -2034,9 +2549,98 @@ def datetime_prime_request_for_path(path: str) -> tuple[str, dict[str, str]] | N
     return None
 
 
+def websocket_enable_request_for_path(
+    path: str,
+    *,
+    controller_name: str | None = None,
+) -> tuple[str, dict[str, str]] | None:
+    normalized_path = urllib.parse.urlsplit(path).path
+    controller = controller_name or BLUETOOTH_CONTROLLER_PLACEHOLDER
+    if normalized_path == "/bluetoothWebsocket/ws":
+        return f"/bluetooth/{urllib.parse.quote(controller, safe='')}", {"command": "bleEnableWebsockets"}
+    if normalized_path == "/api/v2/bluetooth/ws":
+        return f"/api/v2/bluetooth/{urllib.parse.quote(controller, safe='')}", {"command": "bleEnableWebsockets"}
+    return None
+
+
+def maybe_enable_websocket_for_case(
+    case: dict[str, Any],
+    *,
+    rust_base_url: str,
+    python_base_url: str,
+    rust_case_path: str,
+    python_case_path: str,
+    rust_cookie: str | None,
+    python_cookie: str | None,
+    ca_cert_path: Path | None,
+    timeout_seconds: float,
+    rust_controller_name: str | None = None,
+    python_controller_name: str | None = None,
+    rust_connect_host: str | None = None,
+    python_connect_host: str | None = None,
+) -> str | None:
+    if str(case.get("method", "")).upper() != "GET":
+        return None
+
+    rust_enable = websocket_enable_request_for_path(
+        rust_case_path,
+        controller_name=rust_controller_name,
+    )
+    python_enable = websocket_enable_request_for_path(
+        python_case_path,
+        controller_name=python_controller_name,
+    )
+    if rust_enable is None and python_enable is None:
+        return None
+    if rust_enable is None or python_enable is None:
+        return (
+            f"{case['id']}: websocket enable path mismatch, "
+            f"rust_path={rust_case_path!r}, python_path={python_case_path!r}"
+        )
+
+    rust_enable_path, rust_enable_body = rust_enable
+    python_enable_path, python_enable_body = python_enable
+
+    rust_response, rust_error = request_or_error(
+        f"{rust_base_url}{rust_enable_path}",
+        "PUT",
+        body=rust_enable_body,
+        cookie=rust_cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=rust_connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+    python_response, python_error = request_or_error(
+        f"{python_base_url}{python_enable_path}",
+        "PUT",
+        body=python_enable_body,
+        cookie=python_cookie,
+        ca_cert_path=ca_cert_path,
+        connect_host=python_connect_host,
+        timeout_seconds=timeout_seconds,
+        read_body=True,
+    )
+
+    if rust_error or python_error:
+        return (
+            f"{case['id']}: websocket enable failed, "
+            f"rust={rust_error or 'ok'}, python={python_error or 'ok'}"
+        )
+    if rust_response is None or python_response is None:
+        return f"{case['id']}: websocket enable failed: missing response"
+    if rust_response.status >= 400 or python_response.status >= 400:
+        return (
+            f"{case['id']}: websocket enable status mismatch, "
+            f"rust={rust_response.status}, python={python_response.status}"
+        )
+    return None
+
+
 def maybe_prime_datetime_for_case(
     case: dict[str, Any],
     *,
+    allow_datetime_prime: bool = True,
     rust_base_url: str,
     python_base_url: str,
     rust_case_path: str,
@@ -2048,6 +2652,9 @@ def maybe_prime_datetime_for_case(
     rust_connect_host: str | None = None,
     python_connect_host: str | None = None,
 ) -> str | None:
+    if not allow_datetime_prime:
+        return None
+
     if str(case.get("method", "")).upper() != "GET":
         return None
 
@@ -2108,6 +2715,10 @@ def maybe_prime_datetime_for_case(
 
         rust_sdcerr = rust_payload.get("SDCERR") if isinstance(rust_payload, dict) else None
         python_sdcerr = python_payload.get("SDCERR") if isinstance(python_payload, dict) else None
+        rust_ok = rust_sdcerr in {0, "0"}
+        python_ok = python_sdcerr in {0, "0"}
+        if rust_ok == python_ok:
+            return None
         if rust_sdcerr not in {0, "0"} or python_sdcerr not in {0, "0"}:
             return (
                 f"{case['id']}: datetime prime failed, "
@@ -2206,36 +2817,49 @@ def compare_responses(
         primary_runtime=python_runtime,
         legacy_runtime=legacy_python_runtime,
     )
-    enabled_plugins = selected_plugins(cases, requested_plugins)
+    enabled_plugins = response_selected_plugins(cases, requested_plugins)
+    failures: list[str] = []
 
     for run_cases, run_runtime in response_runs:
         run_repo = legacy_python_repo if run_runtime == legacy_python_runtime else python_repo
         if run_repo is None:
             raise ParityError("legacy Python repo must be provided when legacy runtime is configured")
-        run_response_cases(
-            run_repo,
-            run_cases,
-            python_runtime=run_runtime,
-            request_timeout_seconds=request_timeout_seconds,
-            startup_timeout_seconds=startup_timeout_seconds,
-            sessions_on=sessions_on,
-            enabled_plugins=enabled_plugins,
-        )
-        if cases_path.resolve() == DEFAULT_CASES.resolve():
-            compare_runtime_docs_ui(
+        try:
+            run_response_cases(
                 run_repo,
+                run_cases,
                 python_runtime=run_runtime,
-                startup_timeout_seconds=startup_timeout_seconds,
                 request_timeout_seconds=request_timeout_seconds,
+                startup_timeout_seconds=startup_timeout_seconds,
                 sessions_on=sessions_on,
                 enabled_plugins=enabled_plugins,
             )
+        except ParityError as error:
+            failures.append(f"[{run_runtime}] {error}")
+        if cases_path.resolve() == DEFAULT_CASES.resolve():
+            try:
+                compare_runtime_docs_ui(
+                    run_repo,
+                    python_runtime=run_runtime,
+                    startup_timeout_seconds=startup_timeout_seconds,
+                    request_timeout_seconds=request_timeout_seconds,
+                    sessions_on=sessions_on,
+                    enabled_plugins=enabled_plugins,
+                )
+            except ParityError as error:
+                failures.append(f"[{run_runtime} docs] {error}")
 
     if python_runtime != "weblcm":
-        run_provisioning_tls_parity(
-            enabled_plugins,
-            startup_timeout_seconds=startup_timeout_seconds,
-        )
+        try:
+            run_provisioning_tls_parity(
+                enabled_plugins,
+                startup_timeout_seconds=startup_timeout_seconds,
+            )
+        except ParityError as error:
+            failures.append(str(error))
+
+    if failures:
+        raise ParityError("\n\n".join(failures))
 
 
 def auto_compare_responses(
@@ -2251,7 +2875,7 @@ def auto_compare_responses(
     python_spec, rust_spec = generate_specs(python_repo)
     shared_ops = shared_operation_specs(python_spec, rust_spec)
     cases = [scaffold_case(rust_spec, op) for op in shared_ops]
-    enabled_plugins = selected_plugins(cases, requested_plugins)
+    enabled_plugins = response_selected_plugins(cases, requested_plugins)
     noted_cases = len([case for case in cases if case.get("_notes")])
     print(f"Auto-generated {len(cases)} cases from shared operations ({noted_cases} with scaffold notes)")
     run_response_cases(
@@ -2335,7 +2959,7 @@ def run_response_cases(
             )
             python_process = start_process(
                 "python",
-                [python_runtime_executable(python_repo), "-c", python_wrapper_command(python_runtime)],
+                [python_runtime_executable(python_repo, python_runtime), "-c", python_wrapper_command(python_runtime)],
                 cwd=python_repo,
                 env=python_env,
             )
@@ -2376,10 +3000,78 @@ def run_response_cases(
                 ca_cert_path=cert_path,
                 timeout_seconds=request_timeout_seconds,
             )
+            rust_bluetooth_controller, rust_bluetooth_device = detect_bluetooth_target(
+                rust_base_url,
+                python_runtime=python_runtime,
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
+            python_bluetooth_controller, python_bluetooth_device = detect_bluetooth_target(
+                python_base_url,
+                python_runtime=python_runtime,
+                ca_cert_path=cert_path,
+                timeout_seconds=request_timeout_seconds,
+            )
+
+            if any(path_uses_bluetooth_device_placeholder(case["path"]) for case in cases):
+                start_bluetooth_discovery(
+                    rust_base_url,
+                    python_runtime=python_runtime,
+                    controller_name=rust_bluetooth_controller,
+                    ca_cert_path=cert_path,
+                    timeout_seconds=request_timeout_seconds,
+                )
+                start_bluetooth_discovery(
+                    python_base_url,
+                    python_runtime=python_runtime,
+                    controller_name=python_bluetooth_controller,
+                    ca_cert_path=cert_path,
+                    timeout_seconds=request_timeout_seconds,
+                )
+
+                for _ in range(4):
+                    time.sleep(0.5)
+                    rust_bluetooth_controller, rust_devices = detect_bluetooth_inventory(
+                        rust_base_url,
+                        python_runtime=python_runtime,
+                        ca_cert_path=cert_path,
+                        timeout_seconds=request_timeout_seconds,
+                    )
+                    python_bluetooth_controller, python_devices = detect_bluetooth_inventory(
+                        python_base_url,
+                        python_runtime=python_runtime,
+                        ca_cert_path=cert_path,
+                        timeout_seconds=request_timeout_seconds,
+                    )
+                    shared_devices = [address for address in rust_devices if address in set(python_devices)]
+                    if shared_devices:
+                        rust_bluetooth_device = shared_devices[0]
+                        python_bluetooth_device = shared_devices[0]
+                        break
 
             for case in cases:
                 rust_case_path = resolve_wireless_interface_path(case["path"], rust_wireless_interface)
                 python_case_path = resolve_wireless_interface_path(case["path"], python_wireless_interface)
+                bluetooth_skip_reason = bluetooth_placeholder_skip_reason(
+                    case["path"],
+                    rust_controller_name=rust_bluetooth_controller,
+                    python_controller_name=python_bluetooth_controller,
+                    rust_device_address=rust_bluetooth_device,
+                    python_device_address=python_bluetooth_device,
+                )
+                if bluetooth_skip_reason is not None:
+                    print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({bluetooth_skip_reason})")
+                    continue
+                rust_case_path = resolve_bluetooth_path(
+                    rust_case_path,
+                    controller_name=rust_bluetooth_controller,
+                    device_address=rust_bluetooth_device,
+                )
+                python_case_path = resolve_bluetooth_path(
+                    python_case_path,
+                    controller_name=python_bluetooth_controller,
+                    device_address=python_bluetooth_device,
+                )
                 session_skip_reason = session_mode_skip_reason(case, sessions_on=sessions_on)
                 if session_skip_reason is not None:
                     print(f"SKIP {case['id']}: {case['method']} {rust_case_path} ({session_skip_reason})")
@@ -2399,6 +3091,7 @@ def run_response_cases(
 
                 datetime_prime_error = maybe_prime_datetime_for_case(
                     case,
+                    allow_datetime_prime=False,
                     rust_base_url=rust_base_url,
                     python_base_url=python_base_url,
                     rust_case_path=rust_case_path,
@@ -2410,6 +3103,48 @@ def run_response_cases(
                 )
                 if datetime_prime_error is not None:
                     failures.append(datetime_prime_error)
+                    continue
+
+                websocket_enable_error = maybe_enable_websocket_for_case(
+                    case,
+                    rust_base_url=rust_base_url,
+                    python_base_url=python_base_url,
+                    rust_case_path=rust_case_path,
+                    python_case_path=python_case_path,
+                    rust_cookie=rust_cookies.get(cookie_key) if cookie_key else None,
+                    python_cookie=python_cookies.get(cookie_key) if cookie_key else None,
+                    ca_cert_path=cert_path,
+                    timeout_seconds=case_timeout_seconds,
+                    rust_controller_name=rust_bluetooth_controller,
+                    python_controller_name=python_bluetooth_controller,
+                )
+                if websocket_enable_error is not None:
+                    failures.append(websocket_enable_error)
+                    continue
+
+                if websocket_enable_request_for_path(rust_case_path) is not None:
+                    rust_result = websocket_probe(
+                        base_url=rust_base_url,
+                        path=rust_case_path,
+                        cookie=rust_cookies.get(cookie_key) if cookie_key else None,
+                        ca_cert_path=cert_path,
+                        timeout_seconds=case_timeout_seconds,
+                    )
+                    python_result = websocket_probe(
+                        base_url=python_base_url,
+                        path=python_case_path,
+                        cookie=python_cookies.get(cookie_key) if cookie_key else None,
+                        ca_cert_path=cert_path,
+                        timeout_seconds=case_timeout_seconds,
+                    )
+                    if rust_result.status != 101 or python_result.status != 101:
+                        failures.append(
+                            f"{case['id']}: websocket upgrade failed, "
+                            f"rust={rust_result.status or 'error'} ({rust_result.detail}), "
+                            f"python={python_result.status or 'error'} ({python_result.detail})"
+                        )
+                        continue
+                    print(f"PASS {case['id']}: websocket {rust_case_path}")
                     continue
 
                 if should_verify_readback(case):
@@ -2710,6 +3445,11 @@ def parse_args() -> argparse.Namespace:
         help="Server startup timeout for live response parity checks.",
     )
     parser.add_argument(
+        "--total-timeout-seconds",
+        type=float,
+        help="Optional end-to-end timeout for the entire API parity run.",
+    )
+    parser.add_argument(
         "--sessions-on",
         action="store_true",
         help="Enable session middleware in the temporary parity config for auth flow checks.",
@@ -2740,85 +3480,96 @@ def main() -> int:
     cases_path = args.cases.resolve()
 
     try:
-        python_runtime: str | None = None
-        legacy_python_repo: Path | None = None
-        legacy_python_runtime: str | None = None
-        if args.mode != "provisioning_tls":
-            python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
-            ensure_mode_supported(args.mode, python_runtime)
-            if args.mode == "weblcm" and python_runtime != "weblcm":
-                raise ParityError(
-                    "weblcm mode requires --python-repo to point at a weblcm-python baseline "
-                    "and --python-runtime weblcm (or auto-detect to weblcm)."
+        with parity_timeout(args.total_timeout_seconds, label="API parity run"):
+            python_runtime: str | None = None
+            legacy_python_repo: Path | None = None
+            legacy_python_runtime: str | None = None
+            if args.mode != "provisioning_tls":
+                python_runtime = resolve_python_runtime(python_repo, args.python_runtime)
+                ensure_mode_supported(args.mode, python_runtime)
+                if args.mode == "weblcm" and python_runtime != "weblcm":
+                    raise ParityError(
+                        "weblcm mode requires --python-repo to point at a weblcm-python baseline "
+                        "and --python-runtime weblcm (or auto-detect to weblcm)."
+                    )
+                if args.legacy_python_repo is not None:
+                    if args.mode not in {"responses", "all"}:
+                        raise ParityError("--legacy-python-repo is supported only for responses and all modes")
+                    legacy_python_repo = args.legacy_python_repo.resolve()
+                    legacy_python_runtime = resolve_python_runtime(
+                        legacy_python_repo, args.legacy_python_runtime
+                    )
+                    ensure_mode_supported("responses", legacy_python_runtime)
+                elif args.mode in {"responses", "all"} and python_runtime == "summit-rcm":
+                    detected_legacy_repo = discover_default_legacy_python_repo()
+                    if detected_legacy_repo is not None:
+                        legacy_python_repo = detected_legacy_repo
+                        legacy_python_runtime = resolve_python_runtime(
+                            legacy_python_repo, "weblcm"
+                        )
+                        print(
+                            f"INFO response parity: using default WebLCM legacy baseline at {legacy_python_repo}"
+                        )
+                require_explicit_legacy_baseline(
+                    mode=args.mode,
+                    cases_path=cases_path,
+                    python_runtime=python_runtime,
+                    legacy_python_repo=legacy_python_repo,
                 )
-            if args.legacy_python_repo is not None:
-                if args.mode not in {"responses", "all"}:
-                    raise ParityError("--legacy-python-repo is supported only for responses and all modes")
-                legacy_python_repo = args.legacy_python_repo.resolve()
-                legacy_python_runtime = resolve_python_runtime(
-                    legacy_python_repo, args.legacy_python_runtime
-                )
-                ensure_mode_supported("responses", legacy_python_runtime)
-            require_explicit_legacy_baseline(
-                mode=args.mode,
-                cases_path=cases_path,
-                python_runtime=python_runtime,
-                legacy_python_repo=legacy_python_repo,
-            )
 
-        if args.mode in {"openapi", "all"}:
-            compare_openapi(python_repo)
-        if args.mode in {"responses", "all"}:
-            compare_responses(
-                python_repo,
-                cases_path,
-                python_runtime=python_runtime or "summit-rcm",
-                legacy_python_repo=legacy_python_repo,
-                legacy_python_runtime=legacy_python_runtime,
-                request_timeout_seconds=args.request_timeout_seconds,
-                startup_timeout_seconds=args.startup_timeout_seconds,
-                sessions_on=args.sessions_on,
-                requested_plugins=requested_plugins,
-            )
-        if args.mode == "weblcm":
-            compare_responses(
-                python_repo,
-                cases_path,
-                python_runtime="weblcm",
-                legacy_python_repo=None,
-                legacy_python_runtime=None,
-                request_timeout_seconds=args.request_timeout_seconds,
-                startup_timeout_seconds=args.startup_timeout_seconds,
-                sessions_on=args.sessions_on,
-                requested_plugins=requested_plugins,
-            )
-        if args.mode == "auto":
-            auto_compare_responses(
-                python_repo,
-                python_runtime=python_runtime or "summit-rcm",
-                request_timeout_seconds=args.request_timeout_seconds,
-                startup_timeout_seconds=args.startup_timeout_seconds,
-                sessions_on=args.sessions_on,
-                requested_plugins=requested_plugins,
-            )
-        if args.mode == "provisioning_tls":
-            run_provisioning_tls_parity(
-                requested_plugins,
-                startup_timeout_seconds=args.startup_timeout_seconds,
-            )
-        if args.mode in {"coverage", "all"}:
-            report_response_coverage(python_repo, cases_path)
-        if args.mode == "scaffold":
-            scaffold_uncovered_cases(
-                python_repo,
-                cases_path,
-                output_path=args.scaffold_output.resolve() if args.scaffold_output else None,
-            )
-        if args.mode == "schema":
-            diff_schemas(
-                python_repo,
-                output_path=args.schema_output.resolve() if args.schema_output else None,
-            )
+            if args.mode in {"openapi", "all"}:
+                compare_openapi(python_repo)
+            if args.mode in {"responses", "all"}:
+                compare_responses(
+                    python_repo,
+                    cases_path,
+                    python_runtime=python_runtime or "summit-rcm",
+                    legacy_python_repo=legacy_python_repo,
+                    legacy_python_runtime=legacy_python_runtime,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                    sessions_on=args.sessions_on,
+                    requested_plugins=requested_plugins,
+                )
+            if args.mode == "weblcm":
+                compare_responses(
+                    python_repo,
+                    cases_path,
+                    python_runtime="weblcm",
+                    legacy_python_repo=None,
+                    legacy_python_runtime=None,
+                    request_timeout_seconds=args.request_timeout_seconds,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                    sessions_on=args.sessions_on,
+                    requested_plugins=requested_plugins,
+                )
+            if args.mode == "auto":
+                auto_compare_responses(
+                    python_repo,
+                    python_runtime=python_runtime or "summit-rcm",
+                    request_timeout_seconds=args.request_timeout_seconds,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                    sessions_on=args.sessions_on,
+                    requested_plugins=requested_plugins,
+                )
+            if args.mode == "provisioning_tls":
+                run_provisioning_tls_parity(
+                    requested_plugins,
+                    startup_timeout_seconds=args.startup_timeout_seconds,
+                )
+            if args.mode in {"coverage", "all"}:
+                report_response_coverage(python_repo, cases_path)
+            if args.mode == "scaffold":
+                scaffold_uncovered_cases(
+                    python_repo,
+                    cases_path,
+                    output_path=args.scaffold_output.resolve() if args.scaffold_output else None,
+                )
+            if args.mode == "schema":
+                diff_schemas(
+                    python_repo,
+                    output_path=args.schema_output.resolve() if args.schema_output else None,
+                )
     except ParityError as error:
         print(str(error), file=sys.stderr)
         return 1

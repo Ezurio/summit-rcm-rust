@@ -1,0 +1,35 @@
+[package]
+name = "summit-rcm-bluetooth-vsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM Bluetooth VSP device plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_bluetooth_vsp"
+path = "src/lib.rs"
+
+[features]
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-bluetooth/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-bluetooth/api-legacy"]
+api-docs = ["summit-rcm-bluetooth/api-docs", "dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-bluetooth = { path = "../summit-rcm-bluetooth" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+anyhow.workspace = true
+hex.workspace = true
+inventory.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }

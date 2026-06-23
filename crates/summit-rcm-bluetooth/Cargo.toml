@@ -1,0 +1,62 @@
+[package]
+name = "summit-rcm-bluetooth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM Bluetooth plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_bluetooth"
+path = "src/lib.rs"
+
+[features]
+bluetooth = []
+bluetooth-websocket = ["notifications"]
+notifications = ["dep:summit-rcm-web", "summit-rcm-web/notifications"]
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+anyhow.workspace = true
+hex.workspace = true
+inventory.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+zbus = { version = "5.16.0", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+# Colocated unit tests drive the shared configuration override seam and use a
+# few capabilities beyond the crate's runtime dependencies.
+summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time", "net"] }
+rustix = { workspace = true, features = ["process"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+tower = { workspace = true, features = ["util"] }
+tokio-tungstenite.workspace = true
+
+[[test]]
+name = "general"
+path = "tests/general.rs"
+
+[[test]]
+name = "websocket"
+path = "tests/websocket.rs"
+
+[[test]]
+name = "websocket_legacy"
+path = "tests/websocket_legacy.rs"
+
+[[test]]
+name = "openapi"
+path = "tests/openapi.rs"

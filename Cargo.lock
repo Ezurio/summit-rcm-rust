@@ -1113,9 +1113,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
+checksum = "dfbc457d0c7a0759a614551b11a6409e5951f6c7537be1f1b7682b9ae9230368"
 dependencies = [
  "proc-macro2",
 ]
@@ -1420,41 +1420,425 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64",
  "bytes",
- "configparser",
  "env_filter",
  "futures-util",
- "glob",
- "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "log",
+ "rustix",
+ "rustix-openpty",
+ "serde_json",
+ "summit-rcm-at",
+ "summit-rcm-awm",
+ "summit-rcm-bluetooth",
+ "summit-rcm-bluetooth-hid",
+ "summit-rcm-bluetooth-vsp",
+ "summit-rcm-chrony",
+ "summit-rcm-core",
+ "summit-rcm-cww",
+ "summit-rcm-date-time",
+ "summit-rcm-files",
+ "summit-rcm-fips",
+ "summit-rcm-firewall",
+ "summit-rcm-log-forwarding",
+ "summit-rcm-login",
+ "summit-rcm-logs",
+ "summit-rcm-network",
+ "summit-rcm-network-manager",
+ "summit-rcm-provisioning",
+ "summit-rcm-radio-siso-mode",
+ "summit-rcm-stunnel",
+ "summit-rcm-system",
+ "summit-rcm-unauthenticated",
+ "summit-rcm-update",
+ "summit-rcm-web",
+ "systemd-journal-logger",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-at"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
  "http-body-util",
  "hyper",
  "hyper-util",
  "inventory",
- "libc",
  "log",
- "neli",
  "openssl",
- "openssl-sys",
  "ping",
  "rustix",
  "rustix-openpty",
- "serde",
- "serde_json",
  "serial2-tokio",
- "swupdate-ipc",
- "systemd-journal-logger",
- "time",
+ "summit-rcm-core",
  "tokio",
  "tokio-openssl",
- "tokio-tungstenite",
- "tokio-udev",
- "tower",
- "tower-sessions",
- "tracing",
  "ureq",
- "utoipa",
+]
+
+[[package]]
+name = "summit-rcm-awm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "configparser",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-bluetooth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "hex",
+ "inventory",
+ "log",
+ "rustix",
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
  "zbus",
+]
+
+[[package]]
+name = "summit-rcm-bluetooth-hid"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "inventory",
+ "log",
+ "rustix",
+ "serde",
+ "summit-rcm-bluetooth",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+ "tokio-udev",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-bluetooth-vsp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-bluetooth",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-chrony"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "configparser",
+ "futures-util",
+ "hex",
+ "inventory",
+ "log",
+ "openssl",
+ "openssl-sys",
+ "rustix",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-cww"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-system",
+ "summit-rcm-web",
+ "tokio",
+ "tower",
+]
+
+[[package]]
+name = "summit-rcm-date-time"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "time",
+]
+
+[[package]]
+name = "summit-rcm-files"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-network-manager",
+ "summit-rcm-web",
+ "tokio",
+ "tower",
+]
+
+[[package]]
+name = "summit-rcm-fips"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-system",
+ "summit-rcm-web",
+]
+
+[[package]]
+name = "summit-rcm-firewall"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-log-forwarding"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-login"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "inventory",
+ "log",
+ "openssl",
+ "rustix",
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+ "tower-sessions",
+]
+
+[[package]]
+name = "summit-rcm-logs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "serde_json",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-network",
+ "summit-rcm-web",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-network"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "neli",
+ "serde",
+ "serde_json",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-network-manager"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "inventory",
+ "log",
+ "openssl",
+ "serde",
+ "serde_json",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-network",
+ "summit-rcm-web",
+ "time",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
+name = "summit-rcm-provisioning"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "inventory",
+ "log",
+ "openssl",
+ "rustix",
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-date-time",
+ "summit-rcm-web",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-radio-siso-mode"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-stunnel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "summit-rcm-core",
+ "summit-rcm-web",
+]
+
+[[package]]
+name = "summit-rcm-system"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "log",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-unauthenticated"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-update"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures-util",
+ "inventory",
+ "log",
+ "rustix",
+ "rustix-openpty",
+ "serde",
+ "summit-rcm-at",
+ "summit-rcm-core",
+ "summit-rcm-web",
+ "swupdate-ipc",
+ "tokio",
+]
+
+[[package]]
+name = "summit-rcm-web"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "hyper-util",
+ "inventory",
+ "log",
+ "openssl",
+ "serde",
+ "serde_json",
+ "summit-rcm-core",
+ "tokio",
+ "tokio-openssl",
+ "tower-sessions",
+ "utoipa",
 ]
 
 [[package]]
@@ -1462,7 +1846,6 @@ name = "swupdate-ipc"
 version = "0.1.0"
 dependencies = [
  "futures-util",
- "libc",
  "thiserror",
  "tokio",
 ]
@@ -1529,9 +1912,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.49"
+version = "0.3.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "711a53c2d47bbd818258c498c8dbfe186a2526c631495cfe7e078567f86b8469"
+checksum = "85c17d80feb7334b40c484e45ed1a5273dfd8bfda537c3be2e74a06a6686f327"
 dependencies = [
  "deranged",
  "libc",
@@ -1551,9 +1934,9 @@ checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "time-macros"
-version = "0.2.29"
+version = "0.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71c652a3727a9cbb9a02f707f530b618ce00d0ccd762009c8c23bd191df3c17d"
+checksum = "dcef1a61bdb119096e153208ec5cbec23944ce8bca13be5c7f60c634f7403935"
 dependencies = [
  "num-conv",
  "time-core",

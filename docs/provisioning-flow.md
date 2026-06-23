@@ -102,11 +102,13 @@ shape match between versions; the difference is the response envelope (legacy
 
 ### `GET /certificateProvisioning` &nbsp;·&nbsp; `GET /api/v2/system/certificateProvisioning`
 
+* **Registered only in `Provisioning` boot mode.**
 * **Allowed in any state.**
 * Returns the current state value.
 
 ### `POST /certificateProvisioning` &nbsp;·&nbsp; `POST /api/v2/system/certificateProvisioning`
 
+* **Registered only in `Provisioning` boot mode.**
 * **Allowed only in `Unprovisioned`** (rejects with HTTP 400 otherwise).
 * Multipart form: `configFile` (OpenSSL `.cnf`), optional `opensslKeyGenArgs`.
 * Generates `/etc/summit-rcm/provisioning/dev.key` and
@@ -116,6 +118,7 @@ shape match between versions; the difference is the response envelope (legacy
 
 ### `PUT /certificateProvisioning` &nbsp;·&nbsp; `PUT /api/v2/system/certificateProvisioning`
 
+* **Registered only in `Provisioning` boot mode.**
 * **Allowed only in `Unprovisioned`** (rejects with HTTP 400 otherwise).
 * Multipart form: `certificate` (`.crt` or `.pem`).
 * Verifies the cert against `/etc/summit-rcm/ssl/provisioning.ca.crt` using
@@ -127,6 +130,7 @@ shape match between versions; the difference is the response envelope (legacy
 
 ### `PUT /api/v2/system/certificateProvisioning/clientBundle`
 
+* **Registered only in `Provisioning` boot mode.**
 * **Available only when `enable_client_pairing=true`.**
 * **Allowed only in `PartiallyProvisioned`** (rejects with HTTP 400 otherwise).
 * Multipart form: `certificate` (`.crt` or `.pem`).
@@ -222,11 +226,112 @@ Each published route declares which boot modes it is reachable in. The enum
 lives in [`summit_rcm_plugin_api`](../crates/plugin-api/src/lib.rs) so
 out-of-tree plugins can use the same vocabulary.
 
-| `RouteMode`        | Auth-keyword aliases                                                       | Registered in `Normal` | Registered in `Provisioning` |
-| ------------------ | -------------------------------------------------------------------------- | :--------------------: | :---------------------------: |
-| `NormalOnly`       | `protected`, `public`, `unauthenticated`                                   |          yes           |              no               |
-| `Any`              | `unprov_protected`, `unprov_public`, `unprov_unauthenticated`              |          yes           |              yes              |
-| `ProvisioningOnly` | `prov_only_protected`, `prov_only_public`, `prov_only_unauthenticated`    |          no            |              yes              |
+| `RouteMode`            | Typical declarations                                | Registered in `Unprovisioned` | Registered in `PartiallyProvisioned` | Registered in `FullyProvisioned` |
+| ---------------------- | --------------------------------------------------- | :----------------------------: | :----------------------------------: | :------------------------------: |
+| `FullyProvisioned`     | `protected FullyProvisioned "/path" => { ... }`    |              no                |                 no                   |               yes                |
+| `NotFullyProvisioned`  | `protected NotFullyProvisioned "/path" => { ... }` |              yes               |                 yes                  |               no                 |
+| `SomeProvisioning`     | `protected SomeProvisioning "/path" => { ... }`    |              no                |                 yes                  |               yes                |
+| `Any`                 | `public Any "/path" => { ... }`                    |              yes               |                 yes                  |               yes                |
+
+### How to choose a `RouteMode`
+
+Think of `RouteMode` as a **set of boot states**, not as a synonym for the
+persisted provisioning state integer.
+
+There are three boot states:
+
+* `Unprovisioned`
+* `PartiallyProvisioned`
+* `FullyProvisioned`
+
+`RouteMode` selects which of those states should register a route at router
+build time.
+
+#### Use `Any`
+
+Choose `Any` when a route should always exist regardless of provisioning
+progress.
+
+Typical examples:
+
+* public login endpoints
+* version/status endpoints that must remain reachable throughout provisioning
+* provisioning state readout endpoints
+
+Example:
+
+* `public Any "/api/v2/login" => { ... }`
+
+#### Use `FullyProvisioned`
+
+Choose `FullyProvisioned` when a route is part of normal operation and must be
+hidden until provisioning is complete.
+
+Typical examples:
+
+* the normal date-time handler
+* routes that should not exist before the device has fully entered normal mode
+
+Example:
+
+* `protected FullyProvisioned "/api/v2/system/datetime" => { ... }`
+
+#### Use `NotFullyProvisioned`
+
+Choose `NotFullyProvisioned` when a route belongs to the provisioning flow and
+must exist in both provisioning-phase boots:
+
+* `Unprovisioned`
+* `PartiallyProvisioned`
+
+but must disappear once the daemon is fully provisioned.
+
+Typical examples:
+
+* provisioning datetime override
+* certificate-upload / provisioning helper endpoints that stay valid until the
+  final transition to full mode
+
+Example:
+
+* `protected NotFullyProvisioned "/api/v2/system/datetime" => { ... }`
+
+#### Use `SomeProvisioning`
+
+Choose `SomeProvisioning` when a route should be hidden only from the earliest,
+restricted `Unprovisioned` boot, but should exist once some provisioning has
+completed and continue existing in normal operation:
+
+* `PartiallyProvisioned`
+* `FullyProvisioned`
+
+Typical examples:
+
+* configuration and management routes that should stay locked out before the
+  device certificate is installed
+* authenticated user-management or network-editing routes
+
+Example:
+
+* `protected SomeProvisioning "/api/v2/login/users" => { ... }`
+
+### Practical decision rules
+
+When adding a route, ask these questions in order:
+
+1. Should it exist in all boot states?
+  * Yes → `Any`
+2. Should it exist only after provisioning is completely done?
+  * Yes → `FullyProvisioned`
+3. Should it exist only before provisioning is completely done?
+  * Yes → `NotFullyProvisioned`
+4. Should it be hidden only from the earliest unprovisioned state, but present
+  afterward?
+  * Yes → `SomeProvisioning`
+
+If none of those buckets match cleanly, reconsider the route's ownership or
+whether the handler should reject based on live provisioning state rather than
+introducing a new visibility policy.
 
 Routes with an inadmissible mode are **not registered** with axum at all —
 they are evicted from the router during [`build_router()`][build_router].
@@ -257,19 +362,21 @@ it has no work to do until the daemon is `FullyProvisioned`.
 Some paths are reachable in both modes but have different semantics per mode.
 Today the only such pair is `/api/v2/system/datetime` and `/datetime`:
 
-* In `Normal` boot, the [`date_time`](../src/plugins/date_time) plugin owns
-  GET and PUT under the plain `protected` (`NormalOnly`) keyword.
-* In `Provisioning` boot, the [`provisioning`](../src/plugins/provisioning)
-  plugin owns the same paths under `prov_only_protected`. The PUT handler
+* In `FullyProvisioned` boot, the [`date_time`](../src/plugins/date_time)
+  plugin owns GET and PUT under `protected FullyProvisioned`.
+* In `Unprovisioned` and `PartiallyProvisioned` boot, the
+  [`provisioning`](../src/plugins/provisioning) plugin owns the same paths
+  under `protected NotFullyProvisioned`. The PUT handler
   validates the supplied timestamp against the installed device cert
   (`CertificateProvisioningService::validate_new_timestamp`) and, on
   success, fires `Event::ManualTimeSet` to drive the
   `PartiallyProvisioned → FullyProvisioned` transition. The GET handler is
   re-exported from the `date_time` plugin so behaviour is identical.
 
-Because eviction happens at build time, both handlers can declare the
-same `(method, path)` without producing an axum route conflict — only one
-of them is ever installed.
+Because eviction happens at build time, both handlers can declare the same
+`(method, path)` without producing an axum route conflict — the `date-time`
+route is `FullyProvisioned` while the provisioning override is `NotFullyProvisioned`,
+so only one of them is ever installed for a given boot mode.
 
 ### Constraints and invariants
 
@@ -277,13 +384,15 @@ The following rules must hold across the whole codebase:
 
 * A `(method, path)` pair must be claimed by **at most one** `RouteMode` for
   any given build; e.g. it is fine for `date_time` to claim
-  `NormalOnly /api/v2/system/datetime` and for `provisioning` to claim
-  `ProvisioningOnly /api/v2/system/datetime`, but two `NormalOnly`
+  `FullyProvisioned /api/v2/system/datetime` and for `provisioning` to claim
+  `NotFullyProvisioned /api/v2/system/datetime`, but two `FullyProvisioned`
   publications of the same path must not coexist.
 * Any route gated on the device certificate (validation, fingerprinting,
   `paired_client_cert_path`) belongs in `provisioning` and must be
-  `ProvisioningOnly` or `Any`. Pure normal-operation endpoints stay in their
-  owning plugin under `NormalOnly`.
+  `NotFullyProvisioned` or `Any`. Pure normal-operation endpoints stay in their
+  owning plugin under `FullyProvisioned` or `SomeProvisioning`, depending on
+  whether they should be hidden from `PartiallyProvisioned` or only from
+  `Unprovisioned`.
 * `current_boot_mode()` is read once and cached. Code must **not** branch on
   the live `ProvisioningState` to choose request handlers; that is what
   `RouteMode` is for. The live state is still consulted inside handlers (for
@@ -293,7 +402,7 @@ The following rules must hold across the whole codebase:
   scheduled restart. Without the restart the daemon would keep serving the
   old router for the old mode against the new on-disk state.
 * When `enable_client_pairing=false`, provisioning is a no-op and
-  `BootMode` is always `Normal`; `ProvisioningOnly` routes are dropped and
+  `BootMode` is always `Normal`; `NotFullyProvisioned` routes are dropped and
   `Any` routes register exactly as they did before pairing existed. Existing
   tests that build the router with default config rely on this.
 

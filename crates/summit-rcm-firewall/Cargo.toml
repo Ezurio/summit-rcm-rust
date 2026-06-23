@@ -1,0 +1,30 @@
+[package]
+name = "summit-rcm-firewall"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM firewall plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_firewall"
+path = "src/lib.rs"
+
+[features]
+firewall = []
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }

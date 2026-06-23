@@ -1,0 +1,41 @@
+[package]
+name = "summit-rcm-logs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM logs plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_logs"
+path = "src/lib.rs"
+
+[features]
+logs = []
+# Interface gates: forwarded from the umbrella, mirrored to web and the network
+# dependency for standalone consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2", "dep:summit-rcm-network", "summit-rcm-network/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy", "dep:summit-rcm-network", "summit-rcm-network/api-legacy"]
+at-interface = ["dep:summit-rcm-at", "dep:summit-rcm-network", "summit-rcm-network/at-interface"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs", "dep:summit-rcm-network", "summit-rcm-network/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-at = { path = "../summit-rcm-at", optional = true }
+inventory.workspace = true
+summit-rcm-network = { path = "../summit-rcm-network", optional = true }
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+time = { workspace = true, features = ["formatting", "local-offset", "macros", "parsing"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[[test]]
+name = "logs"
+path = "tests/logs.rs"

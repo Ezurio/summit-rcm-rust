@@ -1,0 +1,40 @@
+[package]
+name = "summit-rcm-provisioning"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM certificate provisioning plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_provisioning"
+path = "src/lib.rs"
+
+[features]
+provisioning = ["dep:summit-rcm-date-time", "summit-rcm-date-time/date-time"]
+# Interface gates: forwarded from the umbrella, mirrored to web and the
+# date-time dependency for standalone consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2", "dep:summit-rcm-date-time", "summit-rcm-date-time/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy", "dep:summit-rcm-date-time", "summit-rcm-date-time/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs", "dep:summit-rcm-date-time", "summit-rcm-date-time/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-date-time = { path = "../summit-rcm-date-time", optional = true }
+anyhow.workspace = true
+hex.workspace = true
+inventory.workspace = true
+log.workspace = true
+openssl.workspace = true
+serde = { workspace = true, features = ["derive"] }
+time = { workspace = true, features = ["formatting", "local-offset", "macros", "parsing"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+rustix = { workspace = true, features = ["time", "fs"] }
+
+[dev-dependencies]
+summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }

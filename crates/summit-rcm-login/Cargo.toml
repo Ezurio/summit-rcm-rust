@@ -1,0 +1,43 @@
+[package]
+name = "summit-rcm-login"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM login / session plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_login"
+path = "src/lib.rs"
+
+[features]
+login = []
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+# Exposes `login_service::test_support` (and activates the boot-time override
+# seam) so the application integration test can drive session-expiry behavior.
+# Intended for use as a dev-dependency feature only.
+test-support = ["summit-rcm-core/test-support"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+hex.workspace = true
+inventory.workspace = true
+log.workspace = true
+openssl.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tower-sessions = { version = "0.15.0" }
+rustix = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+# Colocated unit tests drive the shared configuration override seam.
+summit-rcm-core = { path = "../summit-rcm-core", features = ["test-support"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }

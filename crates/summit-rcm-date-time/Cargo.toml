@@ -1,0 +1,38 @@
+[package]
+name = "summit-rcm-date-time"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Summit RCM date/time plugin"
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "summit_rcm_date_time"
+path = "src/lib.rs"
+
+[features]
+date-time = []
+# Interface gates: forwarded from the umbrella, mirrored to web for standalone
+# consistency.
+api-v2 = ["dep:summit-rcm-web", "summit-rcm-web/api-v2"]
+api-legacy = ["dep:summit-rcm-web", "summit-rcm-web/api-legacy"]
+at-interface = ["dep:summit-rcm-at"]
+api-docs = ["dep:summit-rcm-web", "summit-rcm-web/api-docs"]
+
+[dependencies]
+summit-rcm-core = { path = "../summit-rcm-core" }
+summit-rcm-web = { path = "../summit-rcm-web", optional = true }
+summit-rcm-at = { path = "../summit-rcm-at", optional = true }
+inventory.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+time = { workspace = true, features = ["formatting", "local-offset", "macros", "parsing"] }
+
+[[test]]
+name = "at_lookup"
+path = "tests/at_lookup.rs"

@@ -8,6 +8,7 @@
 //! `tokio::net::UnixStream`. The wire protocol is identical; only the I/O model
 //! differs.
 
+use std::ffi::c_char;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -199,7 +200,7 @@ pub async fn postupdate(info: &[u8]) -> Result<IpcMessage> {
     unsafe {
         let len = info.len().min(msg.data.procmsg.buf.len());
         for (slot, &byte) in msg.data.procmsg.buf.iter_mut().zip(info.iter()).take(len) {
-            *slot = byte as libc::c_char;
+            *slot = byte as c_char;
         }
         msg.data.procmsg.len = len as u32;
     }
