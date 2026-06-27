@@ -4,8 +4,8 @@
 //
 use summit_rcm_web::legacy_response::LegacyOperationResponse;
 use summit_rcm_web::legacy_response::SdcerrCode;
-use crate::{FirmwareUpdateService};
-use crate::firmware_update_service::UpdateStreamError;
+use crate::FirmwareUpdateService;
+use crate::firmware_update_service::{SummitRcmUpdateStatus, UpdateStreamError};
 use crate::routes::shared::upload_update_stream;
 use summit_rcm_web::axum::{
     body::Body,
@@ -30,8 +30,8 @@ fn legacy_operation_response(sdcerr: i32, info_msg: impl Into<String>) -> Legacy
     }
 }
 
-pub type GetSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type PostSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type GetSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PostSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_json_response_family! {
     pub enum PutSwupdateLegacyResponses {
@@ -43,11 +43,11 @@ summit_rcm_web::define_json_response_family! {
     from LegacyOperationResponse => Ok;
 }
 
-pub type DeleteSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize)]
-pub struct LegacySwupdateRequest {
+pub(crate) struct LegacySwupdateRequest {
     pub url: Option<String>,
     pub image: Option<String>,
 }
@@ -58,11 +58,16 @@ pub struct LegacySwupdateRequest {
     tag = "legacy",
     responses(GetSwupdateLegacyResponses)
 ))]
-pub async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
-    let (code, msg) = FirmwareUpdateService::get_update_status();
+pub(crate) async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
+    let snap = FirmwareUpdateService::snapshot();
     LegacyOperationResponse {
-        sdcerr: code,
-        info_msg: msg,
+        sdcerr: snap.status as i32,
+        info_msg: match snap.status {
+            SummitRcmUpdateStatus::Updated     => "Updated",
+            SummitRcmUpdateStatus::Fail        => "Failed",
+            SummitRcmUpdateStatus::NotUpdating => "No update in progress",
+            SummitRcmUpdateStatus::Updating    => "Updating...",
+        }.to_string(),
     }
     .into()
 }
@@ -74,7 +79,7 @@ pub async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
     request_body = LegacySwupdateRequest,
     responses(PostSwupdateLegacyResponses)
 ))]
-pub async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> PostSwupdateLegacyResponses {
+pub(crate) async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> PostSwupdateLegacyResponses {
     if FirmwareUpdateService::is_update_in_progress() {
         return legacy_operation_response(
             SdcerrCode::Fail.as_i32(),
@@ -92,10 +97,7 @@ pub async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> Po
 
     match FirmwareUpdateService::start_update(&url, &image).await {
         Ok(_) => legacy_operation_response(SdcerrCode::Success.as_i32(), "").into(),
-        Err(error) => {
-            FirmwareUpdateService::cancel();
-            legacy_operation_response(SdcerrCode::Fail.as_i32(), error.to_string()).into()
-        }
+        Err(error) => legacy_operation_response(SdcerrCode::Fail.as_i32(), error.to_string()).into()
     }
 }
 
@@ -106,7 +108,7 @@ pub async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> Po
     request_body(content = String, content_type = "application/octet-stream"),
     responses(PutSwupdateLegacyResponses)
 ))]
-pub async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacyResponses {
+pub(crate) async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacyResponses {
     let content_type = req
         .headers()
         .get("content-type")
@@ -132,7 +134,7 @@ pub async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacyRespons
     tag = "legacy",
     responses(DeleteSwupdateLegacyResponses)
 ))]
-pub async fn delete_swupdate_legacy() -> DeleteSwupdateLegacyResponses {
+pub(crate) async fn delete_swupdate_legacy() -> DeleteSwupdateLegacyResponses {
     FirmwareUpdateService::cancel();
     legacy_operation_response(SdcerrCode::Success.as_i32(), "").into()
 }

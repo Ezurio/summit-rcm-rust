@@ -11,7 +11,7 @@ use summit_rcm_system::{PowerState, SystemService};
 use crate::service::FipsService;
 use log::error;
 
-pub async fn execute_fips(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_fips(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
 	match params.parameter_count() {
 		0 => {
 			let fips = FipsService::get_fips_state().await;

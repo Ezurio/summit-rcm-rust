@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ConnectionSummary {
+pub(crate) struct ConnectionSummary {
     pub id: String,
     pub uuid: String,
     #[serde(rename = "type")]
@@ -29,20 +29,20 @@ pub struct ConnectionSummary {
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ExportConnectionsRequest {
+pub(crate) struct ExportConnectionsRequest {
     pub password: Option<String>,
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum ListConnectionsResponses(Vec<ConnectionSummary>);
+    pub(crate) enum ListConnectionsResponses(Vec<ConnectionSummary>);
 }
 
 summit_rcm_web::define_ok_not_found_internal_json_response_family! {
-    pub enum GetConnectionResponses(ConnectionProfile);
+    pub(crate) enum GetConnectionResponses(ConnectionProfile);
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum DeleteConnectionResponses {
+    pub(crate) enum DeleteConnectionResponses {
         Ok => 200,
         NotFound => 404,
         InternalError => 500
@@ -50,7 +50,7 @@ summit_rcm_web::define_status_response_family! {
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum ImportConnectionsResponses {
+    pub(crate) enum ImportConnectionsResponses {
         Ok => 200,
         BadRequest => 400,
         InternalError => 500
@@ -66,7 +66,7 @@ summit_rcm_web::define_zip_download_responses!(
     }
 );
 summit_rcm_web::define_json_response_family! {
-    pub enum UpsertConnectionResponses {
+    pub(crate) enum UpsertConnectionResponses {
         Ok(ConnectionProfile) => 200,
         Created(ConnectionProfile) => 201;
         BadRequest => 400,
@@ -81,7 +81,7 @@ summit_rcm_web::define_json_response_family! {
     tag = "network",
     responses(ListConnectionsResponses)
 ))]
-pub async fn list_connections() -> ListConnectionsResponses {
+pub(crate) async fn list_connections() -> ListConnectionsResponses {
     match NetworkService::get_connections().await {
         Ok(value) => match parse_route_model::<Vec<ConnectionSummary>>(value) {
             Ok(value) => value.into(),
@@ -104,7 +104,7 @@ pub async fn list_connections() -> ListConnectionsResponses {
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertConnectionResponses {
+pub(crate) async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertConnectionResponses {
     match NetworkService::create_connection_profile_typed(body).await {
         Ok((value, created)) => {
             if created {
@@ -132,7 +132,7 @@ pub async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertCon
     params(("uuid" = String, Path, description = "Connection UUID")),
     responses(GetConnectionResponses)
 ))]
-pub async fn get_connection_by_uuid(Path(uuid): Path<String>) -> GetConnectionResponses {
+pub(crate) async fn get_connection_by_uuid(Path(uuid): Path<String>) -> GetConnectionResponses {
     match NetworkService::get_connection_profile_by_uuid(&uuid).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -150,7 +150,7 @@ pub async fn get_connection_by_uuid(Path(uuid): Path<String>) -> GetConnectionRe
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub async fn replace_connection_by_uuid(
+pub(crate) async fn replace_connection_by_uuid(
     Path(uuid): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
@@ -183,7 +183,7 @@ pub async fn replace_connection_by_uuid(
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub async fn patch_connection_by_uuid(
+pub(crate) async fn patch_connection_by_uuid(
     Path(uuid): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
@@ -209,7 +209,7 @@ pub async fn patch_connection_by_uuid(
     params(("uuid" = String, Path, description = "Connection UUID")),
     responses(DeleteConnectionResponses)
 ))]
-pub async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnectionResponses {
+pub(crate) async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnectionResponses {
     match NetworkService::get_connection_profile_by_uuid(&uuid).await {
         Ok(_) => match NetworkService::delete_connection_profile(&uuid).await {
             Ok(()) => DeleteConnectionResponses::Ok,
@@ -232,7 +232,7 @@ pub async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnec
     params(("id" = String, Path, description = "Connection ID")),
     responses(GetConnectionResponses)
 ))]
-pub async fn get_connection_by_id(Path(id): Path<String>) -> GetConnectionResponses {
+pub(crate) async fn get_connection_by_id(Path(id): Path<String>) -> GetConnectionResponses {
     match NetworkService::get_connection_profile_by_id(&id).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -250,7 +250,7 @@ pub async fn get_connection_by_id(Path(id): Path<String>) -> GetConnectionRespon
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub async fn replace_connection_by_id(
+pub(crate) async fn replace_connection_by_id(
     Path(id): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
@@ -283,7 +283,7 @@ pub async fn replace_connection_by_id(
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub async fn patch_connection_by_id(
+pub(crate) async fn patch_connection_by_id(
     Path(id): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
@@ -304,7 +304,7 @@ pub async fn patch_connection_by_id(
     params(("id" = String, Path, description = "Connection ID")),
     responses(DeleteConnectionResponses)
 ))]
-pub async fn delete_connection_by_id(Path(id): Path<String>) -> DeleteConnectionResponses {
+pub(crate) async fn delete_connection_by_id(Path(id): Path<String>) -> DeleteConnectionResponses {
     match NetworkService::get_connection_profile_by_id(&id).await {
         Ok(_) => match NetworkService::delete_connection_profile(&id).await {
             Ok(()) => DeleteConnectionResponses::Ok,
@@ -328,7 +328,7 @@ pub async fn delete_connection_by_id(Path(id): Path<String>) -> DeleteConnection
     request_body = ExportConnectionsRequest,
     responses(ExportConnectionsResponses)
 ))]
-pub async fn export_connections_route(
+pub(crate) async fn export_connections_route(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     body: Option<Json<ExportConnectionsRequest>>,
 ) -> ExportConnectionsResponses {
@@ -356,7 +356,7 @@ pub async fn export_connections_route(
     request_body(content = String, content_type = "multipart/form-data"),
     responses(ImportConnectionsResponses)
 ))]
-pub async fn import_connections_route(
+pub(crate) async fn import_connections_route(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ImportConnectionsResponses {
     let Ok(mut multipart) = multipart else {
@@ -397,7 +397,7 @@ mod tests;
     request_body(content = String, content_type = "multipart/form-data"),
     responses(ImportConnectionsResponses)
 ))]
-pub async fn import_connections_route_put(
+pub(crate) async fn import_connections_route_put(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ImportConnectionsResponses {
     import_connections_route(multipart).await

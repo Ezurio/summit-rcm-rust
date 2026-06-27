@@ -15,14 +15,14 @@ use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CertificateExtension {
+pub(crate) struct CertificateExtension {
     pub name: String,
     pub value: String,
 }
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CertificateInfo {
+pub(crate) struct CertificateInfo {
     pub version: i32,
     pub serial_number: String,
     pub subject: String,
@@ -32,7 +32,7 @@ pub struct CertificateInfo {
     pub extensions: Vec<CertificateExtension>,
 }
 
-pub struct CertificatesService;
+pub(crate) struct CertificatesService;
 
 impl CertificatesService {
     fn format_x509_name(name: &X509NameRef) -> String {
@@ -117,7 +117,7 @@ impl CertificatesService {
         })
     }
 
-    pub fn parse_certificate_bytes(data: &[u8], password: Option<&str>) -> Result<X509> {
+    pub(crate) fn parse_certificate_bytes(data: &[u8], password: Option<&str>) -> Result<X509> {
         CoreCertificatesService::parse_certificate_bytes(data, password)
     }
 
@@ -137,12 +137,12 @@ impl CertificatesService {
 
     /// Return metadata about a certificate file using the OpenSSL library.
     #[cfg(feature = "at-interface")]
-    pub async fn get_cert_info(cert_name: &str, password: Option<&str>) -> Result<Value> {
+    pub(crate) async fn get_cert_info(cert_name: &str, password: Option<&str>) -> Result<Value> {
         let info = Self::load_cert(cert_name, password).await?;
         serde_json::to_value(&info).map_err(Into::into)
     }
 
-    pub async fn get_cert_info_model(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
+    pub(crate) async fn get_cert_info_model(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
         Self::load_cert(cert_name, password).await
     }
 }

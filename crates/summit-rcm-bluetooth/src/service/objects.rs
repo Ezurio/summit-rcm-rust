@@ -10,7 +10,7 @@ use super::*;
 /// Env var for the Bluetooth bus timeout in milliseconds. Defaults to 60 s to
 /// cover the worst-case Pair / Connect handshake. Every call on this bus uses
 /// the same timeout — one value, one connection.
-pub const BLUETOOTH_TIMEOUT_MS_ENV: &str = "SUMMIT_RCM_BLUETOOTH_TIMEOUT_MS";
+pub(super) const BLUETOOTH_TIMEOUT_MS_ENV: &str = "SUMMIT_RCM_BLUETOOTH_TIMEOUT_MS";
 
 static BLUETOOTH_TIMEOUT: LazyLock<std::time::Duration> = LazyLock::new(|| {
     let val = summit_rcm_core::config::env_or_trimmed(BLUETOOTH_TIMEOUT_MS_ENV, "");
@@ -68,7 +68,7 @@ impl BluetoothService {
         property: &str,
         value: bool,
     ) -> anyhow::Result<()> {
-        summit_rcm_core::dbus::set_property_with_timeout(
+        dbus::set_property_with_timeout(
             conn,
             BLUEZ_SERVICE,
             path,
@@ -86,7 +86,7 @@ impl BluetoothService {
 
     pub async fn get_conn() -> anyhow::Result<Arc<Connection>> {
         #[cfg(test)]
-        if let Some(conn) = super::test_support::test_system_bus() {
+        if let Some(conn) = test_support::test_system_bus() {
             return Ok(conn);
         }
         dbus::system_bus_with_timeout(Some(*BLUETOOTH_TIMEOUT)).await
@@ -199,8 +199,8 @@ impl BluetoothService {
             uuids: dbus::property_or_default(props, "UUIDs"),
             advertising_flags: dbus::property_or_default(props, "AdvertisingFlags"),
             cable_pairing: dbus::property_or_default(props, "CablePairing"),
-            manufacturer_data: super::format::raw::owned_bytes_map(props, "ManufacturerData"),
-            service_data: super::format::raw::owned_bytes_map(props, "ServiceData"),
+            manufacturer_data: format::raw::owned_bytes_map(props, "ManufacturerData"),
+            service_data: format::raw::owned_bytes_map(props, "ServiceData"),
             tx_power: dbus::property(props, "TxPower"),
             services_resolved: dbus::property_or_default(props, "ServicesResolved"),
             raw_properties: props.clone(),

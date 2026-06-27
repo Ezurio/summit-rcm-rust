@@ -10,42 +10,42 @@ use summit_rcm_web::axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub type LegacyOperationResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type LegacyOperationResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacyAvailableApChannelsResponses(LegacyAvailableApChannelsResponse);
+    pub(crate) enum LegacyAvailableApChannelsResponses(LegacyAvailableApChannelsResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacyInterfaceStatisticsResponses(LegacyInterfaceStatisticsResponse);
+    pub(crate) enum LegacyInterfaceStatisticsResponses(LegacyInterfaceStatisticsResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacyInterfaceDriverInfoResponses(LegacyInterfaceDriverInfoResponse);
+    pub(crate) enum LegacyInterfaceDriverInfoResponses(LegacyInterfaceDriverInfoResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacyStationDumpResponses(LegacyStationDumpResponse);
+    pub(crate) enum LegacyStationDumpResponses(LegacyStationDumpResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacySummitStatusResponses(LegacySummitStatusResponse);
+    pub(crate) enum LegacySummitStatusResponses(LegacySummitStatusResponse);
 }
 
 #[derive(Deserialize)]
-pub struct InterfaceQuery {
+pub(crate) struct InterfaceQuery {
     pub interface: Option<String>,
     pub name: Option<String>,
 }
 
 #[derive(Deserialize)]
-pub struct NameQuery {
+pub(crate) struct NameQuery {
     pub name: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct InterfaceAddBody {
+pub(crate) struct InterfaceAddBody {
     pub interface: Option<String>,
     #[serde(rename = "type")]
     pub interface_type: Option<String>,
@@ -53,7 +53,7 @@ pub struct InterfaceAddBody {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyAvailableApChannelsResponse {
+pub(crate) struct LegacyAvailableApChannelsResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub channels: Vec<AvailableApChannel>,
@@ -61,7 +61,7 @@ pub struct LegacyAvailableApChannelsResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyInterfaceStats {
+pub(crate) struct LegacyInterfaceStats {
     pub rx_bytes: i64,
     pub rx_packets: i64,
     pub rx_errors: i64,
@@ -75,7 +75,7 @@ pub struct LegacyInterfaceStats {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyInterfaceStatisticsResponse {
+pub(crate) struct LegacyInterfaceStatisticsResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub statistics: LegacyInterfaceStats,
@@ -83,7 +83,7 @@ pub struct LegacyInterfaceStatisticsResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyInterfaceDriverInfoResponse {
+pub(crate) struct LegacyInterfaceDriverInfoResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "driverInfo")]
@@ -92,7 +92,7 @@ pub struct LegacyInterfaceDriverInfoResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyStationDumpResponse {
+pub(crate) struct LegacyStationDumpResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub stations: BTreeMap<String, Station>,
@@ -100,7 +100,7 @@ pub struct LegacyStationDumpResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacySummitStatusResponse {
+pub(crate) struct LegacySummitStatusResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub last: String,
@@ -182,7 +182,7 @@ fn summit_status_response(
     request_body = InterfaceAddBody,
     responses(LegacyOperationResponses)
 ))]
-pub async fn post_interfaces_legacy(Json(body): Json<InterfaceAddBody>) -> LegacyOperationResponses {
+pub(crate) async fn post_interfaces_legacy(Json(body): Json<InterfaceAddBody>) -> LegacyOperationResponses {
     let interface = body.interface.as_deref().unwrap_or("");
     let interface_type = body.interface_type.as_deref().unwrap_or("");
 
@@ -208,7 +208,7 @@ pub async fn post_interfaces_legacy(Json(body): Json<InterfaceAddBody>) -> Legac
     tag = "legacy",
     responses(LegacyOperationResponses)
 ))]
-pub async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) -> LegacyOperationResponses {
+pub(crate) async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) -> LegacyOperationResponses {
     let interface = q.interface.as_deref().unwrap_or("");
 
     if interface != "wlan1" {
@@ -228,7 +228,7 @@ pub async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) -> Legacy
     tag = "legacy",
     responses(LegacyAvailableApChannelsResponses)
 ))]
-pub async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> LegacyAvailableApChannelsResponses {
+pub(crate) async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> LegacyAvailableApChannelsResponses {
     let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
         return available_ap_channels_response(fail_response("Invalid interface name"), Vec::new()).into();
     };
@@ -249,7 +249,7 @@ pub async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> Leg
     tag = "legacy",
     responses(LegacyInterfaceStatisticsResponses)
 ))]
-pub async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceStatisticsResponses {
+pub(crate) async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceStatisticsResponses {
     let default_statistics = LegacyInterfaceStats {
         rx_bytes: -1,
         rx_packets: -1,
@@ -277,7 +277,7 @@ pub async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) ->
     tag = "legacy",
     responses(LegacyInterfaceDriverInfoResponses)
 ))]
-pub async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceDriverInfoResponses {
+pub(crate) async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceDriverInfoResponses {
     let default_driver_info = InterfaceDriverInfo {
         adopted_country_code: String::new(),
         otp_country_code: String::new(),
@@ -305,7 +305,7 @@ pub async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -
     tag = "legacy",
     responses(LegacyStationDumpResponses)
 ))]
-pub async fn get_station_dump_legacy(Query(q): Query<InterfaceQuery>) -> LegacyStationDumpResponses {
+pub(crate) async fn get_station_dump_legacy(Query(q): Query<InterfaceQuery>) -> LegacyStationDumpResponses {
     let Some(iface) = q.name.as_deref() else {
         return station_dump_response(fail_response("Invalid interface name"), BTreeMap::new()).into();
     };
@@ -326,7 +326,7 @@ pub async fn get_station_dump_legacy(Query(q): Query<InterfaceQuery>) -> LegacyS
     tag = "legacy",
     responses(LegacySummitStatusResponses)
 ))]
-pub async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) -> LegacySummitStatusResponses {
+pub(crate) async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) -> LegacySummitStatusResponses {
     let Some(iface) = q.name.as_deref() else {
         return summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into();
     };

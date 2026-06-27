@@ -1,6 +1,6 @@
 #![cfg(feature = "api-v2")]
 
-#[path = "live_hid_support.rs"]
+#[path = "support/live_hid_support.rs"]
 mod support;
 
 use std::{fs::File, io::Read};

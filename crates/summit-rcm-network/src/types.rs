@@ -5,9 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "api-v2")]
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct VirtualInterfaceResponse {
+pub(crate) struct VirtualInterfaceResponse {
     pub name: String,
 }
 

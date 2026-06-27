@@ -32,13 +32,13 @@ impl NetworkManagerService {
 
     /// Return cached per-device network status (v2/modern shape) updated by
     /// NetworkManager PropertiesChanged events.
-    pub async fn get_status_v2() -> Result<Value> {
+    pub(crate) async fn get_status_v2() -> Result<Value> {
         Self::ensure_status_cache().await?;
         let snapshot = NETWORK_STATUS_CACHE.read().await.clone();
         Ok(Self::format_status_snapshot_v2(snapshot).await)
     }
 
-    pub async fn get_interface_status_v2(target_interface_name: &str) -> Result<Value> {
+    pub(crate) async fn get_interface_status_v2(target_interface_name: &str) -> Result<Value> {
         let snapshot = Self::get_status_snapshot_raw().await?;
         let Some(devices) = snapshot.as_object() else {
             return Ok(json!({}));

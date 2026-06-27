@@ -11,7 +11,7 @@ use summit_rcm_at::fsm::FsmHandle;
 use crate::{PowerState, SystemService, VersionService};
 use log::error;
 
-pub async fn execute_version(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_version(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     let ver = VersionService::get_version_info()
         .await
         .map(|info| info.summit_rcm)
@@ -19,7 +19,7 @@ pub async fn execute_version(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> Comma
     CommandOutcome::WithData(format!("+VER: {}", ver))
 }
 
-pub async fn execute_power(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_power(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let state_int: i32 = match params.trimmed(0).parse() {
         Ok(v) => v,
         Err(_) => return CommandOutcome::Error,
@@ -40,7 +40,7 @@ pub async fn execute_power(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandO
     }
 }
 
-pub async fn execute_factory_reset(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_factory_reset(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     let rc = SystemService::initiate_factory_reset().await;
     if rc == 0 {
         CommandOutcome::Ok

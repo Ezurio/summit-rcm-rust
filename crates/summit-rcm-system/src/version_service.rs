@@ -17,12 +17,12 @@ type CachedResult<T> = std::result::Result<T, String>;
 static VERSION_INFO_CACHE: LazyLock<OnceCell<CachedResult<VersionInfo>>> =
     LazyLock::new(OnceCell::new);
 
-pub struct VersionService;
+pub(crate) struct VersionService;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct VersionInfo {
+pub(crate) struct VersionInfo {
     pub summit_rcm: String,
     pub nm_version: String,
     pub build: String,
@@ -38,7 +38,7 @@ pub struct VersionInfo {
 }
 
 impl VersionService {
-    pub async fn get_version_info() -> Result<VersionInfo> {
+    pub(crate) async fn get_version_info() -> Result<VersionInfo> {
         let mut version_info = get_cached_result(&VERSION_INFO_CACHE, Self::build_cached_version_info).await?;
         if version_info.current_side == "sd" {
             version_info.next_side = "sd".to_string();

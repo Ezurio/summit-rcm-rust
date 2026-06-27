@@ -43,7 +43,7 @@ impl FilesListType {
     }
 }
 
-pub async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let name = params.trimmed(0);
 
     match FilesService::delete_file("cert", name).await {
@@ -55,7 +55,7 @@ pub async fn execute_files_delete(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     }
 }
 
-pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let file_type_arg = match params.parameter_count() {
         0 => "",
         1 => params.trimmed(0),
@@ -80,7 +80,7 @@ pub async fn execute_files_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Com
     CommandOutcome::WithData(out)
 }
 
-pub async fn execute_files_upload(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_files_upload(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let file_type = params.trimmed(0);
     let name = params.trimmed(1);
     let length: usize = match params.parse_value::<usize>(2) {
@@ -165,7 +165,7 @@ async fn execute_files_export_inner(params: &CsvParams<'_>) -> CommandOutcome {
     CommandOutcome::Ok
 }
 
-pub async fn execute_files_export(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_files_export(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     execute_files_export_inner(params).await
 }
 

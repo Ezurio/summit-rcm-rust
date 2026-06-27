@@ -17,7 +17,7 @@ summit_rcm_web::define_ok_internal_json_response_family! {
     tag = "system",
     responses(GetVersionResponses)
 ))]
-pub async fn get_version() -> GetVersionResponses {
+pub(crate) async fn get_version() -> GetVersionResponses {
     match VersionService::get_version_info().await {
         Ok(version) => version.into(),
         Err(error) => {

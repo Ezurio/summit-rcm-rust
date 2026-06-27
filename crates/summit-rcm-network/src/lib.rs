@@ -18,7 +18,7 @@ mod routes;
 pub(crate) mod at_commands;
 #[path = "service_raw.rs"]
 pub mod service;
-mod types;
+pub mod types;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 summit_rcm_web::declare_web_api! {

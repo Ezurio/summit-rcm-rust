@@ -9,7 +9,7 @@ extern crate summit_rcm_update as _;
 
 use std::time::Duration;
 
-#[path = "../../summit-rcm-at/tests/at_test_harness.rs"]
+#[path = "../../summit-rcm-at/tests/support/at_test_harness.rs"]
 mod at_test_harness;
 
 use at_test_harness::{AtHarness, lock_test};

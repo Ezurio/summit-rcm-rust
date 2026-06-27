@@ -27,7 +27,7 @@ pub(crate) struct ApiDoc;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UserBody {
+pub(crate) struct UserBody {
     pub username: Option<String>,
     pub password: Option<String>,
     #[serde(rename = "current_password")]
@@ -39,7 +39,7 @@ pub struct UserBody {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyRedirectResponse {
+pub(crate) struct LegacyRedirectResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "REDIRECT")]
@@ -48,7 +48,7 @@ pub struct LegacyRedirectResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyLoginResponse {
+pub(crate) struct LegacyLoginResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "REDIRECT")]
@@ -59,7 +59,7 @@ pub struct LegacyLoginResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyUserListResponse {
+pub(crate) struct LegacyUserListResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "Default_user")]
@@ -74,8 +74,8 @@ summit_rcm_web::define_ok_json_response_family! {
     pub enum GetUsersLegacyResponses(LegacyUserListResponse);
 }
 
-pub type PostUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type DeleteUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PostUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub enum PutUserLegacyResponses(LegacyRedirectResponse);
@@ -160,7 +160,7 @@ fn effective_permission_string(username: &str) -> String {
     tag = "legacy",
     responses(GetUsersLegacyResponses)
 ))]
-pub async fn get_users_legacy() -> GetUsersLegacyResponses {
+pub(crate) async fn get_users_legacy() -> GetUsersLegacyResponses {
     let users = UserService::get_users_dict();
     let (_, body) = legacy_users_response(users, default_username());
     GetUsersLegacyResponses::Ok(body.0)
@@ -197,7 +197,7 @@ fn legacy_users_response(
     request_body = UserBody,
     responses(PostUserLegacyResponses)
 ))]
-pub async fn post_user_legacy(Json(body): Json<UserBody>) -> PostUserLegacyResponses {
+pub(crate) async fn post_user_legacy(Json(body): Json<UserBody>) -> PostUserLegacyResponses {
     let username = body.username.as_deref().unwrap_or("");
     let password = body.password.as_deref().unwrap_or("");
     let permission = body.permission.as_deref().unwrap_or("");
@@ -228,7 +228,7 @@ pub async fn post_user_legacy(Json(body): Json<UserBody>) -> PostUserLegacyRespo
     params(("username" = String, Path, description = "Username")),
     responses(DeleteUserLegacyResponses)
 ))]
-pub async fn delete_user_legacy(Path(username): Path<String>) -> DeleteUserLegacyResponses {
+pub(crate) async fn delete_user_legacy(Path(username): Path<String>) -> DeleteUserLegacyResponses {
     let username = username.trim();
     let default_username = default_username();
 
@@ -250,7 +250,7 @@ pub async fn delete_user_legacy(Path(username): Path<String>) -> DeleteUserLegac
     request_body = UserBody,
     responses(PutUserLegacyResponses)
 ))]
-pub async fn put_user_legacy(Json(body): Json<UserBody>) -> PutUserLegacyResponses {
+pub(crate) async fn put_user_legacy(Json(body): Json<UserBody>) -> PutUserLegacyResponses {
     let username = body.username.as_deref();
     let username_display = username.unwrap_or("None");
 
@@ -290,7 +290,7 @@ pub async fn put_user_legacy(Json(body): Json<UserBody>) -> PutUserLegacyRespons
     request_body = UserBody,
     responses(PostLoginLegacyResponses)
 ))]
-pub async fn post_login_legacy(
+pub(crate) async fn post_login_legacy(
     session: Session,
     Json(body): Json<UserBody>,
 ) -> PostLoginLegacyResponses {
@@ -456,7 +456,7 @@ pub async fn post_login_legacy(
     tag = "legacy",
     responses(DeleteLoginLegacyResponses)
 ))]
-pub async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses {
+pub(crate) async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses {
     let username = match session.get::<String>("username").await {
         Ok(value) => value,
         Err(_) => return DeleteLoginLegacyResponses::InternalError,

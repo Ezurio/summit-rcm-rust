@@ -10,7 +10,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use super::super::{NetworkManagerService, NmConnectionSettings};
 
 impl NetworkManagerService {
-    pub fn prepare_connection_settings_dbus(connection: &Value) -> Result<NmConnectionSettings> {
+    pub(crate) fn prepare_connection_settings_dbus(connection: &Value) -> Result<NmConnectionSettings> {
         let root = connection
             .as_object()
             .ok_or_else(|| anyhow::anyhow!("connection profile must be a JSON object"))?;

@@ -25,7 +25,10 @@ mod web_integration;
 #[cfg(test)]
 mod state_machine_tests;
 
-pub use self::service::{CertificateProvisioningService, ProvisioningState, ProvisioningWebTlsConfig};
+pub use self::service::{
+	CertificateProvisioningService, ProvisioningState, ProvisioningWebTlsConfig,
+	ProvisioningWebTlsResolution, TimestampValidityPayload,
+};
 pub use boot_mode::{BootMode, current_boot_mode};
 pub use summit_rcm_web::provisioning_hook::ClientTlsInfo;
 
@@ -61,6 +64,6 @@ summit_rcm_web::declare_web_api! {
 	},
 	openapi {
 		v2 => [routes::v2::openapi_doc],
-		legacy => [<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi],
+		legacy => [<routes::legacy::ApiDoc as OpenApi>::openapi],
 	},
 }

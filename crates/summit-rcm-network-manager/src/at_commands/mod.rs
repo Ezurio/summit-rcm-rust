@@ -13,7 +13,7 @@ use serde_json::{Value, from_str, to_string};
 use std::fmt::Write as _;
 use log::error;
 
-pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     match NetworkService::get_connections().await {
         Ok(v) => {
             let mut out = String::new();
@@ -34,7 +34,7 @@ pub async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
     }
 }
 
-pub async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     if params.parameter_count() == 0 {
         return CommandOutcome::Error;
     }
@@ -66,7 +66,7 @@ pub async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_
     }
 }
 
-pub async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     if params.parameter_count() < 2 {
         return CommandOutcome::Error;
     }
@@ -128,7 +128,7 @@ pub async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>)
     }
 }
 
-pub async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     if params.parameter_count() == 0 || params.parameter_count() > 2 {
         return CommandOutcome::Error;
     }
@@ -158,7 +158,7 @@ pub async fn execute_certificates_get(_fsm: &FsmHandle, params: &CsvParams<'_>) 
     }
 }
 
-pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let name = if params.parameter_count() == 0 {
         ""
     } else {
@@ -192,7 +192,7 @@ pub async fn execute_network_interfaces(_fsm: &FsmHandle, params: &CsvParams<'_>
     }
 }
 
-pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let iface_name = if params.parameter_count() == 0 {
         ""
     } else {
@@ -216,7 +216,7 @@ pub async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
     }
 }
 
-pub async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let iface_name = if params.parameter_count() == 0 {
         ""
     } else {
@@ -232,7 +232,7 @@ pub async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
     }
 }
 
-pub async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let val = if params.parameter_count() == 0 {
         ""
     } else {
@@ -261,7 +261,7 @@ pub async fn execute_wifi_enabled(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     }
 }
 
-pub async fn execute_wifi_hardware(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_wifi_hardware(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     match NetworkService::get_wifi_hardware_enabled().await {
         Ok(v) => CommandOutcome::WithData(format!("+WHARD: {}", v)),
         Err(e) => {

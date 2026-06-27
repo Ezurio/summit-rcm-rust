@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 #[path = "network_raw.rs"]
-pub mod network;
+pub(crate) mod network;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]

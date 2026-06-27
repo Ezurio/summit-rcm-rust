@@ -21,7 +21,7 @@ enum FipsScriptResult {
 	Failure,
 }
 
-pub struct FipsService;
+pub(crate) struct FipsService;
 
 impl FipsService {
 	async fn read_fips_flag(path: &str) -> Option<bool> {
@@ -45,7 +45,7 @@ impl FipsService {
 		}
 	}
 
-	pub async fn get_fips_state() -> &'static str {
+	pub(crate) async fn get_fips_state() -> &'static str {
 		let fips_enabled = match Self::read_fips_flag(FIPS_ENABLED_PATH).await {
 			Some(enabled) => enabled,
 			None => return "unsupported",
@@ -61,7 +61,7 @@ impl FipsService {
 		}
 	}
 
-	pub async fn set_fips_state(value: &str) -> Result<bool> {
+	pub(crate) async fn set_fips_state(value: &str) -> Result<bool> {
 		if !VALID_STATES.contains(&value) {
 			return Err(anyhow::anyhow!("invalid input parameter {}", value));
 		}

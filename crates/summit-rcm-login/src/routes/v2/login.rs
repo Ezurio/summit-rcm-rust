@@ -37,7 +37,7 @@ summit_rcm_web::define_status_response_family! {
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LoginRequest {
+pub(crate) struct LoginRequest {
     pub username: String,
     pub password: String,
 }
@@ -50,7 +50,7 @@ pub struct LoginRequest {
     request_body = LoginRequest,
     responses(LoginResponses)
 ))]
-pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginResponses {
+pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginResponses {
     if !sessions_enabled() {
         return LoginResponses::Ok;
     }
@@ -158,7 +158,7 @@ pub async fn login(session: Session, Json(body): Json<LoginRequest>) -> LoginRes
     tag = "auth",
     responses(LogoutResponses)
 ))]
-pub async fn logout(session: Session) -> LogoutResponses {
+pub(crate) async fn logout(session: Session) -> LogoutResponses {
     if !sessions_enabled() {
         return LogoutResponses::Ok;
     }

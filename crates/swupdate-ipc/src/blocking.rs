@@ -9,7 +9,6 @@
 //! linked; the client speaks the IPC protocol directly over Unix sockets.
 
 use std::io::{Read, Write};
-use std::ffi::c_char;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::thread::{self, JoinHandle};
@@ -22,7 +21,11 @@ use crate::proto::{
 use crate::socket::{ctrl_socket_path, progress_socket_path};
 
 const PROGRESS_ACK_TIMEOUT: Duration = Duration::from_secs(5);
-const PROGRESS_RECONNECT_DELAY: Duration = Duration::from_millis(10);
+const PROGRESS_RECONNECT_DELAY: Duration = Duration::from_millis(500);
+const PROGRESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Delay between control-socket status polls in [`await_install_result`].
+const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 fn connect_ctrl() -> Result<UnixStream> {
     Ok(UnixStream::connect(ctrl_socket_path())?)
@@ -116,24 +119,26 @@ pub fn get_status_timeout(timeout: Duration) -> Result<Option<IpcMessage>> {
 /// Waits for a terminal SWUpdate install result within `timeout`, using the
 /// control status socket.
 ///
-/// Polls [`get_status_timeout`] in a loop and guards against acting on stale
-/// `Success`/`Failure` state left over from a previous install by tracking:
-///
-/// - **`seen_active`** — set when any in-progress status (`Start`, `Run`,
-///   `Download`, `Progress`, `Done`, `Subprocess`) is observed.
-/// - **`changed_since_start`** — true when `(current, last_result)` differs
-///   from the pair seen on the first reply.
-///
-/// Returns `Ok(())` on success, `Err(Error::InstallFailed)` on failure, and
-/// `Err(Error::Timeout)` if the deadline elapses.
+/// Returns `Ok(())` on success once SWUpdate is no longer in an active install
+/// state and `last_result=Success`, `Err(Error::InstallFailed)` on failure,
+/// and `Err(Error::Timeout)` if the deadline elapses.
 pub fn await_install_result(timeout: Duration) -> Result<()> {
-    let mut seen_active = false;
-    let mut initial: Option<(i32, i32)> = None;
+    let deadline = Instant::now() + timeout;
 
     loop {
-        let msg = match get_status_timeout(timeout)? {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(Error::Timeout);
+        }
+
+        let poll_timeout = deadline.saturating_duration_since(now).min(STATUS_POLL_INTERVAL);
+
+        let msg = match get_status_timeout(poll_timeout)? {
             Some(msg) => msg,
-            None => return Err(Error::Timeout),
+            None => {
+                thread::sleep(STATUS_POLL_INTERVAL);
+                continue;
+            }
         };
 
         // SAFETY: get_status replies always use the `status` union member.
@@ -141,38 +146,26 @@ pub fn await_install_result(timeout: Duration) -> Result<()> {
             (msg.data.status.current, msg.data.status.last_result)
         };
 
-        if initial.is_none() {
-            initial = Some((current_raw, last_result_raw));
-        }
-        let changed_since_start = initial
-            .map(|(ic, ilr)| current_raw != ic || last_result_raw != ilr)
-            .unwrap_or(false);
-
         let current = RecoveryStatus::try_from(current_raw).ok();
         let last_result = RecoveryStatus::try_from(last_result_raw).ok();
 
-        match current {
+        let active = matches!(
+            current,
             Some(RecoveryStatus::Start)
-            | Some(RecoveryStatus::Run)
-            | Some(RecoveryStatus::Download)
-            | Some(RecoveryStatus::Progress)
-            | Some(RecoveryStatus::Done)
-            | Some(RecoveryStatus::Subprocess) => {
-                seen_active = true;
-            }
-            Some(RecoveryStatus::Success) if seen_active || changed_since_start => {
-                return Ok(());
-            }
-            Some(RecoveryStatus::Failure) if seen_active || changed_since_start => {
-                return Err(Error::InstallFailed);
-            }
-            Some(RecoveryStatus::Idle) if seen_active => match last_result {
+                | Some(RecoveryStatus::Run)
+                | Some(RecoveryStatus::Download)
+                | Some(RecoveryStatus::Progress)
+                | Some(RecoveryStatus::Subprocess)
+        );
+
+        if !active {
+            match last_result {
                 Some(RecoveryStatus::Success) => return Ok(()),
                 Some(RecoveryStatus::Failure) => return Err(Error::InstallFailed),
                 _ => {}
-            },
-            _ => {}
+            }
         }
+
     }
 }
 
@@ -185,7 +178,7 @@ pub fn postupdate(info: &[u8]) -> Result<IpcMessage> {
     unsafe {
         let len = info.len().min(msg.data.procmsg.buf.len());
         for (slot, &byte) in msg.data.procmsg.buf.iter_mut().zip(info.iter()).take(len) {
-            *slot = byte as c_char;
+            *slot = byte as std::ffi::c_char;
         }
         msg.data.procmsg.len = len as u32;
     }
@@ -322,10 +315,14 @@ impl ProgressConn {
 }
 
 fn progress_connect_path(path: &Path, reconnect: bool) -> Result<ProgressConn> {
+    let deadline = Instant::now() + PROGRESS_CONNECT_TIMEOUT;
     let stream = loop {
         match UnixStream::connect(path) {
             Ok(stream) => break stream,
             Err(_) if reconnect => {
+                if Instant::now() >= deadline {
+                    return Err(Error::ProgressConnectTimeout);
+                }
                 thread::sleep(PROGRESS_RECONNECT_DELAY);
                 continue;
             }
@@ -353,7 +350,8 @@ fn wait_for_progress_ack(stream: &UnixStream) -> Result<()> {
 
 /// Connects to the progress interface using the default socket, equivalent to
 /// `progress_ipc_connect`. When `reconnect` is `true`, connection attempts are
-/// retried until they succeed.
+/// retried up to `PROGRESS_CONNECT_TIMEOUT` before returning
+/// `Error::ProgressConnectTimeout`.
 pub fn progress_connect(reconnect: bool) -> Result<ProgressConn> {
     progress_connect_path(&progress_socket_path(), reconnect)
 }

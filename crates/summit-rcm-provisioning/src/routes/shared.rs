@@ -12,7 +12,7 @@ use summit_rcm_web::axum::{extract::multipart::MultipartRejection, extract::Mult
 use log::error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProvisioningRouteError {
+pub(crate) enum ProvisioningRouteError {
     BadRequest,
     AlreadyProvisioned,
     MissingFilename,
@@ -20,7 +20,7 @@ pub enum ProvisioningRouteError {
     InternalError,
 }
 
-pub async fn create_csr_from_upload(
+pub(crate) async fn create_csr_from_upload(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<String, ProvisioningRouteError> {
     if CertificateProvisioningService::get_provisioning_state_async().await
@@ -85,7 +85,7 @@ pub async fn create_csr_from_upload(
     }
 }
 
-pub async fn save_uploaded_certificate(
+pub(crate) async fn save_uploaded_certificate(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<(), ProvisioningRouteError> {
     if CertificateProvisioningService::get_provisioning_state_async().await

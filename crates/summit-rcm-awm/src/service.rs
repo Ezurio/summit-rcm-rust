@@ -12,7 +12,7 @@ use std::path::Path;
 const ADAPTIVE_WW_CONFIG_FILE: &str = "/etc/default/adaptive_ww";
 const SUMMIT_RCM_AWM_PLUGIN_INI_FILE: &str = "/etc/summit-rcm-awm.ini";
 
-pub struct AwmConfigService;
+pub(crate) struct AwmConfigService;
 
 impl AwmConfigService {
     async fn load_ini(path: &str) -> Result<Ini> {
@@ -50,7 +50,7 @@ impl AwmConfigService {
         Ok(())
     }
 
-    pub async fn get_scan_attempts() -> Result<i32> {
+    pub(crate) async fn get_scan_attempts() -> Result<i32> {
         let path = Self::get_awm_cfg().await?;
         let ini = Self::read_awm_file(&path).await;
         let val = ini
@@ -59,7 +59,7 @@ impl AwmConfigService {
         val.parse::<i32>().context("invalid scan_attempts value")
     }
 
-    pub async fn set_scan_attempts(enable: i32) -> Result<()> {
+    pub(crate) async fn set_scan_attempts(enable: i32) -> Result<()> {
         let path = Self::get_awm_cfg().await?;
         let mut ini = Self::read_awm_file(&path).await;
         if enable != 0 {
@@ -70,7 +70,7 @@ impl AwmConfigService {
         Self::write_awm_file(&path, &ini).await
     }
 
-    pub async fn get_lite_mode_enabled() -> bool {
+    pub(crate) async fn get_lite_mode_enabled() -> bool {
         read_text(ADAPTIVE_WW_CONFIG_FILE)
             .await
             .map(|c| c.to_lowercase().contains("lite"))

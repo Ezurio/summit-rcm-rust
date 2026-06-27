@@ -7,8 +7,8 @@ use crate::routes::shared::FactoryResetResult;
 use crate::{PowerState, SystemService};
 use log::error;
 
-pub type LegacyPowerActionResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type FactoryResetLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type LegacyPowerActionResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type FactoryResetLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 async fn power_action(state: PowerState, name: &str) -> LegacyPowerActionResponses {
     if let Err(error) = SystemService::request_power_state(state).await {
@@ -25,7 +25,7 @@ async fn power_action(state: PowerState, name: &str) -> LegacyPowerActionRespons
     tag = "legacy",
     responses(LegacyPowerActionResponses)
 ))]
-pub async fn poweroff_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Off, "Poweroff").await }
+pub(crate) async fn poweroff_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Off, "Poweroff").await }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
@@ -33,7 +33,7 @@ pub async fn poweroff_legacy() -> LegacyPowerActionResponses { power_action(Powe
     tag = "legacy",
     responses(LegacyPowerActionResponses)
 ))]
-pub async fn suspend_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Suspend, "Suspend").await }
+pub(crate) async fn suspend_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Suspend, "Suspend").await }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
@@ -41,7 +41,7 @@ pub async fn suspend_legacy() -> LegacyPowerActionResponses { power_action(Power
     tag = "legacy",
     responses(LegacyPowerActionResponses)
 ))]
-pub async fn reboot_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Reboot, "Reboot").await }
+pub(crate) async fn reboot_legacy() -> LegacyPowerActionResponses { power_action(PowerState::Reboot, "Reboot").await }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
@@ -49,7 +49,7 @@ pub async fn reboot_legacy() -> LegacyPowerActionResponses { power_action(PowerS
     tag = "legacy",
     responses(FactoryResetLegacyResponses)
 ))]
-pub async fn factory_reset_legacy() -> FactoryResetLegacyResponses {
+pub(crate) async fn factory_reset_legacy() -> FactoryResetLegacyResponses {
     match crate::routes::shared::run_factory_reset().await {
         FactoryResetResult::NotAvailable => fail_response(
             "FactoryReset cannot be initiated - not available on non-encrypted file system images",

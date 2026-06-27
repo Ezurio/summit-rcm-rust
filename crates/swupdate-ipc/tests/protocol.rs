@@ -68,6 +68,13 @@ fn recovery_status_try_from_round_trips() {
 }
 
 #[test]
+fn terminal_status_identification_is_stable() {
+    assert!(RecoveryStatus::Success.is_terminal());
+    assert!(RecoveryStatus::Failure.is_terminal());
+    assert!(!RecoveryStatus::Idle.is_terminal());
+}
+
+#[test]
 fn source_type_try_from_round_trips() {
     assert_eq!(SourceType::try_from(1), Ok(SourceType::Webserver));
     assert_eq!(SourceType::try_from(4), Ok(SourceType::Local));

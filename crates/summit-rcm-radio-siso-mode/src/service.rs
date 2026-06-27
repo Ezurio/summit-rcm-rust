@@ -13,7 +13,7 @@ const MODPROBE_PATH: &str = "/usr/sbin/modprobe";
 /// SISO_mode values: -1=system default (MIMO), 0=MIMO, 1=ANT0, 2=ANT1
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(i32)]
-pub enum RadioSISOMode {
+pub(crate) enum RadioSISOMode {
     SystemDefault = -1,
     Mimo = 0,
     Ant0 = 1,
@@ -37,10 +37,10 @@ impl From<RadioSISOMode> for i32 {
     fn from(m: RadioSISOMode) -> i32 { m as i32 }
 }
 
-pub struct RadioSISOModeService;
+pub(crate) struct RadioSISOModeService;
 
 impl RadioSISOModeService {
-    pub async fn get_running_driver_interface() -> Result<String> {
+    pub(crate) async fn get_running_driver_interface() -> Result<String> {
         let mut entries = tokio::fs::read_dir(LRDMWL_HOLDERS_PATH)
             .await
             .context("Failed to read lrdmwl holders")?;
@@ -60,7 +60,7 @@ impl RadioSISOModeService {
         bail!("No driver interface found in lrdmwl holders")
     }
 
-    pub async fn get_current_siso_mode() -> Result<RadioSISOMode> {
+    pub(crate) async fn get_current_siso_mode() -> Result<RadioSISOMode> {
         let raw = read_sysfs(SISO_MODE_PARAMETER_PATH)
             .await
             .context("Failed to read SISO_mode parameter")?;
@@ -68,7 +68,7 @@ impl RadioSISOModeService {
         RadioSISOMode::try_from(val)
     }
 
-    pub async fn set_siso_mode(mode: RadioSISOMode) -> Result<()> {
+    pub(crate) async fn set_siso_mode(mode: RadioSISOMode) -> Result<()> {
         let current = Self::get_current_siso_mode().await?;
         Self::set_siso_mode_with_current(mode, current).await
     }

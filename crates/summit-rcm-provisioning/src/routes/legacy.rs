@@ -21,14 +21,14 @@ use summit_rcm_web::axum::{
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-pub use summit_rcm_date_time::routes::legacy::get_datetime_legacy;
+pub(crate) use summit_rcm_date_time::routes::legacy::get_datetime_legacy;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetProvisioningLegacyResponses(LegacyProvisioningStateResponse);
+    pub(crate) enum GetProvisioningLegacyResponses(LegacyProvisioningStateResponse);
 }
 
 summit_rcm_web::define_text_response_family! {
-    pub enum PostProvisioningLegacyResponses {
+    pub(crate) enum PostProvisioningLegacyResponses {
         Ok(String) => "application/x-download";
         BadRequest => 400,
         InternalError => 500
@@ -36,15 +36,15 @@ summit_rcm_web::define_text_response_family! {
     from String => Ok;
 }
 
-pub type PutProvisioningLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutProvisioningLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum PutProvisioningDateTimeLegacyResponses(ProvisioningLegacyDateTimeResponse);
+    pub(crate) enum PutProvisioningDateTimeLegacyResponses(ProvisioningLegacyDateTimeResponse);
 }
 
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyProvisioningStateResponse {
+pub(crate) struct LegacyProvisioningStateResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub state: i32,
@@ -52,9 +52,9 @@ pub struct LegacyProvisioningStateResponse {
 
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ProvisioningLegacyDateTimeResponse {
+pub(crate) struct ProvisioningLegacyDateTimeResponse {
     #[serde(flatten)]
-    pub operation: summit_rcm_web::legacy_response::LegacyOperationResponse,
+    pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zones: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,7 +82,7 @@ async fn invalid_timestamp_legacy_response(tls_info: &ClientTlsInfo) -> Provisio
 }
 
 fn legacy_put_response(
-    operation: summit_rcm_web::legacy_response::LegacyOperationResponse,
+    operation: LegacyOperationResponse,
     time: impl Into<String>,
 ) -> ProvisioningLegacyDateTimeResponse {
     ProvisioningLegacyDateTimeResponse {
@@ -102,7 +102,7 @@ fn legacy_put_response(
     tag = "provisioning",
     responses(GetProvisioningLegacyResponses)
 ))]
-pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
+pub(crate) async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
     let state = CertificateProvisioningService::get_provisioning_state_async().await;
     LegacyProvisioningStateResponse {
         operation: ok_response(""),
@@ -118,7 +118,7 @@ pub async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
     request_body(content = String, content_type = "multipart/form-data"),
     responses(PostProvisioningLegacyResponses)
 ))]
-pub async fn post_provisioning_legacy(
+pub(crate) async fn post_provisioning_legacy(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> PostProvisioningLegacyResponses {
     match create_csr_from_upload(multipart).await {
@@ -138,7 +138,7 @@ pub async fn post_provisioning_legacy(
     request_body(content = String, content_type = "multipart/form-data"),
     responses(PutProvisioningLegacyResponses)
 ))]
-pub async fn put_provisioning_legacy(
+pub(crate) async fn put_provisioning_legacy(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> PutProvisioningLegacyResponses {
     match save_uploaded_certificate(multipart).await {
@@ -159,7 +159,7 @@ pub async fn put_provisioning_legacy(
     request_body = DateTimeBody,
     responses(PutProvisioningDateTimeLegacyResponses)
 ))]
-pub async fn put_datetime_legacy(
+pub(crate) async fn put_datetime_legacy(
     Extension(tls_info): Extension<ClientTlsInfo>,
     Json(body): Json<DateTimeBody>,
 ) -> PutProvisioningDateTimeLegacyResponses {

@@ -24,40 +24,40 @@ fn unmanaged_hardware_devices() -> Vec<String> {
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetConnectionLegacyResponses(LegacyConnectionProfileResponse);
+    pub(crate) enum GetConnectionLegacyResponses(LegacyConnectionProfileResponse);
 }
 
-pub type WriteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type WriteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum ListConnectionsLegacyResponses(LegacyConnectionsResponse);
+    pub(crate) enum ListConnectionsLegacyResponses(LegacyConnectionsResponse);
 }
 
-pub type DeleteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetAccessPointsLegacyResponses(LegacyAccessPointsResponse);
+    pub(crate) enum GetAccessPointsLegacyResponses(LegacyAccessPointsResponse);
 }
 
-pub type PutAccessPointsLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutAccessPointsLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetWifiEnableLegacyResponses(LegacyWifiEnableInfoResponse);
+    pub(crate) enum GetWifiEnableLegacyResponses(LegacyWifiEnableInfoResponse);
 }
 
-pub type PutWifiEnableLegacyResponses = GetWifiEnableLegacyResponses;
+pub(crate) type PutWifiEnableLegacyResponses = GetWifiEnableLegacyResponses;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetInterfaceLegacyResponses(LegacyInterfaceResponse);
+    pub(crate) enum GetInterfaceLegacyResponses(LegacyInterfaceResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetInterfacesLegacyResponses(LegacyInterfacesResponse);
+    pub(crate) enum GetInterfacesLegacyResponses(LegacyInterfacesResponse);
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyConnectionSummary {
+pub(crate) struct LegacyConnectionSummary {
     pub activated: i32,
     pub id: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -66,7 +66,7 @@ pub struct LegacyConnectionSummary {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyConnectionsResponse {
+pub(crate) struct LegacyConnectionsResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub count: usize,
@@ -75,7 +75,7 @@ pub struct LegacyConnectionsResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyAccessPoint {
+pub(crate) struct LegacyAccessPoint {
     #[serde(rename = "SSID")]
     pub ssid: Option<String>,
     #[serde(rename = "HwAddress")]
@@ -102,7 +102,7 @@ pub struct LegacyAccessPoint {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyAccessPointsResponse {
+pub(crate) struct LegacyAccessPointsResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub accesspoints: Vec<LegacyAccessPoint>,
@@ -113,7 +113,7 @@ pub struct LegacyAccessPointsResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyWifiEnableInfoResponse {
+pub(crate) struct LegacyWifiEnableInfoResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,7 +124,7 @@ pub struct LegacyWifiEnableInfoResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyInterfaceResponse {
+pub(crate) struct LegacyInterfaceResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub properties: Option<LegacyNetworkInterfaceResponse>,
@@ -132,7 +132,7 @@ pub struct LegacyInterfaceResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyInterfacesResponse {
+pub(crate) struct LegacyInterfacesResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub interfaces: Vec<String>,
@@ -262,18 +262,18 @@ fn legacy_empty_dhcp_leases_response(operation: LegacyOperationResponse) -> Lega
 }
 
 #[derive(Deserialize)]
-pub struct UuidQuery {
+pub(crate) struct UuidQuery {
     pub uuid: Option<String>,
 }
 
 #[derive(Deserialize)]
-pub struct InterfaceQuery {
+pub(crate) struct InterfaceQuery {
     pub interface: Option<String>,
     pub name: Option<String>,
 }
 
 #[derive(Deserialize)]
-pub struct WifiStateQuery {
+pub(crate) struct WifiStateQuery {
     pub enable: Option<String>,
 }
 
@@ -283,7 +283,7 @@ pub struct WifiStateQuery {
     tag = "legacy",
     responses(ListConnectionsLegacyResponses)
 ))]
-pub async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
+pub(crate) async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
     match NetworkService::get_connections_legacy().await {
         Ok(connections) => match parse_route_model::<BTreeMap<String, LegacyConnectionSummary>>(
             normalize_legacy_connections_value(connections),
@@ -311,7 +311,7 @@ pub async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
     tag = "legacy",
     responses(GetConnectionLegacyResponses)
 ))]
-pub async fn get_connection_legacy(Query(q): Query<UuidQuery>) -> GetConnectionLegacyResponses {
+pub(crate) async fn get_connection_legacy(Query(q): Query<UuidQuery>) -> GetConnectionLegacyResponses {
     let Some(uuid) = q.uuid.as_deref().filter(|value| !value.is_empty()) else {
         return legacy_connection_profile_response(fail_response("no UUID provided"), None).into();
     };
@@ -329,7 +329,7 @@ pub async fn get_connection_legacy(Query(q): Query<UuidQuery>) -> GetConnectionL
     request_body = ConnectionProfile,
     responses(WriteConnectionLegacyResponses)
 ))]
-pub async fn post_connection_legacy(Json(body): Json<ConnectionProfile>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn post_connection_legacy(Json(body): Json<ConnectionProfile>) -> WriteConnectionLegacyResponses {
     let fallback_name = body.connection.id.clone().unwrap_or_default();
 
     match NetworkService::create_connection_profile_typed(body).await {
@@ -349,7 +349,7 @@ pub async fn post_connection_legacy(Json(body): Json<ConnectionProfile>) -> Writ
     }
 }
 
-pub async fn put_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn put_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
     activate_connection_legacy(Json(body)).await
 }
 
@@ -364,7 +364,7 @@ async fn get_legacy_connection_profile(uuid: &str) -> Option<ConnectionProfile> 
     params(("uuid" = String, Path, description = "Connection UUID")),
     responses(DeleteConnectionLegacyResponses)
 ))]
-pub async fn delete_connection_legacy(Path(uuid): Path<String>) -> DeleteConnectionLegacyResponses {
+pub(crate) async fn delete_connection_legacy(Path(uuid): Path<String>) -> DeleteConnectionLegacyResponses {
     if NetworkManagerService::get_connection_path_by_uuid(&uuid).await.is_err() {
         return fail_response("Unable to delete connection, not found").into();
     }
@@ -381,7 +381,7 @@ pub async fn delete_connection_legacy(Path(uuid): Path<String>) -> DeleteConnect
     tag = "legacy",
     responses(DeleteConnectionLegacyResponses)
 ))]
-pub async fn delete_connection_legacy_query(Query(q): Query<UuidQuery>) -> DeleteConnectionLegacyResponses {
+pub(crate) async fn delete_connection_legacy_query(Query(q): Query<UuidQuery>) -> DeleteConnectionLegacyResponses {
     let uuid = q.uuid.unwrap_or_default();
     match NetworkService::delete_connection_by_uuid(&uuid).await {
         Ok(()) => ok_response("Connection deleted").into(),
@@ -396,7 +396,7 @@ pub async fn delete_connection_legacy_query(Query(q): Query<UuidQuery>) -> Delet
     request_body = ActivateConnectionLegacyRequest,
     responses(WriteConnectionLegacyResponses)
 ))]
-pub async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
     if body.uuid.is_empty() {
         return fail_response("Missing UUID").into();
     };
@@ -429,7 +429,7 @@ pub async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegac
     tag = "legacy",
     responses(GetAccessPointsLegacyResponses)
 ))]
-pub async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) -> GetAccessPointsLegacyResponses {
+pub(crate) async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) -> GetAccessPointsLegacyResponses {
     let iface = q.interface.as_deref();
     match NetworkService::get_access_points_legacy(iface).await {
         Ok(value) => match parse_route_model::<LegacyAccessPointsResponse>(value) {
@@ -452,7 +452,7 @@ pub async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) -> GetAcc
     tag = "legacy",
     responses(PutAccessPointsLegacyResponses)
 ))]
-pub async fn put_access_points_legacy() -> PutAccessPointsLegacyResponses {
+pub(crate) async fn put_access_points_legacy() -> PutAccessPointsLegacyResponses {
     match NetworkService::request_ap_scan().await {
         Ok(_) => ok_response("Scan requested").into(),
         Err(error) => fail_response(format!("Unable to start scan request: {}", error)).into(),
@@ -465,7 +465,7 @@ pub async fn put_access_points_legacy() -> PutAccessPointsLegacyResponses {
     tag = "legacy",
     responses(GetWifiEnableLegacyResponses)
 ))]
-pub async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
+pub(crate) async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
     match NetworkService::get_wifi_status_model().await {
         Ok(value) => legacy_wifi_enable_info_response(
             ok_response("wifi enable results"),
@@ -484,7 +484,7 @@ pub async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
     params(("enable" = String, Query, description = "Desired Wi-Fi enabled state")),
     responses(PutWifiEnableLegacyResponses)
 ))]
-pub async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> PutWifiEnableLegacyResponses {
+pub(crate) async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> PutWifiEnableLegacyResponses {
     let requested_enable = q.enable.clone();
     let enabled = match requested_enable.as_deref().map(str::to_ascii_lowercase) {
         Some(value) if ["y", "yes", "t", "true", "on", "1"].contains(&value.as_str()) => true,
@@ -528,7 +528,7 @@ pub async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> PutWifiE
     tag = "legacy",
     responses(GetInterfaceLegacyResponses)
 ))]
-pub async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfaceLegacyResponses {
+pub(crate) async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfaceLegacyResponses {
     let Some(iface) = q.name.as_deref() else {
         return legacy_interface_error("no interface name provided").into();
     };
@@ -558,7 +558,7 @@ pub async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfa
     tag = "legacy",
     responses(GetInterfacesLegacyResponses)
 ))]
-pub async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
+pub(crate) async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
     match NetworkService::get_all_interfaces().await {
         Ok(names) => match parse_route_model::<Vec<String>>(names) {
             Ok(interfaces) => legacy_interfaces_response(ok_response(""), interfaces).into(),
@@ -577,7 +577,7 @@ pub async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
     tag = "legacy",
     responses(LegacyDhcpLeasesResponses)
 ))]
-pub async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -> LegacyDhcpLeasesResponses {
+pub(crate) async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -> LegacyDhcpLeasesResponses {
     let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
         return legacy_empty_dhcp_leases_response(fail_response("Invalid interface name")).into();
     };

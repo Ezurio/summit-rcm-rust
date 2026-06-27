@@ -24,25 +24,25 @@ use summit_rcm_date_time::service::{DateTimeService, DateTimeSnapshot};
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::openapi_doc;
 
-pub use summit_rcm_date_time::routes::v2::get_datetime;
+pub(crate) use summit_rcm_date_time::routes::v2::get_datetime;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetProvisioningResponses(ProvisioningStateResponse);
+    pub(crate) enum GetProvisioningResponses(ProvisioningStateResponse);
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum PutProvisioningResponses {
+    pub(crate) enum PutProvisioningResponses {
         Ok => 200,
         BadRequest => 400,
         InternalError => 500
     }
 }
 
-pub type PutClientBundleResponses = PutProvisioningResponses;
+pub(crate) type PutClientBundleResponses = PutProvisioningResponses;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ProvisioningDateTimeInfo {
+pub(crate) struct ProvisioningDateTimeInfo {
     pub zones: Vec<String>,
     pub zone: String,
     pub datetime: String,
@@ -53,7 +53,7 @@ pub struct ProvisioningDateTimeInfo {
 }
 
 summit_rcm_web::define_json_response_family! {
-    pub enum ProvisioningSetDateTimeResponses {
+    pub(crate) enum ProvisioningSetDateTimeResponses {
         Ok(ProvisioningDateTimeInfo) => 200,
         BadRequest(ProvisioningDateTimeInfo) => 400;
         Timeout => 504,
@@ -63,7 +63,7 @@ summit_rcm_web::define_json_response_family! {
 }
 
 summit_rcm_web::define_text_response_family! {
-    pub enum ProvisioningTextResponses {
+    pub(crate) enum ProvisioningTextResponses {
         Ok(String) => "text/plain";
         BadRequest => 400,
         InternalError => 500
@@ -73,7 +73,7 @@ summit_rcm_web::define_text_response_family! {
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(serde::Serialize)]
-pub struct ProvisioningStateResponse {
+pub(crate) struct ProvisioningStateResponse {
     pub state: i32,
 }
 
@@ -104,7 +104,7 @@ async fn invalid_timestamp_info(tls_info: &ClientTlsInfo) -> ProvisioningDateTim
     tag = "provisioning",
     responses(GetProvisioningResponses)
 ))]
-pub async fn get_provisioning() -> GetProvisioningResponses {
+pub(crate) async fn get_provisioning() -> GetProvisioningResponses {
     let state = CertificateProvisioningService::get_provisioning_state_async().await;
     ProvisioningStateResponse { state: state as i32 }.into()
 }
@@ -119,7 +119,7 @@ pub async fn get_provisioning() -> GetProvisioningResponses {
         ProvisioningTextResponses,
     )
 ))]
-pub async fn post_provisioning(
+pub(crate) async fn post_provisioning(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ProvisioningTextResponses {
     match create_csr_from_upload(multipart).await {
@@ -142,7 +142,7 @@ pub async fn post_provisioning(
         PutProvisioningResponses,
     )
 ))]
-pub async fn put_provisioning(
+pub(crate) async fn put_provisioning(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> PutProvisioningResponses {
     match save_uploaded_certificate(multipart).await {
@@ -162,7 +162,7 @@ pub async fn put_provisioning(
     request_body = DateTimeRequest,
     responses(ProvisioningSetDateTimeResponses)
 ))]
-pub async fn put_datetime(
+pub(crate) async fn put_datetime(
     Extension(tls_info): Extension<ClientTlsInfo>,
     Json(body): Json<DateTimeRequest>,
 ) -> ProvisioningSetDateTimeResponses {
@@ -229,7 +229,7 @@ pub async fn put_datetime(
         PutClientBundleResponses,
     )
 ))]
-pub async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleResponses {
+pub(crate) async fn put_client_bundle(mut multipart: Multipart) -> PutClientBundleResponses {
     if CertificateProvisioningService::get_provisioning_state_async().await
         != ProvisioningState::PartiallyProvisioned
     {

@@ -4,6 +4,7 @@
 //
 
 use anyhow::Result;
+use core::future::Future;
 use summit_rcm_core::dbus::DBUS_PROP_IFACE;
 use futures_util::StreamExt;
 use std::time::Duration;
@@ -46,7 +47,7 @@ impl NetworkManagerService {
     ) -> Result<()>
     where
         C: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<bool>>,
+        Fut: Future<Output = Result<bool>>,
     {
         tokio::time::timeout(NETWORK_STATE_VERIFY_TIMEOUT, async {
             loop {
@@ -139,7 +140,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn activate_connection_and_wait(
+    pub(crate) async fn activate_connection_and_wait(
         uuid: &str,
         connection_obj_path: &str,
         device_obj_path: Option<&str>,
@@ -150,7 +151,7 @@ impl NetworkManagerService {
         Self::wait_for_active_connection_state(uuid, true, &mut active_changes).await
     }
 
-    pub async fn deactivate_connection_and_wait(uuid: &str) -> Result<()> {
+    pub(crate) async fn deactivate_connection_and_wait(uuid: &str) -> Result<()> {
         let Some(active_path) = Self::get_active_connection_path_by_uuid(uuid).await? else {
             return Ok(());
         };
@@ -160,7 +161,7 @@ impl NetworkManagerService {
         Self::wait_for_active_connection_state(uuid, false, &mut active_changes).await
     }
 
-    pub async fn delete_connection_and_wait(uuid: &str) -> Result<()> {
+    pub(crate) async fn delete_connection_and_wait(uuid: &str) -> Result<()> {
         let connection_path = Self::get_connection_path_by_uuid(uuid).await?;
         Self::deactivate_connection_and_wait(uuid).await?;
 
@@ -169,7 +170,7 @@ impl NetworkManagerService {
         Self::wait_for_connection_removed(uuid, connection_path.as_str(), &mut removed_signals).await
     }
 
-    pub async fn set_wifi_enabled_and_wait(enabled: bool) -> Result<()> {
+    pub(crate) async fn set_wifi_enabled_and_wait(enabled: bool) -> Result<()> {
         let mut main_changes = Self::subscribe_to_nm_properties_changed(16).await?;
         Self::set_wifi_enabled_dbus(enabled).await?;
         Self::wait_for_wifi_enabled_state(enabled, &mut main_changes).await

@@ -144,6 +144,7 @@ impl LoginService {
         })
     }
 
+    #[cfg(feature = "api-legacy")]
     pub(crate) fn is_session_active(session_id: i128) -> bool {
         let now = current_boottime();
         let timeout = Self::session_timeout();

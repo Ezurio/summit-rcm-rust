@@ -29,7 +29,7 @@ summit_rcm_web::declare_web_api! {
 		legacy => [],
 	},
 	openapi {
-		v2 => [<routes::v2::HidApiDoc as utoipa::OpenApi>::openapi],
+		v2 => [<routes::v2::HidApiDoc as OpenApi>::openapi],
 		legacy => [],
 	},
 }

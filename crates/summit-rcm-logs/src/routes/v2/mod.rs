@@ -28,15 +28,15 @@ use log::error;
         crate::routes::v2::export_logs,
     ),
     components(schemas(
-        crate::routes::v2::LogsConfigRequest,
-        crate::routes::v2::WebserverLogLevelRequest,
+        LogsConfigRequest,
+        WebserverLogLevelRequest,
     ))
 )]
 pub(crate) struct ApiDoc;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogsDataQuery {
+pub(crate) struct LogsDataQuery {
     pub priority: Option<u8>,
     pub days: Option<u32>,
     #[serde(rename = "type")]
@@ -46,7 +46,7 @@ pub struct LogsDataQuery {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogsConfigResponse {
+pub(crate) struct LogsConfigResponse {
     #[serde(rename = "suppDebugLevel")]
     pub supp_debug_level: String,
     #[serde(rename = "driverDebugLevel")]
@@ -55,35 +55,35 @@ pub struct LogsConfigResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct WebserverLogLevelResponse {
+pub(crate) struct WebserverLogLevelResponse {
     #[serde(rename = "webserverLogLevel")]
     pub webserver_log_level: String,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogsExportRequest {
+pub(crate) struct LogsExportRequest {
     pub password: String,
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum GetLogsDataResponses(Vec<JournalLogEntry>);
+    pub(crate) enum GetLogsDataResponses(Vec<JournalLogEntry>);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetLogsConfigResponses(LogsConfigResponse);
+    pub(crate) enum GetLogsConfigResponses(LogsConfigResponse);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum SetLogsConfigResponses(LogsConfigResponse);
+    pub(crate) enum SetLogsConfigResponses(LogsConfigResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetLogsWebserverResponses(WebserverLogLevelResponse);
+    pub(crate) enum GetLogsWebserverResponses(WebserverLogLevelResponse);
 }
 
 summit_rcm_web::define_ok_bad_request_json_response_family! {
-    pub enum SetLogsWebserverResponses(WebserverLogLevelResponse);
+    pub(crate) enum SetLogsWebserverResponses(WebserverLogLevelResponse);
 }
 
 summit_rcm_web::define_zip_download_responses!(
@@ -107,7 +107,7 @@ summit_rcm_web::define_zip_download_responses!(
     ),
     responses(GetLogsDataResponses)
 ))]
-pub async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLogsDataResponses {
+pub(crate) async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLogsDataResponses {
     let priority = params.priority.unwrap_or(7);
     if priority > 7 {
         return GetLogsDataResponses::BadRequest;
@@ -130,7 +130,7 @@ pub async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLogsDataRe
     tag = "system",
     responses(GetLogsConfigResponses)
 ))]
-pub async fn get_logs_config() -> GetLogsConfigResponses {
+pub(crate) async fn get_logs_config() -> GetLogsConfigResponses {
     let supp = match LogsService::try_get_supplicant_debug_level().await {
         Ok(level) => level,
         Err(error) => {
@@ -154,7 +154,7 @@ pub async fn get_logs_config() -> GetLogsConfigResponses {
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogsConfigRequest {
+pub(crate) struct LogsConfigRequest {
     #[serde(rename = "suppDebugLevel")]
     pub supp_debug_level: String,
     #[serde(rename = "driverDebugLevel")]
@@ -168,7 +168,7 @@ pub struct LogsConfigRequest {
     request_body = LogsConfigRequest,
     responses(SetLogsConfigResponses)
 ))]
-pub async fn set_logs_config(Json(body): Json<LogsConfigRequest>) -> SetLogsConfigResponses {
+pub(crate) async fn set_logs_config(Json(body): Json<LogsConfigRequest>) -> SetLogsConfigResponses {
     let supp_level = match SupplicantLogLevel::from_str(&body.supp_debug_level) {
         Ok(l) => l,
         Err(_) => return SetLogsConfigResponses::BadRequest,
@@ -197,7 +197,7 @@ pub async fn set_logs_config(Json(body): Json<LogsConfigRequest>) -> SetLogsConf
     tag = "system",
     responses(GetLogsWebserverResponses)
 ))]
-pub async fn get_logs_webserver() -> GetLogsWebserverResponses {
+pub(crate) async fn get_logs_webserver() -> GetLogsWebserverResponses {
     WebserverLogLevelResponse {
         webserver_log_level: LogsService::get_webserver_log_level(),
     }
@@ -206,7 +206,7 @@ pub async fn get_logs_webserver() -> GetLogsWebserverResponses {
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct WebserverLogLevelRequest {
+pub(crate) struct WebserverLogLevelRequest {
     #[serde(rename = "webserverLogLevel")]
     pub webserver_log_level: String,
 }
@@ -219,7 +219,7 @@ pub struct WebserverLogLevelRequest {
     request_body = WebserverLogLevelRequest,
     responses(SetLogsWebserverResponses)
 ))]
-pub async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest>) -> SetLogsWebserverResponses {
+pub(crate) async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest>) -> SetLogsWebserverResponses {
     if !crate::logs_service::VALID_WEBSERVER_LOG_LEVELS.contains(&body.webserver_log_level.as_str()) {
         return SetLogsWebserverResponses::BadRequest;
     }
@@ -237,7 +237,7 @@ pub async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest>) -> S
     request_body = LogsExportRequest,
     responses(ExportLogsResponses)
 ))]
-pub async fn export_logs(
+pub(crate) async fn export_logs(
     body: Option<Json<LogsExportRequest>>,
 ) -> ExportLogsResponses {
     let password = body

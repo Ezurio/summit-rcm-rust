@@ -156,14 +156,14 @@ impl NetworkService {
     }
 
     #[cfg(feature = "api-v2")]
-    pub async fn get_status_model() -> Result<NetworkStatusResponse> {
+    pub(crate) async fn get_status_model() -> Result<NetworkStatusResponse> {
         Self::get_status_v2()
             .await
             .and_then(Self::decode_route_model)
     }
 
     #[cfg(feature = "api-legacy")]
-    pub async fn get_legacy_status_model() -> Result<LegacyNetworkStatusPayload> {
+    pub(crate) async fn get_legacy_status_model() -> Result<LegacyNetworkStatusPayload> {
         Self::get_status_legacy()
             .await
             .and_then(Self::decode_route_model)

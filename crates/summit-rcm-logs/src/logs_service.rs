@@ -10,6 +10,7 @@ use summit_rcm_network::service::NetworkService;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+#[cfg(any(feature = "api-v2", feature = "at-interface"))]
 use std::sync::Mutex;
 use time::format_description::FormatItem;
 use time::macros::format_description;
@@ -17,20 +18,22 @@ use time::{Duration, OffsetDateTime, UtcOffset};
 use tokio::process::Command;
 use log::error;
 
-pub const VALID_WEBSERVER_LOG_LEVELS: &[&str] =
+#[cfg(any(feature = "api-v2", feature = "at-interface"))]
+pub(crate) const VALID_WEBSERVER_LOG_LEVELS: &[&str] =
     &["critical", "error", "warning", "info", "debug", "trace"];
 
+#[cfg(any(feature = "api-v2", feature = "at-interface"))]
 static WEBSERVER_LOG_LEVEL: Mutex<&'static str> = Mutex::new("error");
 static JOURNALCTL_DAYS_SINCE_FORMAT: &[FormatItem<'static>] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
 static JOURNALCTL_LOG_ENTRY_FORMAT: &[FormatItem<'static>] =
     format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]");
 
-pub struct LogsService;
+pub(crate) struct LogsService;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct JournalLogEntry {
+pub(crate) struct JournalLogEntry {
     pub time: String,
     pub priority: String,
     pub identifier: String,
@@ -79,7 +82,7 @@ impl LogsService {
             .unwrap_or_else(|_| "Undefined".to_string())
     }
 
-    pub async fn get_journal_log_data(
+    pub(crate) async fn get_journal_log_data(
         log_type: JournalctlLogType,
         priority: u8,
         days: u32,
@@ -145,38 +148,40 @@ impl LogsService {
 
     // ---------------------------------------------------------------- supplicant
 
-    pub async fn try_get_supplicant_debug_level() -> Result<SupplicantLogLevel> {
+    pub(crate) async fn try_get_supplicant_debug_level() -> Result<SupplicantLogLevel> {
         let value = NetworkService::get_supplicant_debug_level().await?;
         SupplicantLogLevel::from_str(value.trim()).map_err(anyhow::Error::msg)
     }
 
-    pub async fn get_supplicant_debug_level() -> SupplicantLogLevel {
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub(crate) async fn get_supplicant_debug_level() -> SupplicantLogLevel {
         Self::try_get_supplicant_debug_level()
             .await
             .unwrap_or(SupplicantLogLevel::Info)
     }
 
-    pub async fn set_supplicant_debug_level(level: SupplicantLogLevel) -> Result<()> {
+    pub(crate) async fn set_supplicant_debug_level(level: SupplicantLogLevel) -> Result<()> {
         let level_str = format!("{:?}", level).to_lowercase();
         NetworkService::set_supplicant_debug_level(&level_str).await
     }
 
     // -------------------------------------------------------------- Wi-Fi driver
 
-    pub async fn try_get_wifi_driver_debug_level() -> Result<DriverLogLevel> {
+    pub(crate) async fn try_get_wifi_driver_debug_level() -> Result<DriverLogLevel> {
         Ok(match NetworkService::get_wifi_driver_debug_level().await? {
             0 => DriverLogLevel::Disabled,
             _ => DriverLogLevel::Enabled,
         })
     }
 
-    pub async fn get_wifi_driver_debug_level() -> DriverLogLevel {
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub(crate) async fn get_wifi_driver_debug_level() -> DriverLogLevel {
         Self::try_get_wifi_driver_debug_level()
             .await
             .unwrap_or(DriverLogLevel::Disabled)
     }
 
-    pub async fn set_wifi_driver_debug_level(level: DriverLogLevel) {
+    pub(crate) async fn set_wifi_driver_debug_level(level: DriverLogLevel) {
         let value = match level {
             DriverLogLevel::Disabled => 0,
             DriverLogLevel::Enabled => 1,
@@ -188,11 +193,13 @@ impl LogsService {
 
     // ------------------------------------------------------------ webserver log
 
-    pub fn get_webserver_log_level() -> String {
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub(crate) fn get_webserver_log_level() -> String {
         WEBSERVER_LOG_LEVEL.lock().unwrap().to_string()
     }
 
-    pub fn set_webserver_log_level(level: &str) {
+    #[cfg(any(feature = "api-v2", feature = "at-interface"))]
+    pub(crate) fn set_webserver_log_level(level: &str) {
         if let Some(&l) = VALID_WEBSERVER_LOG_LEVELS.iter().find(|&&l| l == level) {
             *WEBSERVER_LOG_LEVEL.lock().unwrap() = l;
         }

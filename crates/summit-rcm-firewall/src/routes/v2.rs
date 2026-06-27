@@ -14,11 +14,11 @@ use std::collections::HashSet;
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetFirewallResponses(Vec<ForwardedPort>);
+    pub(crate) enum GetFirewallResponses(Vec<ForwardedPort>);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum PutFirewallResponses(Vec<ForwardedPort>);
+    pub(crate) enum PutFirewallResponses(Vec<ForwardedPort>);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -27,7 +27,7 @@ summit_rcm_web::define_ok_internal_json_response_family! {
     tag = "firewall",
     responses(GetFirewallResponses)
 ))]
-pub async fn get_firewall() -> GetFirewallResponses {
+pub(crate) async fn get_firewall() -> GetFirewallResponses {
     FirewallService::get_forwarded_ports().await.into()
 }
 
@@ -37,7 +37,7 @@ pub async fn get_firewall() -> GetFirewallResponses {
     tag = "firewall",
     responses(PutFirewallResponses)
 ))]
-pub async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewallResponses {
+pub(crate) async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewallResponses {
     for fp in &desired {
         if !IP_VERSIONS.contains(&fp.ip_version.as_str()) {
             return PutFirewallResponses::InternalError;

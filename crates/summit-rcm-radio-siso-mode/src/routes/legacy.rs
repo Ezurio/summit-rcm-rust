@@ -14,14 +14,14 @@ use std::io::ErrorKind;
 pub(crate) use super::legacy_openapi::ApiDoc;
 
 #[derive(Deserialize)]
-pub struct SisoModeLegacyQuery {
+pub(crate) struct SisoModeLegacyQuery {
     #[serde(rename = "SISO_mode")]
     pub siso_mode: Option<String>,
 }
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacySisoModeResponse {
+pub(crate) struct LegacySisoModeResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "SISO_mode")]
@@ -29,10 +29,10 @@ pub struct LegacySisoModeResponse {
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetRadioSisoLegacyResponses(LegacySisoModeResponse);
+    pub(crate) enum GetRadioSisoLegacyResponses(LegacySisoModeResponse);
 }
 
-pub type PutRadioSisoLegacyResponses = GetRadioSisoLegacyResponses;
+pub(crate) type PutRadioSisoLegacyResponses = GetRadioSisoLegacyResponses;
 
 fn legacy_siso_mode_response(
     operation: LegacyOperationResponse,
@@ -62,7 +62,7 @@ fn has_not_found_io_error(error: &anyhow::Error) -> bool {
     tag = "radio-siso-mode",
     responses(GetRadioSisoLegacyResponses)
 ))]
-pub async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
+pub(crate) async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
     let (siso_mode, operation) = match RadioSISOModeService::get_current_siso_mode().await {
         Ok(m) => (m as i32, ok_response("")),
         Err(e) => {
@@ -89,7 +89,7 @@ pub async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
     params(("SISO_mode" = String, Query, description = "Requested SISO mode")),
     responses(PutRadioSisoLegacyResponses)
 ))]
-pub async fn put_radio_siso_mode_legacy(
+pub(crate) async fn put_radio_siso_mode_legacy(
     axum::extract::Query(q): axum::extract::Query<SisoModeLegacyQuery>,
 ) -> PutRadioSisoLegacyResponses {
     let raw = q.siso_mode.as_deref().unwrap_or_default();

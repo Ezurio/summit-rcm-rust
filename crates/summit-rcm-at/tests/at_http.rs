@@ -8,6 +8,7 @@
 // Each test starts a minimal HTTP/1.1 server on a local loopback socket and
 // drives HTTP through the serial AT interface.
 
+#[path = "support/at_test_harness.rs"]
 mod at_test_harness;
 
 use std::convert::Infallible;

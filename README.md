@@ -71,8 +71,8 @@ Additional runtime surfaces and capabilities are controlled independently:
   `network-manager`, `provisioning`, `radio-siso-mode`, `stunnel`, `system`,
   `unauthenticated`, and `update`.
 - `all-plugins` enables the full built-in plugin set.
-- `api-docs` enables generated OpenAPI output.
-- `runtime-docs` and `swagger-ui` enable hosted API documentation in the web runtime.
+- `api-docs` enables generated OpenAPI output and automatically enables `swagger-ui` so hosted docs use the in-memory OpenAPI source.
+- `swagger-ui` enables hosted API documentation in the web runtime.
 - `notifications` is the shared websocket notification transport used by
   Bluetooth websocket support.
 - `test-support` enables cross-crate testing seams used by the assembled-app
@@ -122,7 +122,7 @@ Focused validation across supported interface and parity feature sets:
 ```bash
 cargo check --features "api-v2 api-legacy at-interface" --all-targets
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"
-cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"
+cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,swagger-ui"
 cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"
 cargo check -p generate-nl80211
 ```
@@ -204,8 +204,9 @@ The generator searches for `linux/nl80211.h` under the sysroot in this order:
 
 ## OpenAPI and Swagger UI
 
-With `api-docs` enabled, the running service exposes generated OpenAPI JSON.
-With `swagger-ui` enabled, it also serves Swagger UI.
+With `swagger-ui` enabled, the running service serves `/api/openapi.json` and `/api/docs`.
+When `api-docs` is enabled, it also enables `swagger-ui`, and `/api/openapi.json` is generated from memory.
+Without `api-docs`, `/api/openapi.json` is read from `/etc/summit-rcm-openapi.json` or `SUMMIT_RCM_OPENAPI_PATH`.
 
 Generate the document without starting the server (pass the same `--features` as the target build,
 plus `api-docs`):
@@ -281,7 +282,7 @@ cargo test --test plugins --features "unauthenticated radio-siso-mode"
 # Build-graph and parity feature-matrix validation used during route/plugin migrations
 cargo check --features "api-v2 api-legacy at-interface" --all-targets
 cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins"
-cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,runtime-docs,swagger-ui"
+cargo check --bin summit-rcm --no-default-features --features "api-v2,api-legacy,all-plugins,swagger-ui"
 cargo check --bin generate_openapi --no-default-features --features "api-v2,api-legacy,all-plugins,api-docs"
 ```
 

@@ -44,6 +44,10 @@ pub enum Error {
     #[error("timed out waiting for SWUpdate install result")]
     Timeout,
 
+    /// Timed out waiting to establish a progress connection.
+    #[error("timed out connecting to SWUpdate progress socket")]
+    ProgressConnectTimeout,
+
     /// SWUpdate reported that the installation failed.
     #[error("SWUpdate reported installation failure")]
     InstallFailed,

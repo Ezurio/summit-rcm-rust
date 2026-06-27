@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-pub mod access_points;
-pub mod certificates;
-pub mod connections;
-pub mod interfaces;
-pub mod network_status;
-pub mod types;
-pub mod wifi;
+pub(crate) mod access_points;
+pub(crate) mod certificates;
+pub(crate) mod connections;
+pub(crate) mod interfaces;
+pub(crate) mod network_status;
+pub(crate) mod types;
+pub(crate) mod wifi;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
@@ -43,14 +43,14 @@ pub mod wifi;
     components(
         schemas(
             crate::routes::shared::AccessPoint,
-            crate::routes::v2::access_points::AccessPointScanAge,
-            crate::routes::v2::access_points::AccessPointScanRequested,
-            crate::routes::v2::certificates::CertificateInfoRequest,
+            access_points::AccessPointScanAge,
+            access_points::AccessPointScanRequested,
+            certificates::CertificateInfoRequest,
             crate::routes::shared::DhcpLeasesResponse,
             crate::routes::shared::Ipv4DhcpLease,
             crate::routes::shared::Ipv6DhcpLease,
-            crate::routes::v2::types::NetworkStatusResponse,
-            crate::routes::v2::wifi::WifiRequest,
+            types::NetworkStatusResponse,
+            wifi::WifiRequest,
             crate::routes::shared::WifiStatus
         )
     )

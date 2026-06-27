@@ -13,8 +13,8 @@ use summit_rcm_web::axum::Json;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
-pub type GetStunnelResponses = GetStateResponses;
-pub type PutStunnelResponses = PutStateResponses;
+pub(crate) type GetStunnelResponses = GetStateResponses;
+pub(crate) type PutStunnelResponses = PutStateResponses;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -22,7 +22,7 @@ pub type PutStunnelResponses = PutStateResponses;
     tag = "stunnel",
     responses(GetStunnelResponses)
 ))]
-pub async fn get_stunnel() -> GetStunnelResponses {
+pub(crate) async fn get_stunnel() -> GetStunnelResponses {
     let svc = StunnelService::new();
     match svc.try_get_active_state().await {
         Ok(state) => state_doc(state).into(),
@@ -37,7 +37,7 @@ pub async fn get_stunnel() -> GetStunnelResponses {
     request_body = StatePut,
     responses(PutStunnelResponses)
 ))]
-pub async fn put_stunnel(Json(body): Json<StatePut>) -> PutStunnelResponses {
+pub(crate) async fn put_stunnel(Json(body): Json<StatePut>) -> PutStunnelResponses {
     let requested = match validate_requested_state(body) {
         Ok(requested) => requested,
         Err(_) => return PutStunnelResponses::BadRequest,

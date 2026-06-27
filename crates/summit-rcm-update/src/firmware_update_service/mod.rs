@@ -21,7 +21,7 @@ const FW_UPDATE_SCRIPT: &str = "fw_update";
 // ── public types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum SummitRcmUpdateStatus {
+pub(crate) enum SummitRcmUpdateStatus {
     Updated = 0,
     Fail = 1,
     #[default]
@@ -43,16 +43,19 @@ impl TryFrom<i32> for SummitRcmUpdateStatus {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct UpdateSnapshot {
+pub(crate) struct UpdateSnapshot {
     pub status: SummitRcmUpdateStatus,
+    #[cfg(feature = "api-v2")]
     pub url: String,
+    #[cfg(feature = "api-v2")]
     pub image: String,
+    #[cfg(feature = "api-v2")]
     pub percent_complete: u32,
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UpdateStreamError {
+pub(crate) enum UpdateStreamError {
     NoUpdateInProgress = 1,
     Internal = 255,
 }
@@ -112,38 +115,40 @@ fn spawn_child_watcher(child: tokio::process::Child, label: &'static str) {
     });
 }
 
+fn latch_start_failure() {
+    let mut state = STATE.write().unwrap();
+    state.status = SummitRcmUpdateStatus::Fail;
+    state.url.clear();
+    state.image.clear();
+    state.percent_complete = 0;
+    state.update_in_progress = false;
+    state.progress_task = None;
+    state.stream_mode = None;
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
-pub struct FirmwareUpdateService;
+pub(crate) struct FirmwareUpdateService;
 
 impl FirmwareUpdateService {
-    pub fn snapshot() -> UpdateSnapshot {
+    pub(crate) fn snapshot() -> UpdateSnapshot {
         let state = STATE.read().unwrap();
         UpdateSnapshot {
             status: state.status,
+            #[cfg(feature = "api-v2")]
             url: state.url.clone(),
+            #[cfg(feature = "api-v2")]
             image: state.image.clone(),
+            #[cfg(feature = "api-v2")]
             percent_complete: state.percent_complete,
         }
     }
 
-    pub fn is_update_in_progress() -> bool {
+    pub(crate) fn is_update_in_progress() -> bool {
         STATE.read().unwrap().update_in_progress
     }
 
-    pub fn get_update_status() -> (i32, String) {
-        let state = STATE.read().unwrap();
-        let label = match state.status {
-            SummitRcmUpdateStatus::Updated => "Updated",
-            SummitRcmUpdateStatus::Fail => "Failed",
-            SummitRcmUpdateStatus::NotUpdating => "No update in progress",
-            SummitRcmUpdateStatus::Updating => "Updating...",
-        };
-        let code = state.status as i32;
-        (code, label.to_string())
-    }
-
-    pub async fn start_update(url: &str, image: &str) -> Result<()> {
+    pub(crate) async fn start_update(url: &str, image: &str) -> Result<()> {
         if STATE.read().unwrap().update_in_progress {
             return Err(anyhow!("update already in progress"));
         }
@@ -183,13 +188,18 @@ impl FirmwareUpdateService {
             state.percent_complete = 0;
         }
 
-        match stream_mode {
-            StreamMode::Url  => update_url::start(image_mode, inactive_side.as_deref(), url).await?,
-            StreamMode::Pipe => update_pipe::start(image_mode, inactive_side.as_deref()).await?,
-            StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref()).await?,
+        let start_result = match stream_mode {
+            StreamMode::Url  => update_url::start(image_mode, inactive_side.as_deref(), url).await,
+            StreamMode::Pipe => update_pipe::start(image_mode, inactive_side.as_deref()).await,
+            StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref()).await,
+        };
+
+        if let Err(error) = start_result {
+            latch_start_failure();
+            return Err(error);
         }
 
-        let abort_handle = tokio::task::spawn_local(progress::run_progress_listener()).abort_handle();
+        let abort_handle = tokio::task::spawn(progress::run_progress_listener()).abort_handle();
         let mut state = STATE.write().unwrap();
         state.update_in_progress = true;
         state.progress_task = Some(abort_handle);
@@ -198,7 +208,7 @@ impl FirmwareUpdateService {
         Ok(())
     }
 
-    pub fn cancel() {
+    pub(crate) fn cancel() {
         let (handle, mode) = {
             let mut state = STATE.write().unwrap();
             let was = state.update_in_progress;
@@ -221,7 +231,7 @@ impl FirmwareUpdateService {
         }
     }
 
-    pub async fn handle_update_stream(data: Bytes) -> std::result::Result<(), UpdateStreamError> {
+    pub(crate) async fn handle_update_stream(data: Bytes) -> Result<(), UpdateStreamError> {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
             Some(StreamMode::Pipe) => update_pipe::handle_stream(data).await,
@@ -230,7 +240,7 @@ impl FirmwareUpdateService {
         }
     }
 
-    pub async fn finish_update_stream() -> std::result::Result<(), UpdateStreamError> {
+    pub(crate) async fn finish_update_stream() -> Result<(), UpdateStreamError> {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
             Some(StreamMode::Pipe) => update_pipe::finish_stream().await,

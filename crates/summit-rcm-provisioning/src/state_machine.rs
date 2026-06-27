@@ -16,7 +16,7 @@ use std::fmt;
 
 /// Events that drive the provisioning state machine.
 #[derive(Debug, Clone, Copy)]
-pub enum Event {
+pub(crate) enum Event {
     /// A device certificate was successfully verified and installed.
     /// Valid only in `Unprovisioned`; transitions to `PartiallyProvisioned`.
     CertUploaded,
@@ -24,6 +24,7 @@ pub enum Event {
     /// A paired client bundle was successfully installed.
     /// Valid only in `PartiallyProvisioned`; no state transition, but the
     /// daemon is restarted so the new trust store takes effect.
+    #[cfg(feature = "api-v2")]
     ClientBundleUploaded,
 
     /// A manual time set succeeded. Transitions `PartiallyProvisioned` to
@@ -33,7 +34,7 @@ pub enum Event {
 
 /// Errors returned by the state machine.
 #[derive(Debug)]
-pub enum TransitionError {
+pub(crate) enum TransitionError {
     /// The event is not valid in the current state.
     WrongState {
         current: ProvisioningState,
@@ -46,14 +47,14 @@ pub enum TransitionError {
 }
 
 /// Outcome of a successful `handle` call.
-pub struct ProvisioningStateMachine;
+pub(crate) struct ProvisioningStateMachine;
 
 impl ProvisioningStateMachine {
-    pub async fn current() -> ProvisioningState {
+    pub(crate) async fn current() -> ProvisioningState {
         CertificateProvisioningService::get_provisioning_state_async().await
     }
 
-    pub async fn handle(event: Event) -> Result<(), TransitionError> {
+    pub(crate) async fn handle(event: Event) -> Result<(), TransitionError> {
         let current = Self::current().await;
         match event {
             Event::CertUploaded => {
@@ -62,6 +63,7 @@ impl ProvisioningStateMachine {
                 }
                 Self::transition_to(current, ProvisioningState::PartiallyProvisioned).await
             }
+            #[cfg(feature = "api-v2")]
             Event::ClientBundleUploaded => {
                 if current != ProvisioningState::PartiallyProvisioned {
                     return Err(TransitionError::WrongState { current, event });

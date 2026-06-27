@@ -4,24 +4,25 @@ use summit_rcm_bluetooth::service::BluetoothService;
 use summit_rcm_web::serde_json::{self, json};
 
 #[cfg(feature = "api-legacy")]
-use summit_rcm_bluetooth::routes::shared::BluetoothControllerState;
+use std::collections::BTreeMap;
+
+#[cfg(feature = "api-legacy")]
+use summit_rcm_bluetooth::routes::legacy::LegacyBluetoothControllerModel;
 
 #[cfg(feature = "api-legacy")]
 #[test]
 fn legacy_controller_state_serializes_transport_filter_under_legacy_name() {
     let payload = serde_json::to_value(
-        BluetoothControllerState {
-            controller_name: "controller0".to_string(),
-            powered: true,
-            discoverable: false,
-            discovering: true,
-            devices: vec![],
-            rssi_filter: Some(-42),
-            transport_filter: Some("le".to_string()),
-            pattern_filter: Some("ignored".to_string()),
-            matched_filters: Some(vec!["transportFilter".to_string()]),
-        }
-        .into_legacy_controllers(),
+        BTreeMap::from([(
+            "controller0".to_string(),
+            LegacyBluetoothControllerModel {
+                bluetooth_devices: Some(vec![]),
+                discovering: Some(1),
+                powered: Some(1),
+                discoverable: Some(0),
+                transport_filter: Some("le".to_string()),
+            },
+        )]),
     )
     .expect("legacy controller state should serialize");
 
@@ -39,10 +40,9 @@ fn legacy_controller_state_serializes_transport_filter_under_legacy_name() {
 #[ignore = "requires live BlueZ adapter on the system bus"]
 async fn live_bluez_discovery_command_uses_real_adapter_state() {
     let initial = serde_json::to_value(
-        BluetoothService::get_controller_state(Some("controller0"), None)
+        BluetoothService::get_controller_state_v2_response(Some("controller0"), None)
             .await
-            .expect("expected controller0 on the live BlueZ bus")
-            .into_v2_response(),
+            .expect("expected controller0 on the live BlueZ bus"),
     )
     .expect("v2 controller state should serialize");
     let controller = initial
@@ -71,10 +71,9 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
     let mut observed_discovering = false;
     for _ in 0..10 {
         let state = serde_json::to_value(
-            BluetoothService::get_controller_state(Some("controller0"), None)
+            BluetoothService::get_controller_state_v2_response(Some("controller0"), None)
                 .await
-                .expect("controller0 should remain visible while polling discovery state")
-                .into_v2_response(),
+                .expect("controller0 should remain visible while polling discovery state"),
         )
         .expect("v2 controller state should serialize");
         let controller = state

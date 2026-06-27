@@ -10,7 +10,7 @@ use summit_rcm_at::fsm::FsmHandle;
 use crate::service::DateTimeService;
 use log::error;
 
-pub async fn execute_datetime(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_datetime(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     match params.parameter_count() {
         0 => CommandOutcome::WithData(format!(
             "+DATETIME: {}",
@@ -34,7 +34,7 @@ pub async fn execute_datetime(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
     }
 }
 
-pub async fn execute_timezone_set(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_timezone_set(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let tz = params.trimmed(0);
     match DateTimeService::set_timezone(tz).await {
         Ok(_) => CommandOutcome::Ok,
@@ -45,7 +45,7 @@ pub async fn execute_timezone_set(_fsm: &FsmHandle, params: &CsvParams<'_>) -> C
     }
 }
 
-pub async fn execute_timezone_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_timezone_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     match params.parameter_count() {
         0 => CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await)),
         1 => match params.trimmed(0) {

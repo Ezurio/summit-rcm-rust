@@ -105,14 +105,14 @@ impl TryFrom<i32> for ProvisioningState {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProvisioningSaveError {
+pub(crate) enum ProvisioningSaveError {
     InvalidCertificate = 1,
     Internal = 255,
 }
 
 pub struct CertificateProvisioningService;
 
-pub use summit_rcm_web::provisioning_hook::ClientTlsInfo;
+pub(crate) use summit_rcm_web::provisioning_hook::ClientTlsInfo;
 
 impl CertificateProvisioningService {
     fn format_validity_time(datetime: UtcDateTime) -> String {
@@ -499,7 +499,7 @@ impl CertificateProvisioningService {
         }
     }
 
-    pub async fn save_certificate_file() -> std::result::Result<(), ProvisioningSaveError> {
+    pub(crate) async fn save_certificate_file() -> std::result::Result<(), ProvisioningSaveError> {
         if !path_exists(CERT_TEMP_PATH).await {
             return Err(ProvisioningSaveError::Internal);
         }
@@ -532,7 +532,8 @@ impl CertificateProvisioningService {
             })
     }
 
-    pub async fn save_paired_client_cert(
+    #[cfg(feature = "api-v2")]
+    pub(crate) async fn save_paired_client_cert(
         temp_path: &str,
     ) -> std::result::Result<(), ProvisioningSaveError> {
         if !path_exists(temp_path).await {

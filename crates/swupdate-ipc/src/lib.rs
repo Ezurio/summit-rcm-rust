@@ -130,16 +130,15 @@
 //! ## Progress updates (async)
 //!
 //! ```no_run
+//! use futures_util::StreamExt;
 //! use swupdate_ipc::r#async as swu;
 //! use swupdate_ipc::RecoveryStatus;
 //!
 //! async fn watch_progress_async() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut progress = swu::progress_connect(true).await?;
-//!     loop {
-//!         let msg = progress.receive().await?;
+//!     let mut progress = std::pin::pin!(swu::progress_stream(true));
+//!     while let Some(msg) = progress.next().await {
 //!         let percent = msg.overall_percent();
 //!         println!("progress: {percent}% image={}", msg.cur_image());
-//!
 //!         match msg.status() {
 //!             Ok(RecoveryStatus::Success) => return Ok(()),
 //!             Ok(RecoveryStatus::Failure) => {
@@ -148,6 +147,7 @@
 //!             _ => {}
 //!         }
 //!     }
+//!     Err("progress stream ended before a terminal status".into())
 //! }
 //! ```
 

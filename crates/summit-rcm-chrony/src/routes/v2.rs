@@ -11,16 +11,16 @@ use log::error;
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetNtpResponses(Vec<ChronySource>);
+    pub(crate) enum GetNtpResponses(Vec<ChronySource>);
 }
 
-pub type PutNtpResponses = GetNtpResponses;
+pub(crate) type PutNtpResponses = GetNtpResponses;
 summit_rcm_web::define_ok_not_found_internal_json_response_family! {
-    pub enum GetNtpSourceResponses(ChronySource);
+    pub(crate) enum GetNtpSourceResponses(ChronySource);
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum DeleteNtpSourceResponses {
+    pub(crate) enum DeleteNtpSourceResponses {
         Ok => 200,
         NotFound => 404,
         InternalError => 500
@@ -33,7 +33,7 @@ summit_rcm_web::define_status_response_family! {
     tag = "chrony",
     responses(GetNtpResponses)
 ))]
-pub async fn get_ntp() -> GetNtpResponses {
+pub(crate) async fn get_ntp() -> GetNtpResponses {
     match ChronyNTPService::get_sources().await {
         Ok(sources) => sources.into(),
         Err(e) => {
@@ -49,7 +49,7 @@ pub async fn get_ntp() -> GetNtpResponses {
     tag = "chrony",
     responses(PutNtpResponses)
 ))]
-pub async fn put_ntp(Json(body): Json<Vec<ChronySource>>) -> PutNtpResponses {
+pub(crate) async fn put_ntp(Json(body): Json<Vec<ChronySource>>) -> PutNtpResponses {
     let new_sources: Vec<String> = body.into_iter()
         .filter(|s| s.source_type == "static")
         .map(|s| s.address)
@@ -76,7 +76,7 @@ pub async fn put_ntp(Json(body): Json<Vec<ChronySource>>) -> PutNtpResponses {
     params(("address" = String, Path, description = "NTP source address")),
     responses(GetNtpSourceResponses)
 ))]
-pub async fn get_ntp_source(Path(address): Path<String>) -> GetNtpSourceResponses {
+pub(crate) async fn get_ntp_source(Path(address): Path<String>) -> GetNtpSourceResponses {
     match ChronyNTPService::get_source(&address).await {
         Ok(Some(src)) => src.into(),
         Ok(None) => GetNtpSourceResponses::NotFound,
@@ -91,7 +91,7 @@ pub async fn get_ntp_source(Path(address): Path<String>) -> GetNtpSourceResponse
     params(("address" = String, Path, description = "NTP source address")),
     responses(DeleteNtpSourceResponses)
 ))]
-pub async fn delete_ntp_source(Path(address): Path<String>) -> DeleteNtpSourceResponses {
+pub(crate) async fn delete_ntp_source(Path(address): Path<String>) -> DeleteNtpSourceResponses {
     match ChronyNTPService::get_source(&address).await {
         Ok(Some(source)) if source.source_type == "static" => {
             match ChronyNTPService::configure_sources(

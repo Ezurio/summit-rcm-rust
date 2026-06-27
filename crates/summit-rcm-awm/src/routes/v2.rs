@@ -13,24 +13,24 @@ use log::error;
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetAwmResponses(AwmState);
+    pub(crate) enum GetAwmResponses(AwmState);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum PutAwmResponses(AwmState);
+    pub(crate) enum PutAwmResponses(AwmState);
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct AwmState {
+pub(crate) struct AwmState {
     pub geolocation_scanning_enabled: i32,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct AwmPut {
+pub(crate) struct AwmPut {
     pub geolocation_scanning_enabled: Option<i32>,
 }
 
@@ -40,7 +40,7 @@ pub struct AwmPut {
     tag = "awm",
     responses(GetAwmResponses)
 ))]
-pub async fn get_awm() -> GetAwmResponses {
+pub(crate) async fn get_awm() -> GetAwmResponses {
     AwmState {
         geolocation_scanning_enabled: current_scan_attempts().await,
     }
@@ -54,7 +54,7 @@ pub async fn get_awm() -> GetAwmResponses {
     request_body = AwmPut,
     responses(PutAwmResponses)
 ))]
-pub async fn put_awm(Json(body): Json<AwmPut>) -> PutAwmResponses {
+pub(crate) async fn put_awm(Json(body): Json<AwmPut>) -> PutAwmResponses {
     if AwmConfigService::get_lite_mode_enabled().await
         && let Some(enable) = body.geolocation_scanning_enabled
             && let Err(error) = AwmConfigService::set_scan_attempts(enable).await {

@@ -18,7 +18,7 @@ use serde_json::Value;
 use super::super::{NetworkManagerService, NETWORK_STATUS_CACHE};
 
 impl NetworkManagerService {
-    pub async fn get_status_snapshot_raw() -> Result<Value> {
+    pub(crate) async fn get_status_snapshot_raw() -> Result<Value> {
         Self::ensure_status_cache().await?;
         Ok(NETWORK_STATUS_CACHE.read().await.clone())
     }

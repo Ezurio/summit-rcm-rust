@@ -4,10 +4,10 @@
 //
 use summit_rcm_core::config::{SummitRcmConfigManage, SystemSettingsManage};
 
-pub struct UnauthenticatedService;
+pub(crate) struct UnauthenticatedService;
 
 impl UnauthenticatedService {
-    pub fn get_allow_unauthenticated_enabled() -> bool {
+    pub(crate) fn get_allow_unauthenticated_enabled() -> bool {
         SummitRcmConfigManage::get_bool(
             SystemSettingsManage::SECTION,
             "AllowUnauthenticatedRebootReset",
@@ -15,7 +15,7 @@ impl UnauthenticatedService {
         )
     }
 
-    pub fn set_allow_unauthenticated_enabled(enabled: bool) -> bool {
+    pub(crate) fn set_allow_unauthenticated_enabled(enabled: bool) -> bool {
         SystemSettingsManage::ensure_section();
         SummitRcmConfigManage::set(
             SystemSettingsManage::SECTION,

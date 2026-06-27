@@ -19,6 +19,12 @@ public-version = "0.0.0.0"
 unsafe_code = "deny"
 unused_results = "deny"
 warnings = "deny"
+unnameable_types = "warn"
+unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
 
 [package]
 name = "summit-rcm"
@@ -189,7 +195,6 @@ api-docs = [
     "summit-rcm-unauthenticated?/api-docs",
     "summit-rcm-update?/api-docs",
 ]
-runtime-docs = ["summit-rcm-web?/runtime-docs"]
 swagger-ui = ["summit-rcm-web?/swagger-ui"]
 
 # Enables the cross-crate test-support seams (configuration overrides and the
@@ -206,7 +211,7 @@ serde_json     = "1"
 configparser   = "3"
 hex            = "0.4"
 log            = "0.4"
-env_filter     = { version = "1.0.1", default-features = false }
+env_filter     = { version = "2", default-features = false }
 systemd-journal-logger = "2.2.2"
 tracing        = "0.1.44"
 anyhow         = "1"
@@ -232,7 +237,7 @@ hyper-util     = "0.1"
 tokio-tungstenite = "0.29"
 tokio-udev = "0.10.0"
 serial2-tokio  = "0.1"
-ping           = "0.7"
+ping           = "0.8"
 ureq           = { version = "~3.3", default-features = false }
 rustix-openpty = "0.2"
 bindgen        = "0.72"

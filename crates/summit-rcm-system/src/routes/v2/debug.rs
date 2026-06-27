@@ -20,7 +20,7 @@ summit_rcm_web::define_zip_download_responses!(
     tag = "system",
     responses(ExportDebugResponses)
 ))]
-pub async fn get_debug_export() -> ExportDebugResponses {
+pub(crate) async fn get_debug_export() -> ExportDebugResponses {
     match FilesService::export_debug().await {
         Ok(archive) => archive.into(),
         Err(error) => {

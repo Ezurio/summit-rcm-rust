@@ -10,7 +10,7 @@ use summit_rcm_at::fsm::FsmHandle;
 use crate::service::{RadioSISOMode, RadioSISOModeService};
 use log::error;
 
-pub async fn execute_siso_mode(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_siso_mode(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let val = params.trimmed(0);
     if val.is_empty() {
             match RadioSISOModeService::get_current_siso_mode().await {

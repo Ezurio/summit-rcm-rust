@@ -11,21 +11,21 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-pub type SetFipsLegacyResponses = LegacyOperationOkResponse;
+pub(crate) type SetFipsLegacyResponses = LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-	pub enum GetFipsLegacyResponses(LegacyFipsStatusResponse);
+	pub(crate) enum GetFipsLegacyResponses(LegacyFipsStatusResponse);
 }
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct FipsSetBody {
+pub(crate) struct FipsSetBody {
 	pub fips: Option<String>,
 }
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyFipsStatusResponse {
+pub(crate) struct LegacyFipsStatusResponse {
 	#[serde(flatten)]
 	pub operation: LegacyOperationResponse,
 	pub status: String,
@@ -51,7 +51,7 @@ fn legacy_fips_status_response(
 	request_body = FipsSetBody,
 	responses(SetFipsLegacyResponses)
 ))]
-pub async fn set_fips_legacy(Json(body): Json<FipsSetBody>) -> SetFipsLegacyResponses {
+pub(crate) async fn set_fips_legacy(Json(body): Json<FipsSetBody>) -> SetFipsLegacyResponses {
 	let fips = match body.fips.as_deref() {
 		Some(value) if FIPS_SET_OPTIONS.contains(&value) => value.to_string(),
 		Some(value) => {
@@ -79,7 +79,7 @@ pub async fn set_fips_legacy(Json(body): Json<FipsSetBody>) -> SetFipsLegacyResp
 	tag = "fips",
 	responses(GetFipsLegacyResponses)
 ))]
-pub async fn get_fips_legacy() -> GetFipsLegacyResponses {
+pub(crate) async fn get_fips_legacy() -> GetFipsLegacyResponses {
 	let raw_status = FipsService::get_fips_state().await;
 	match raw_status {
 		"unsupported" => {

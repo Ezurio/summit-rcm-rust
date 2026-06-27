@@ -9,6 +9,7 @@ use crate::routes::shared::{
     BluetoothCommandRequest, BluetoothControlResponse, BluetoothControllerState,
     BluetoothDeviceModel, BluetoothGattOperation,
 };
+use core::{future::Future, result::Result as StdResult};
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
@@ -166,7 +167,7 @@ impl BluetoothCommandOutcome {
 }
 /// Future returned by a Bluetooth custom command callback.
 pub type BluetoothCommandFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<BluetoothCommandOutcome>> + Send + 'a>>;
+    std::pin::Pin<Box<dyn Future<Output = anyhow::Result<BluetoothCommandOutcome>> + Send + 'a>>;
 
 /// Shared callback context for a Bluetooth plugin custom command.
 pub struct BluetoothCommandContext<'a> {
@@ -459,7 +460,7 @@ impl BluetoothService {
     pub async fn get_controller_state_legacy_response(
         controller: Option<&str>,
         filters: Option<Vec<String>>,
-    ) -> anyhow::Result<std::collections::BTreeMap<String, crate::routes::legacy::LegacyBluetoothControllerModel>> {
+    ) -> anyhow::Result<BTreeMap<String, crate::routes::legacy::LegacyBluetoothControllerModel>> {
         let matched_filters = Self::validate_and_match_filters(filters)?;
         let conn = Self::get_conn().await?;
         let state = Self::get_controller_state_data_with_conn(conn.as_ref(), controller).await?;
@@ -534,7 +535,7 @@ impl BluetoothService {
     pub async fn get_device_state_typed(
         controller: &str,
         device: &str,
-    ) -> std::result::Result<BluetoothDeviceModel, BluetoothDeviceStateError> {
+    ) -> StdResult<BluetoothDeviceModel, BluetoothDeviceStateError> {
         let conn = Self::get_conn().await.map_err(|_| BluetoothDeviceStateError::Internal)?;
         let objects = Self::cached_managed_objects(conn.as_ref())
             .await

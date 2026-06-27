@@ -188,11 +188,11 @@ impl NetworkManagerService {
         Ok(())
     }
 
-    pub async fn initialize_status_cache() -> Result<()> {
+    pub(crate) async fn initialize_status_cache() -> Result<()> {
         Self::ensure_status_cache().await
     }
 
-    pub fn initialize_status_cache_in_background() {
+    pub(crate) fn initialize_status_cache_in_background() {
         if NETWORK_STATUS_INIT_STARTED.load(Ordering::Acquire) {
             return;
         }

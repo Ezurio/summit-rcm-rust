@@ -25,13 +25,13 @@ use serde::{Deserialize, Serialize};
         crate::routes::v2::set_update_status,
         crate::routes::v2::upload_update_file,
     ),
-    components(schemas(crate::routes::v2::UpdateStatusRequest))
+    components(schemas(UpdateStatusRequest))
 )]
 pub(crate) struct ApiDoc;
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize)]
-pub struct UpdateStatusRequest {
+pub(crate) struct UpdateStatusRequest {
     pub status: Option<i32>,
     pub url: Option<String>,
     pub image: Option<String>,
@@ -39,7 +39,7 @@ pub struct UpdateStatusRequest {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UpdateStatusResponse {
+pub(crate) struct UpdateStatusResponse {
     pub status: i32,
     pub url: String,
     pub image: String,
@@ -79,7 +79,7 @@ fn current_update_status() -> UpdateStatusResponse {
     tag = "system",
     responses(GetUpdateStatusResponses)
 ))]
-pub async fn get_update_status() -> GetUpdateStatusResponses {
+pub(crate) async fn get_update_status() -> GetUpdateStatusResponses {
     current_update_status().into()
 }
 
@@ -89,8 +89,9 @@ pub async fn get_update_status() -> GetUpdateStatusResponses {
     tag = "system",
     responses(SetUpdateStatusResponses)
 ))]
-pub async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpdateStatusResponses {
+pub(crate) async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpdateStatusResponses {
     let url = body.url.unwrap_or_default();
+    let image = body.image.unwrap_or_else(|| "full".to_string());
     if url.contains(' ') {
         return SetUpdateStatusResponses::BadRequest;
     }
@@ -100,13 +101,12 @@ pub async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpda
         .unwrap_or(SummitRcmUpdateStatus::NotUpdating)
     {
         SummitRcmUpdateStatus::Updating => {
-            let image = body.image.unwrap_or_else(|| "main".to_string());
+            if FirmwareUpdateService::is_update_in_progress() {
+                return SetUpdateStatusResponses::BadRequest;
+            }
             match FirmwareUpdateService::start_update(&url, &image).await {
                 Ok(_) => current_update_status().into(),
-                Err(_) => {
-                    FirmwareUpdateService::cancel();
-                    SetUpdateStatusResponses::InternalError
-                }
+                Err(_) => SetUpdateStatusResponses::InternalError
             }
         }
         SummitRcmUpdateStatus::NotUpdating => {
@@ -124,7 +124,7 @@ pub async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpda
     request_body(content = String, content_type = "application/octet-stream"),
     responses(UploadUpdateResponses)
 ))]
-pub async fn upload_update_file(req: Request<Body>) -> UploadUpdateResponses {
+pub(crate) async fn upload_update_file(req: Request<Body>) -> UploadUpdateResponses {
     let content_type = req
         .headers()
         .get("content-type")

@@ -286,7 +286,7 @@ impl NetworkManagerService {
         Ok(device_paths)
     }
 
-    pub async fn request_access_point_scan_dbus(iface: Option<&str>) -> Result<()> {
+    pub(crate) async fn request_access_point_scan_dbus(iface: Option<&str>) -> Result<()> {
         let conn = Self::system_bus().await?;
 
         for (_, device_path) in Self::get_wireless_device_paths(iface).await? {
@@ -306,7 +306,7 @@ impl NetworkManagerService {
         Ok(())
     }
 
-    pub async fn get_last_scan_millis_dbus(iface: Option<&str>) -> Result<i64> {
+    pub(crate) async fn get_last_scan_millis_dbus(iface: Option<&str>) -> Result<i64> {
         if let Some((_, device_path)) = Self::get_wireless_device_paths(iface).await?.into_iter().next() {
             let wireless_properties = Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             return Ok(dbus::property::<i64>(&wireless_properties, "LastScan").unwrap_or(-1));
@@ -315,7 +315,7 @@ impl NetworkManagerService {
         Ok(-1)
     }
 
-    pub async fn get_access_points_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
+    pub(crate) async fn get_access_points_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
         let mut access_points = Vec::new();
 
         for (interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
@@ -358,7 +358,8 @@ impl NetworkManagerService {
         Ok(access_points)
     }
 
-    pub async fn get_access_points_legacy_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
+    #[cfg(feature = "api-legacy")]
+    pub(crate) async fn get_access_points_legacy_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
         let mut access_points = Vec::new();
 
         for (interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
@@ -407,12 +408,12 @@ impl NetworkManagerService {
         Ok(access_points)
     }
 
-    pub async fn get_wifi_enabled_dbus() -> Result<bool> {
+    pub(crate) async fn get_wifi_enabled_dbus() -> Result<bool> {
         let properties = Self::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
         Ok(dbus::property::<bool>(&properties, "WirelessEnabled").unwrap_or(false))
     }
 
-    pub async fn get_wifi_radio_state_dbus() -> Result<(bool, bool)> {
+    pub(crate) async fn get_wifi_radio_state_dbus() -> Result<(bool, bool)> {
         let properties = Self::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
         Ok((
             dbus::property::<bool>(&properties, "WirelessEnabled").unwrap_or(false),
@@ -420,7 +421,7 @@ impl NetworkManagerService {
         ))
     }
 
-    pub async fn set_wifi_enabled_dbus(enabled: bool) -> Result<()> {
+    pub(crate) async fn set_wifi_enabled_dbus(enabled: bool) -> Result<()> {
         dbus::set_property_with_timeout(
             Self::system_bus().await?,
             NM_BUS_NAME,

@@ -9,7 +9,7 @@ use summit_rcm_at::commands::params::CsvParams;
 use summit_rcm_at::fsm::FsmHandle;
 use log::error;
 
-pub async fn execute_log_fwd(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_log_fwd(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let svc = crate::service::LogForwardingService::new();
     match params.parameter_count() {
         0 => {

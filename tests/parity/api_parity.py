@@ -36,7 +36,7 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 3.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
 DEFAULT_EXTENSION_BUILD_TIMEOUT_SECONDS = 90.0
 CORE_RUST_PARITY_FEATURES = ("api-v2", "api-legacy")
-RUNTIME_DOCS_RUST_FEATURES = ("runtime-docs", "swagger-ui")
+RUNTIME_DOCS_RUST_FEATURES = ("swagger-ui",)
 OPENAPI_GENERATOR_RUST_FEATURES = ("api-docs",)
 FRAMEWORK_VALIDATION_STATUSES = frozenset({400, 415, 422})
 WEBSOCKET_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -1774,8 +1774,8 @@ def compare_runtime_docs_ui(
             assert_openapi_json_response("rust", rust_openapi)
             if python_openapi.status == 404:
                 print(
-                    "INFO runtime docs parity: skipping Python runtime docs checks; "
-                    "baseline does not expose /api/openapi.json at runtime."
+                    "INFO OpenAPI docs parity: skipping Python docs checks; "
+                    "baseline does not expose /api/openapi.json."
                 )
                 return
             assert_openapi_json_response("python", python_openapi)

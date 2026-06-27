@@ -14,10 +14,10 @@ use serde::Deserialize;
 #[openapi(paths(crate::routes::legacy::put_cww_legacy))]
 pub(crate) struct ApiDoc;
 
-pub type PutCwwLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutCwwLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 #[derive(Deserialize)]
-pub struct NameQuery {
+pub(crate) struct NameQuery {
 	pub name: Option<String>,
 }
 
@@ -28,7 +28,7 @@ pub struct NameQuery {
 	params(("name" = Option<String>, Query, description = "Interface name")),
 	responses(PutCwwLegacyResponses)
 ))]
-pub async fn put_cww_legacy(Query(q): Query<NameQuery>) -> PutCwwLegacyResponses {
+pub(crate) async fn put_cww_legacy(Query(q): Query<NameQuery>) -> PutCwwLegacyResponses {
 	let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
 		return fail_response("Invalid interface name").into();
 	};

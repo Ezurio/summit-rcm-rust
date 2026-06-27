@@ -30,7 +30,7 @@ fn parse_fw_update_image(raw_image: &str) -> Option<&'static str> {
     }
 }
 
-async fn stream_fw_update_upload(length: usize) -> std::result::Result<(), UpdateStreamError> {
+async fn stream_fw_update_upload(length: usize) -> Result<(), UpdateStreamError> {
     let mut session = DataModeSession::new(FW_UPDATE_UPLOAD_TIMEOUT, Some(0x1a));
 
     let result = async {
@@ -80,7 +80,7 @@ async fn execute_fw_update_stream(length: usize, response_tag: &str) -> CommandO
     }
 }
 
-pub async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let Some(mode) = params.parse_value::<i32>(0) else {
         return CommandOutcome::Error;
     };
@@ -105,7 +105,7 @@ pub async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> 
     }
 }
 
-pub async fn execute_fw_update_send(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_fw_update_send(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let length: usize = match params.raw_input().trim().parse() {
         Ok(v) => v,
         Err(_) => return CommandOutcome::Error,
@@ -118,7 +118,7 @@ pub async fn execute_fw_update_send(_fsm: &FsmHandle, params: &CsvParams<'_>) ->
     execute_fw_update_stream(length, "+FWSEND").await
 }
 
-pub async fn execute_fw_update_send_direct(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_fw_update_send_direct(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let length: usize = match params.parse_value(0) {
         Some(v) => v,
         None => return CommandOutcome::Error,
@@ -134,8 +134,8 @@ pub async fn execute_fw_update_send_direct(_fsm: &FsmHandle, params: &CsvParams<
     }
 }
 
-pub async fn execute_fw_update_status(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
-    let (status, _msg) = FirmwareUpdateService::get_update_status();
+async fn execute_fw_update_status(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+    let status = FirmwareUpdateService::snapshot().status as i32;
     CommandOutcome::WithData(format!("+FWSTATUS: {}", status))
 }
 

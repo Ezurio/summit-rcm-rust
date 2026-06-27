@@ -1,5 +1,6 @@
 use super::*;
 use std::{
+    collections::HashMap,
     fs,
     io::{BufRead, BufReader},
     path::PathBuf,
@@ -12,6 +13,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use zbus::{connection::Builder, fdo::ObjectManager};
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 pub(super) const TEST_DEVICE_ADDRESS: &str = "AA:BB:CC:DD:EE:FF";
 
@@ -77,7 +79,7 @@ impl MockAdapter {
 
     fn set_discovery_filter(
         &self,
-        filter: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+        filter: HashMap<String, OwnedValue>,
     ) {
         let mut keys: Vec<String> = filter.keys().cloned().collect();
         keys.sort();
@@ -88,7 +90,7 @@ impl MockAdapter {
             .expect("discovery filters mutex poisoned") = keys;
     }
 
-    fn remove_device(&self, _device: zbus::zvariant::OwnedObjectPath) {
+    fn remove_device(&self, _device: OwnedObjectPath) {
         let mut device = self.state.device.lock().expect("device mutex poisoned");
         device.removed = true;
         device.connected = false;

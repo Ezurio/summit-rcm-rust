@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-pub mod interfaces;
+pub(crate) mod interfaces;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
@@ -18,11 +18,11 @@ pub mod interfaces;
     ),
     components(
         schemas(
-            crate::routes::v2::interfaces::AvailableApChannel,
-            crate::routes::v2::interfaces::InterfaceDriverInfo,
-            crate::routes::v2::interfaces::InterfaceStats,
-            crate::routes::v2::interfaces::SummitStatus,
-            crate::routes::v2::interfaces::VirtualInterfaceResponse
+            interfaces::AvailableApChannel,
+            interfaces::InterfaceDriverInfo,
+            interfaces::InterfaceStats,
+            interfaces::SummitStatus,
+            interfaces::VirtualInterfaceResponse
         )
     )
 )]

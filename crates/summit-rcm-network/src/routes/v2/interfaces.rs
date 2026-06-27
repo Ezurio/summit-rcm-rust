@@ -6,7 +6,7 @@
 //! Network interface endpoints.
 
 use crate::service::{NetworkService, RawNetworkError};
-pub use crate::types::{
+pub(crate) use crate::types::{
     AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, SummitStatus,
     VirtualInterfaceResponse,
 };
@@ -15,11 +15,11 @@ use std::collections::BTreeMap;
 use log::error;
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum PutInterfaceResponses(VirtualInterfaceResponse);
+    pub(crate) enum PutInterfaceResponses(VirtualInterfaceResponse);
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum DeleteInterfaceResponses {
+    pub(crate) enum DeleteInterfaceResponses {
         Ok => 200,
         BadRequest => 400,
         NotFound => 404,
@@ -28,23 +28,23 @@ summit_rcm_web::define_status_response_family! {
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetInterfaceStatsResponses(InterfaceStats);
+    pub(crate) enum GetInterfaceStatsResponses(InterfaceStats);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum GetInterfaceDriverInfoResponses(InterfaceDriverInfo);
+    pub(crate) enum GetInterfaceDriverInfoResponses(InterfaceDriverInfo);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetInterfaceAvailableApChannelsResponses(Vec<AvailableApChannel>);
+    pub(crate) enum GetInterfaceAvailableApChannelsResponses(Vec<AvailableApChannel>);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetStationDumpResponses(BTreeMap<String, Station>);
+    pub(crate) enum GetStationDumpResponses(BTreeMap<String, Station>);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum GetInterfaceSummitStatusResponses(SummitStatus);
+    pub(crate) enum GetInterfaceSummitStatusResponses(SummitStatus);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -54,7 +54,7 @@ summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     params(("name" = String, Path, description = "Interface name")),
     responses(PutInterfaceResponses)
 ))]
-pub async fn put_interface(Path(name): Path<String>) -> PutInterfaceResponses {
+pub(crate) async fn put_interface(Path(name): Path<String>) -> PutInterfaceResponses {
     if name != "wlan1" {
         return PutInterfaceResponses::BadRequest;
     }
@@ -80,7 +80,7 @@ pub async fn put_interface(Path(name): Path<String>) -> PutInterfaceResponses {
     params(("name" = String, Path, description = "Interface name")),
     responses(DeleteInterfaceResponses)
 ))]
-pub async fn delete_interface(Path(name): Path<String>) -> DeleteInterfaceResponses {
+pub(crate) async fn delete_interface(Path(name): Path<String>) -> DeleteInterfaceResponses {
     if name != "wlan1" {
         return DeleteInterfaceResponses::BadRequest;
     }
@@ -106,7 +106,7 @@ pub async fn delete_interface(Path(name): Path<String>) -> DeleteInterfaceRespon
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceStatsResponses)
 ))]
-pub async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsResponses {
+pub(crate) async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsResponses {
     match NetworkService::get_interface_stats(&name).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -123,7 +123,7 @@ pub async fn get_interface_stats(Path(name): Path<String>) -> GetInterfaceStatsR
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceDriverInfoResponses)
 ))]
-pub async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterfaceDriverInfoResponses {
+pub(crate) async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterfaceDriverInfoResponses {
     match NetworkService::get_interface_driver_info(&name).await {
         Ok(value) => value.into(),
         Err(RawNetworkError::InvalidInterfaceName) => GetInterfaceDriverInfoResponses::BadRequest,
@@ -141,7 +141,7 @@ pub async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterface
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceAvailableApChannelsResponses)
 ))]
-pub async fn get_interface_available_ap_channels(Path(name): Path<String>) -> GetInterfaceAvailableApChannelsResponses {
+pub(crate) async fn get_interface_available_ap_channels(Path(name): Path<String>) -> GetInterfaceAvailableApChannelsResponses {
     match NetworkService::get_interface_available_ap_channels(&name).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -158,7 +158,7 @@ pub async fn get_interface_available_ap_channels(Path(name): Path<String>) -> Ge
     params(("name" = String, Path, description = "Interface name")),
     responses(GetStationDumpResponses)
 ))]
-pub async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpResponses {
+pub(crate) async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpResponses {
     match NetworkService::get_station_dump(&name).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -175,7 +175,7 @@ pub async fn get_station_dump(Path(name): Path<String>) -> GetStationDumpRespons
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceSummitStatusResponses)
 ))]
-pub async fn get_interface_summit_status(Path(name): Path<String>) -> GetInterfaceSummitStatusResponses {
+pub(crate) async fn get_interface_summit_status(Path(name): Path<String>) -> GetInterfaceSummitStatusResponses {
     match NetworkService::get_summit_status(&name).await {
         Ok(value) => value.into(),
         Err(RawNetworkError::InterfaceNotFound) => GetInterfaceSummitStatusResponses::BadRequest,

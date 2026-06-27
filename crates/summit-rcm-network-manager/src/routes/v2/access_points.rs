@@ -13,27 +13,27 @@ use crate::service::NetworkService;
 use serde::{Deserialize, Serialize};
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum ListAccessPointsResponses(Vec<AccessPoint>);
+    pub(crate) enum ListAccessPointsResponses(Vec<AccessPoint>);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum AccessPointScanAgeResponses(AccessPointScanAge);
+    pub(crate) enum AccessPointScanAgeResponses(AccessPointScanAge);
 }
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum AccessPointScanRequestedResponses(AccessPointScanRequested);
+    pub(crate) enum AccessPointScanRequestedResponses(AccessPointScanRequested);
 }
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize, Serialize)]
-pub struct AccessPointScanAge {
+pub(crate) struct AccessPointScanAge {
     #[serde(rename = "secondsSinceLastScan")]
     pub seconds_since_last_scan: i64,
 }
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize, Serialize)]
-pub struct AccessPointScanRequested {
+pub(crate) struct AccessPointScanRequested {
     #[serde(rename = "scanRequested")]
     pub scan_requested: bool,
 }
@@ -44,7 +44,7 @@ pub struct AccessPointScanRequested {
     tag = "network",
     responses(ListAccessPointsResponses)
 ))]
-pub async fn list_access_points() -> ListAccessPointsResponses {
+pub(crate) async fn list_access_points() -> ListAccessPointsResponses {
     match NetworkService::get_access_points_model(None).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -60,7 +60,7 @@ pub async fn list_access_points() -> ListAccessPointsResponses {
     tag = "network",
     responses(AccessPointScanAgeResponses)
 ))]
-pub async fn get_access_points_scan() -> AccessPointScanAgeResponses {
+pub(crate) async fn get_access_points_scan() -> AccessPointScanAgeResponses {
     match NetworkService::get_seconds_since_last_scan().await {
         Ok(seconds_since_last_scan) => AccessPointScanAge {
             seconds_since_last_scan,
@@ -76,7 +76,7 @@ pub async fn get_access_points_scan() -> AccessPointScanAgeResponses {
     tag = "network",
     responses(AccessPointScanRequestedResponses)
 ))]
-pub async fn put_access_points_scan() -> AccessPointScanRequestedResponses {
+pub(crate) async fn put_access_points_scan() -> AccessPointScanRequestedResponses {
     match NetworkService::request_ap_scan().await {
         Ok(()) => AccessPointScanRequested { scan_requested: true }.into(),
         Err(_) => AccessPointScanRequestedResponses::InternalError,

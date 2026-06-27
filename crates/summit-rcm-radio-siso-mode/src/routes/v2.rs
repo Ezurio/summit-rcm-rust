@@ -13,24 +13,24 @@ use log::error;
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetRadioSisoResponses(SisoModeState);
+    pub(crate) enum GetRadioSisoResponses(SisoModeState);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum PutRadioSisoResponses(SisoModeState);
+    pub(crate) enum PutRadioSisoResponses(SisoModeState);
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct SisoModeState {
+pub(crate) struct SisoModeState {
     pub siso_mode: i32,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct SisoModePut {
+pub(crate) struct SisoModePut {
     pub siso_mode: i32,
 }
 
@@ -40,7 +40,7 @@ pub struct SisoModePut {
     tag = "radio-siso-mode",
     responses(GetRadioSisoResponses)
 ))]
-pub async fn get_radio_siso_mode() -> GetRadioSisoResponses {
+pub(crate) async fn get_radio_siso_mode() -> GetRadioSisoResponses {
     SisoModeState {
         siso_mode: current_mode_value().await,
     }
@@ -54,7 +54,7 @@ pub async fn get_radio_siso_mode() -> GetRadioSisoResponses {
     request_body = SisoModePut,
     responses(PutRadioSisoResponses)
 ))]
-pub async fn put_radio_siso_mode(Json(body): Json<SisoModePut>) -> PutRadioSisoResponses {
+pub(crate) async fn put_radio_siso_mode(Json(body): Json<SisoModePut>) -> PutRadioSisoResponses {
     let mode = match RadioSISOMode::try_from(body.siso_mode) {
         Ok(m) => m,
         Err(_) => return PutRadioSisoResponses::BadRequest,

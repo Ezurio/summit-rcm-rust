@@ -46,7 +46,7 @@ type Nl80211RecvHandle = NlRouterReceiverHandle<u16, Nl80211RawPayload>;
 type Nl80211RawMsg = neli::nl::Nlmsghdr<u16, Nl80211RawPayload>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Nl80211Interface {
+pub(crate) struct Nl80211Interface {
     pub ifindex: u32,
     pub wiphy: u32,
     pub name: String,
@@ -55,19 +55,19 @@ pub struct Nl80211Interface {
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AvailableApChannel {
+pub(crate) struct AvailableApChannel {
     pub channel: u32,
     pub frequency: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StationRateInfo {
+pub(crate) struct StationRateInfo {
     pub rate: Option<i64>,
     pub channel_width: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StationInfo {
+pub(crate) struct StationInfo {
     pub signal: Option<i64>,
     pub inactive: Option<i64>,
     pub connected_time: Option<i64>,
@@ -87,13 +87,13 @@ pub struct StationInfo {
     pub beacon_interval: Option<i64>,
 }
 
-pub struct Nl80211Client {
+pub(crate) struct Nl80211Client {
     router: NlRouter,
     family_id: u16,
 }
 
 impl Nl80211Client {
-    pub async fn connect() -> Result<Self> {
+    pub(crate) async fn connect() -> Result<Self> {
         let (router, _) =
             NlRouter::connect(NlFamily::Generic, None, Groups::empty()).await.map_err(|error| anyhow!(error))?;
         let family_id = router.resolve_genl_family(NL_80211_GENL_NAME).await.map_err(|error| anyhow!(error))?;
@@ -124,7 +124,7 @@ impl Nl80211Client {
         }
     }
 
-    pub async fn list_interfaces(&mut self) -> Result<Vec<Nl80211Interface>> {
+    pub(crate) async fn list_interfaces(&mut self) -> Result<Vec<Nl80211Interface>> {
         let genl = build_genl_message(
             nl80211_cmd(nl80211_commands::NL80211_CMD_GET_INTERFACE),
             GenlBuffer::new(),
@@ -185,7 +185,7 @@ impl Nl80211Client {
         Ok(interfaces)
     }
 
-    pub async fn get_interface(&mut self, ifname: &str) -> Result<Nl80211Interface> {
+    pub(crate) async fn get_interface(&mut self, ifname: &str) -> Result<Nl80211Interface> {
         self.list_interfaces()
             .await?
             .into_iter()
@@ -193,7 +193,7 @@ impl Nl80211Client {
             .ok_or_else(|| anyhow!("interface not found"))
     }
 
-    pub async fn get_reg_domain_primary(&mut self) -> Result<String> {
+    pub(crate) async fn get_reg_domain_primary(&mut self) -> Result<String> {
         let attrs = genl_buffer(vec![
             nlattr(
                 nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
@@ -233,14 +233,14 @@ impl Nl80211Client {
         bail!("primary regulatory domain not found")
     }
 
-    pub async fn get_frequency_info(&mut self, ifname: &str) -> Result<u32> {
+    pub(crate) async fn get_frequency_info(&mut self, ifname: &str) -> Result<u32> {
         self.get_interface(ifname)
             .await?
             .frequency
             .ok_or_else(|| anyhow!("interface frequency not found"))
     }
 
-    pub async fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<f64> {
+    pub(crate) async fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<f64> {
         let stations = self.get_station_dump(ifname).await?;
         stations
             .into_values()
@@ -248,7 +248,7 @@ impl Nl80211Client {
             .ok_or_else(|| anyhow!("station signal not found"))
     }
 
-    pub async fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
+    pub(crate) async fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
         let interface = self.get_interface(ifname).await?;
         let attrs = genl_buffer(vec![
             nlattr(
@@ -308,7 +308,7 @@ impl Nl80211Client {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_available_ap_channels(&mut self, ifname: &str) -> Result<Vec<AvailableApChannel>> {
+    pub(crate) async fn get_available_ap_channels(&mut self, ifname: &str) -> Result<Vec<AvailableApChannel>> {
         let interface = self.get_interface(ifname).await?;
         let mut supported = self
             .get_supported_frequencies(interface.wiphy)
@@ -336,7 +336,7 @@ impl Nl80211Client {
             .collect())
     }
 
-    pub async fn add_virtual_interface(&mut self, ifname: &str) -> Result<()> {
+    pub(crate) async fn add_virtual_interface(&mut self, ifname: &str) -> Result<()> {
         let attrs = genl_buffer(vec![
             nlattr(
                 nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
@@ -359,7 +359,7 @@ impl Nl80211Client {
         .await
     }
 
-    pub async fn remove_virtual_interface(&mut self, ifname: &str) -> Result<bool> {
+    pub(crate) async fn remove_virtual_interface(&mut self, ifname: &str) -> Result<bool> {
         let interface = match self.get_interface(ifname).await {
             Ok(interface) => interface,
             Err(_) => return Ok(false),

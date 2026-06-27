@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyConnectionProfileResponse {
+pub(crate) struct LegacyConnectionProfileResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,26 +22,26 @@ pub struct LegacyConnectionProfileResponse {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ActivateConnectionLegacyRequest {
+pub(crate) struct ActivateConnectionLegacyRequest {
     pub uuid: String,
     pub activate: i32,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyDhcpLeasesResponse {
+pub(crate) struct LegacyDhcpLeasesResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub leases: DhcpLeasesResponse,
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum LegacyDhcpLeasesResponses(LegacyDhcpLeasesResponse);
+    pub(crate) enum LegacyDhcpLeasesResponses(LegacyDhcpLeasesResponse);
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyRouteData {
+pub(crate) struct LegacyRouteData {
     pub dest: String,
     pub prefix: i64,
     #[serde(deserialize_with = "crate::routes::shared::deserialize_i64ish")]
@@ -52,7 +52,7 @@ pub struct LegacyRouteData {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkInterfaceStatus {
+pub(crate) struct LegacyNetworkInterfaceStatus {
     #[serde(rename = "State", skip_serializing_if = "Option::is_none")]
     pub state: Option<i64>,
     #[serde(rename = "StateText", skip_serializing_if = "Option::is_none")]
@@ -67,7 +67,7 @@ pub struct LegacyNetworkInterfaceStatus {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyIp4Config {
+pub(crate) struct LegacyIp4Config {
     #[serde(rename = "Addresses", skip_serializing_if = "Option::is_none")]
     pub addresses: Option<BTreeMap<String, String>>,
     #[serde(rename = "AddressData", skip_serializing_if = "Option::is_none")]
@@ -88,7 +88,7 @@ pub struct LegacyIp4Config {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyIp6Config {
+pub(crate) struct LegacyIp6Config {
     #[serde(rename = "Addresses", skip_serializing_if = "Option::is_none")]
     pub addresses: Option<BTreeMap<String, String>>,
     #[serde(rename = "AddressData", skip_serializing_if = "Option::is_none")]
@@ -109,7 +109,7 @@ pub struct LegacyIp6Config {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkInterfaceWirelessProperties {
+pub(crate) struct LegacyNetworkInterfaceWirelessProperties {
     #[serde(rename = "Bitrate", skip_serializing_if = "Option::is_none")]
     pub bitrate: Option<i64>,
     #[serde(rename = "PermHwAddress", skip_serializing_if = "Option::is_none")]
@@ -126,7 +126,7 @@ pub struct LegacyNetworkInterfaceWirelessProperties {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkInterfaceWiredProperties {
+pub(crate) struct LegacyNetworkInterfaceWiredProperties {
     #[serde(rename = "PermHwAddress", skip_serializing_if = "Option::is_none")]
     pub perm_hw_address: Option<String>,
     #[serde(rename = "Speed", skip_serializing_if = "Option::is_none")]
@@ -141,7 +141,7 @@ pub struct LegacyNetworkInterfaceWiredProperties {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyActiveAccessPoint {
+pub(crate) struct LegacyActiveAccessPoint {
     #[serde(rename = "Ssid", skip_serializing_if = "Option::is_none")]
     pub ssid: Option<String>,
     #[serde(rename = "HwAddress", skip_serializing_if = "Option::is_none")]
@@ -174,7 +174,7 @@ pub struct LegacyActiveAccessPoint {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkInterfaceResponse {
+pub(crate) struct LegacyNetworkInterfaceResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<LegacyNetworkInterfaceStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,7 +245,7 @@ pub struct LegacyNetworkInterfaceResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkStatusPayload {
+pub(crate) struct LegacyNetworkStatusPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub devices: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]

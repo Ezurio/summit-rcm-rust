@@ -10,7 +10,7 @@ use crate::routes::shared::network_status_restricted;
 use summit_rcm_web::axum;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum GetNetworkStatusResponses(NetworkStatusResponse);
+    pub(crate) enum GetNetworkStatusResponses(NetworkStatusResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -19,7 +19,7 @@ summit_rcm_web::define_ok_internal_json_response_family! {
     tag = "network",
     responses(GetNetworkStatusResponses)
 ))]
-pub async fn get_network_status() -> GetNetworkStatusResponses {
+pub(crate) async fn get_network_status() -> GetNetworkStatusResponses {
     match NetworkService::get_status_model().await {
         Ok(value) => value.into(),
         Err(error) => {

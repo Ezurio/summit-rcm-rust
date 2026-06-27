@@ -12,19 +12,20 @@ use summit_rcm_web::serde_json;
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";
-pub const FORWARDED_PORTS_FILE: &str = "/tmp/summit-rcm.ports";
-pub const ADD_PORT: &str = "addForwardPort";
-pub const REMOVE_PORT: &str = "removeForwardPort";
-pub const PORT_COMMANDS: &[&str] = &[ADD_PORT, REMOVE_PORT];
+pub(crate) const FORWARDED_PORTS_FILE: &str = "/tmp/summit-rcm.ports";
+pub(crate) const ADD_PORT: &str = "addForwardPort";
+pub(crate) const REMOVE_PORT: &str = "removeForwardPort";
+#[cfg(feature = "api-legacy")]
+pub(crate) const PORT_COMMANDS: &[&str] = &[ADD_PORT, REMOVE_PORT];
 const WIFI_INTERFACE: &str = "wlan0";
-pub const IPV4: &str = "ipv4";
-pub const IPV6: &str = "ipv6";
-pub const IP_VERSIONS: &[&str] = &[IPV4, IPV6];
+pub(crate) const IPV4: &str = "ipv4";
+pub(crate) const IPV6: &str = "ipv6";
+pub(crate) const IP_VERSIONS: &[&str] = &[IPV4, IPV6];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct ForwardedPort {
+pub(crate) struct ForwardedPort {
     pub port: u16,
     pub protocol: String,
     pub toport: String,
@@ -59,15 +60,15 @@ async fn ensure_ports_loaded() {
         .await;
 }
 
-pub struct FirewallService;
+pub(crate) struct FirewallService;
 
 impl FirewallService {
-    pub async fn get_forwarded_ports() -> Vec<ForwardedPort> {
+    pub(crate) async fn get_forwarded_ports() -> Vec<ForwardedPort> {
         ensure_ports_loaded().await;
         with_ports_read(|ports| ports.clone()).await
     }
 
-    pub async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
+    pub(crate) async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
         ensure_ports_loaded().await;
         let _interlock = PORTS_INTERLOCK.lock().await;
         let present = with_ports_read(|ports| ports.contains(&fp)).await;

@@ -18,7 +18,7 @@ pub(crate) struct ApiDoc;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogDataQuery {
+pub(crate) struct LogDataQuery {
     #[serde(rename = "type")]
     pub log_type: Option<JournalctlLogType>,
     pub priority: Option<u8>,
@@ -28,14 +28,14 @@ pub struct LogDataQuery {
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(untagged)]
-pub enum LegacyDriverDebugLevelInput {
+pub(crate) enum LegacyDriverDebugLevelInput {
     Int(i32),
     String(String),
 }
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LogVerbosityRequest {
+pub(crate) struct LogVerbosityRequest {
     #[serde(rename = "suppDebugLevel")]
     pub supp_debug_level: Option<String>,
     #[serde(rename = "driverDebugLevel")]
@@ -44,7 +44,7 @@ pub struct LogVerbosityRequest {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyLogDataResponse {
+pub(crate) struct LegacyLogDataResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,7 +55,7 @@ pub struct LegacyLogDataResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyLogVerbosityResponse {
+pub(crate) struct LegacyLogVerbosityResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "suppDebugLevel", skip_serializing_if = "Option::is_none")]
@@ -67,14 +67,14 @@ pub struct LegacyLogVerbosityResponse {
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetLogLegacyResponses(LegacyLogDataResponse);
+    pub(crate) enum GetLogLegacyResponses(LegacyLogDataResponse);
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetLogVerbosityLegacyResponses(LegacyLogVerbosityResponse);
+    pub(crate) enum GetLogVerbosityLegacyResponses(LegacyLogVerbosityResponse);
 }
 
-pub type PutLogVerbosityLegacyResponses = GetLogVerbosityLegacyResponses;
+pub(crate) type PutLogVerbosityLegacyResponses = GetLogVerbosityLegacyResponses;
 
 fn log_verbosity_response(
     operation: LegacyOperationResponse,
@@ -100,7 +100,7 @@ fn log_verbosity_error(info_msg: impl Into<String>) -> LegacyLogVerbosityRespons
     tag = "legacy",
     responses(GetLogLegacyResponses)
 ))]
-pub async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyResponses {
+pub(crate) async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyResponses {
     let log_type = q.log_type.unwrap_or(JournalctlLogType::All);
     let legacy_type_label = match log_type {
         JournalctlLogType::Kernel => "kernel",
@@ -146,7 +146,7 @@ pub async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyRespon
     tag = "legacy",
     responses(GetLogVerbosityLegacyResponses)
 ))]
-pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
+pub(crate) async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
     let mut response = log_verbosity_response(ok_response(""), None, None, None);
 
     match LogsService::try_get_supplicant_debug_level().await {
@@ -184,7 +184,7 @@ pub async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
     request_body = LogVerbosityRequest,
     responses(PutLogVerbosityLegacyResponses)
 ))]
-pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> PutLogVerbosityLegacyResponses {
+pub(crate) async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> PutLogVerbosityLegacyResponses {
     let Some(level) = body.supp_debug_level.as_deref() else {
         return log_verbosity_error("suppDebugLevel missing from JSON data").into();
     };
@@ -227,5 +227,5 @@ pub async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> 
     }
 }
 
-pub use get_log_verbosity_legacy as get_log_setting_legacy;
-pub use put_log_verbosity_legacy as put_log_setting_legacy;
+pub(crate) use get_log_verbosity_legacy as get_log_setting_legacy;
+pub(crate) use put_log_verbosity_legacy as put_log_setting_legacy;

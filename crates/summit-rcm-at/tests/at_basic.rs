@@ -3,6 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#[path = "support/at_test_harness.rs"]
 mod at_test_harness;
 
 use std::time::Duration;

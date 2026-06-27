@@ -95,7 +95,7 @@ impl BluetoothService {
             Self::call_bluez_noargs(conn, device_path, DEVICE_IFACE, "Disconnect").await?;
         }
 
-        let device_object = zbus::zvariant::OwnedObjectPath::try_from(device_path)
+        let device_object = OwnedObjectPath::try_from(device_path)
             .map_err(|error| anyhow::anyhow!("invalid device path {device_path}: {error}"))?;
         let _ = dbus::call_method(
             conn,
@@ -246,7 +246,7 @@ impl BluetoothService {
                 // type-erased seam: each device plugin parses its own params out
                 // of this JSON body.
                 let forwarded = Self::encode_command_request(body)?;
-                return (handler.handle)(crate::service::BluetoothCommandContext {
+                return (handler.handle)(BluetoothCommandContext {
                     conn,
                     objects: &objects,
                     adapter_path: adapter_path.as_str(),

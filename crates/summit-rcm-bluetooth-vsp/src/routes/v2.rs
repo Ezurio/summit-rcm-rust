@@ -18,7 +18,7 @@ use summit_rcm_web::axum::{extract::Path, Json};
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_json_response_family! {
-    pub enum GetBluetoothVspResponses {
+    pub(crate) enum GetBluetoothVspResponses {
         Ok(BluetoothVspControlResponse) => 200;
         BadRequest => 400,
         NotFound => 404,
@@ -28,7 +28,7 @@ summit_rcm_web::define_json_response_family! {
 }
 
 summit_rcm_web::define_json_response_family! {
-    pub enum PutBluetoothVspResponses {
+    pub(crate) enum PutBluetoothVspResponses {
         Ok(BluetoothVspControlResponse) => 200;
         BadRequest => 400,
         NotFound => 404,
@@ -72,7 +72,7 @@ async fn run_vsp_command(
     params(("controller" = String, Path, description = "Controller address")),
     responses(GetBluetoothVspResponses)
 ))]
-pub async fn get_bluetooth_vsp(Path(_controller): Path<String>) -> GetBluetoothVspResponses {
+pub(crate) async fn get_bluetooth_vsp(Path(_controller): Path<String>) -> GetBluetoothVspResponses {
     gatt_connections_response(list_vsp_connections().await).into()
 }
 
@@ -87,7 +87,7 @@ pub async fn get_bluetooth_vsp(Path(_controller): Path<String>) -> GetBluetoothV
     request_body = BluetoothVspCommandRequest,
     responses(PutBluetoothVspResponses)
 ))]
-pub async fn put_bluetooth_vsp(
+pub(crate) async fn put_bluetooth_vsp(
     Path((controller, device)): Path<(String, String)>,
     Json(request): Json<BluetoothVspCommandRequest>,
 ) -> PutBluetoothVspResponses {
@@ -108,7 +108,7 @@ pub async fn put_bluetooth_vsp(
     ),
     responses(PutBluetoothVspResponses)
 ))]
-pub async fn delete_bluetooth_vsp(
+pub(crate) async fn delete_bluetooth_vsp(
     Path((controller, device)): Path<(String, String)>,
 ) -> PutBluetoothVspResponses {
     run_vsp_command(&controller, Some(&device), serde_json::Map::new(), "gattDisconnect").await

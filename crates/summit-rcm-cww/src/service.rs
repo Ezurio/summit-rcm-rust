@@ -8,10 +8,10 @@ use anyhow::{Result, anyhow, bail};
 
 const CWW_PATH: &str = "/usr/bin/cww";
 
-pub struct CwwService;
+pub(crate) struct CwwService;
 
 impl CwwService {
-	pub async fn set_country_code_world_wide(name: &str) -> Result<()> {
+	pub(crate) async fn set_country_code_world_wide(name: &str) -> Result<()> {
 		if name.is_empty() {
 			bail!("invalid interface name");
 		}

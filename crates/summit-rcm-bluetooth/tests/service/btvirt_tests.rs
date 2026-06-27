@@ -5,13 +5,15 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
-    sync::{LazyLock, Mutex},
+    sync::Arc,
+    sync::LazyLock,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, bail};
 use rustix::process::geteuid;
 use summit_rcm_web::serde_json::json;
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 #[cfg(feature = "bluetooth-websocket")]
@@ -222,19 +224,16 @@ fn is_expected_live_connect_error(error: &anyhow::Error) -> bool {
     message.contains("br-connection-refused") || message.contains("le-connection-abort-by-local")
 }
 
-fn lock_live_btvirt_test_mutex() -> std::sync::MutexGuard<'static, ()> {
-    match LIVE_BTVIRT_TEST_MUTEX.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+async fn lock_live_btvirt_test_mutex() -> tokio::sync::MutexGuard<'static, ()> {
+    LIVE_BTVIRT_TEST_MUTEX.lock().await
 }
 
-async fn install_live_system_bus() -> anyhow::Result<super::test_support::TestSystemBusGuard> {
+async fn install_live_system_bus() -> anyhow::Result<test_support::TestSystemBusGuard> {
     let conn = zbus::connection::Builder::system()?
         .method_timeout(Duration::from_secs(60))
         .build()
         .await?;
-    Ok(super::test_support::install_test_system_bus(std::sync::Arc::new(conn)))
+    Ok(test_support::install_test_system_bus(Arc::new(conn)))
 }
 
 struct LoggedChild {
@@ -910,7 +909,7 @@ async fn live_btvirt_discovery_command_uses_virtual_bluez_adapter_state() {
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");
@@ -966,7 +965,7 @@ async fn live_btvirt_pair_request_pairs_discovered_virtual_device() {
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");
@@ -1038,7 +1037,7 @@ async fn live_btvirt_ble_connect_and_disconnect_toggle_connected_state() {
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");
@@ -1131,7 +1130,7 @@ async fn live_btvirt_get_conn_info_reports_real_bluez_behavior() {
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");
@@ -1233,7 +1232,7 @@ async fn live_btvirt_websocket_observers_publish_discovery_frames() {
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");
@@ -1280,7 +1279,7 @@ async fn live_btvirt_ble_gatt_read_write_and_notify_use_real_bluez_gatt_objects(
         return;
     }
 
-    let _serial = lock_live_btvirt_test_mutex();
+    let _serial = lock_live_btvirt_test_mutex().await;
     let _system_bus_guard = install_live_system_bus()
         .await
         .expect("fresh live system bus connection should install");

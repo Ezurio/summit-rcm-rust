@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyNetworkStatusResponse {
+pub(crate) struct LegacyNetworkStatusResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub status: Option<std::collections::BTreeMap<String, LegacyNetworkInterfaceResponse>>,
@@ -20,7 +20,7 @@ pub struct LegacyNetworkStatusResponse {
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetNetworkStatusLegacyResponses(LegacyNetworkStatusResponse);
+    pub(crate) enum GetNetworkStatusLegacyResponses(LegacyNetworkStatusResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -29,7 +29,7 @@ summit_rcm_web::define_ok_json_response_family! {
     tag = "legacy",
     responses(GetNetworkStatusLegacyResponses)
 ))]
-pub async fn get_network_status_legacy() -> GetNetworkStatusLegacyResponses {
+pub(crate) async fn get_network_status_legacy() -> GetNetworkStatusLegacyResponses {
     match NetworkService::get_legacy_status_model().await {
         Ok(status) => LegacyNetworkStatusResponse {
             operation: ok_response(""),

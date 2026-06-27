@@ -12,7 +12,7 @@ use crate::service::NetworkService;
 use log::error;
 use serde_json::to_string;
 
-pub async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let name = params.trimmed(0);
 
     match NetworkService::get_interface_stats(name).await {
@@ -30,7 +30,7 @@ pub async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &Csv
     }
 }
 
-pub async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let name = params.trimmed(0);
 
     match NetworkService::get_interface_driver_info(name).await {
@@ -48,7 +48,7 @@ pub async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &Cs
     }
 }
 
-pub async fn execute_network_virtual_interface(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_virtual_interface(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let name = params.trimmed(0);
     let action = params.trimmed(1);
 

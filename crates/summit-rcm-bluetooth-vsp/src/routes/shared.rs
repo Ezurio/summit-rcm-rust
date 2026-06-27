@@ -14,7 +14,7 @@ use summit_rcm_web::serde_json;
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub enum BluetoothVspWriteType {
+pub(crate) enum BluetoothVspWriteType {
     #[serde(rename = "command")]
     Command,
     #[serde(rename = "request")]
@@ -25,7 +25,7 @@ pub enum BluetoothVspWriteType {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub enum BluetoothSocketRxType {
+pub(crate) enum BluetoothSocketRxType {
     #[serde(rename = "raw")]
     Raw,
     #[serde(rename = "JSON")]
@@ -35,7 +35,7 @@ pub enum BluetoothSocketRxType {
 #[derive(Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct BluetoothVspCommandRequest {
+pub(crate) struct BluetoothVspCommandRequest {
     pub vsp_svc_uuid: Option<String>,
     pub vsp_read_chr_uuid: Option<String>,
     pub vsp_write_chr_uuid: Option<String>,
@@ -47,12 +47,12 @@ pub struct BluetoothVspCommandRequest {
 
 #[derive(Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct BluetoothVspControlResponse {
+pub(crate) struct BluetoothVspControlResponse {
     #[serde(rename = "GattConnections", skip_serializing_if = "Option::is_none")]
     pub gatt_connections: Option<Vec<BluetoothConnectionModel>>,
 }
 
-pub fn gatt_connections_response(
+pub(crate) fn gatt_connections_response(
     connections: Vec<BluetoothConnectionModel>,
 ) -> BluetoothVspControlResponse {
     BluetoothVspControlResponse {
@@ -60,7 +60,7 @@ pub fn gatt_connections_response(
     }
 }
 
-pub fn control_response_fragment(
+pub(crate) fn control_response_fragment(
     response: &BluetoothVspControlResponse,
 ) -> serde_json::Map<String, serde_json::Value> {
     match serde_json::to_value(response) {

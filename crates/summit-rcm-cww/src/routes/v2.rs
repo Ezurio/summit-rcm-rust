@@ -14,20 +14,20 @@ use log::error;
 	paths(crate::routes::v2::put_interface_cww),
 	components(
 		schemas(
-			crate::routes::v2::CwwRequest,
-			crate::routes::v2::CwwResponse
+			CwwRequest,
+			CwwResponse
 		)
 	)
 )]
 pub(crate) struct ApiDoc;
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-	pub enum PutInterfaceCwwResponses(CwwResponse);
+	pub(crate) enum PutInterfaceCwwResponses(CwwResponse);
 }
 
 #[derive(serde::Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CwwRequest {
+pub(crate) struct CwwRequest {
 	#[serde(rename = "changeToWorldWide")]
 	pub change_to_world_wide: Option<bool>,
 	#[serde(rename = "autoReboot")]
@@ -36,7 +36,7 @@ pub struct CwwRequest {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct CwwResponse {
+pub(crate) struct CwwResponse {
 	#[serde(rename = "changeToWorldWide")]
 	pub change_to_world_wide: bool,
 	#[serde(rename = "autoReboot")]
@@ -51,7 +51,7 @@ pub struct CwwResponse {
 	request_body = CwwRequest,
 	responses(PutInterfaceCwwResponses)
 ))]
-pub async fn put_interface_cww(
+pub(crate) async fn put_interface_cww(
 	Path(name): Path<String>,
 	Json(body): Json<CwwRequest>,
 ) -> PutInterfaceCwwResponses {

@@ -11,7 +11,7 @@ use crate::{DriverLogLevel, JournalctlLogType, SupplicantLogLevel};
 use std::str::FromStr;
 use log::error;
 
-pub async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let log_type = JournalctlLogType::from_str(params.trimmed(0)).unwrap_or(JournalctlLogType::All);
     let priority: u8 = params.parse_or::<u8>(1, 6);
     let days: u32 = params.parse_or::<u32>(2, 1);
@@ -43,7 +43,7 @@ fn supplicant_level_str(level: SupplicantLogLevel) -> &'static str {
     }
 }
 
-pub async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     match params.parameter_count() {
         0 => {
             let sup = crate::LogsService::get_supplicant_debug_level().await;

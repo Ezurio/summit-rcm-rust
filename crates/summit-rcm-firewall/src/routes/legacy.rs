@@ -13,7 +13,7 @@ pub(crate) use super::legacy_openapi::ApiDoc;
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyForwardedPortResponse {
+pub(crate) struct LegacyForwardedPortResponse {
     pub port: u16,
     pub protocol: String,
     pub toport: String,
@@ -23,7 +23,7 @@ pub struct LegacyForwardedPortResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyFirewallListResponse {
+pub(crate) struct LegacyFirewallListResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "Forward")]
@@ -31,10 +31,10 @@ pub struct LegacyFirewallListResponse {
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetFirewallLegacyResponses(LegacyFirewallListResponse);
+    pub(crate) enum GetFirewallLegacyResponses(LegacyFirewallListResponse);
 }
 
-pub type PutFirewallLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutFirewallLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortResponse {
     LegacyForwardedPortResponse {
@@ -52,7 +52,7 @@ fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortRes
     tag = "firewall",
     responses(GetFirewallLegacyResponses)
 ))]
-pub async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
+pub(crate) async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
     let ports = FirewallService::get_forwarded_ports()
         .await
         .into_iter()
@@ -72,13 +72,13 @@ pub async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
     params(("command" = String, Path, description = "Firewall command")),
     responses(GetFirewallLegacyResponses)
 ))]
-pub async fn get_firewall_legacy_with_command(Path(_command): Path<String>) -> GetFirewallLegacyResponses {
+pub(crate) async fn get_firewall_legacy_with_command(Path(_command): Path<String>) -> GetFirewallLegacyResponses {
     get_firewall_legacy().await
 }
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyForwardedPort {
+pub(crate) struct LegacyForwardedPort {
     pub port: u16,
     pub protocol: String,
     pub toport: String,
@@ -94,7 +94,7 @@ pub struct LegacyForwardedPort {
     request_body = LegacyForwardedPort,
     responses(PutFirewallLegacyResponses)
 ))]
-pub async fn put_firewall_legacy(
+pub(crate) async fn put_firewall_legacy(
     Path(command): Path<String>,
     Json(body): Json<LegacyForwardedPort>,
 ) -> PutFirewallLegacyResponses {
@@ -136,6 +136,6 @@ pub async fn put_firewall_legacy(
     request_body = LegacyForwardedPort,
     responses(PutFirewallLegacyResponses)
 ))]
-pub async fn put_firewall_legacy_default(Json(_body): Json<LegacyForwardedPort>) -> PutFirewallLegacyResponses {
+pub(crate) async fn put_firewall_legacy_default(Json(_body): Json<LegacyForwardedPort>) -> PutFirewallLegacyResponses {
     fail_response("No command specified").into()
 }

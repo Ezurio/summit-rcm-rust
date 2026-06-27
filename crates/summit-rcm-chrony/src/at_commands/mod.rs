@@ -11,7 +11,7 @@ use crate::service::{ChronyNTPService, SourceCommand};
 use std::fmt::Write as _;
 use log::error;
 
-pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let command = params.trimmed(0).to_string();
     let sources: Vec<String> = params
         .iter_parameters()
@@ -32,7 +32,7 @@ pub async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
     }
 }
 
-pub async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let scope = match params.parameter_count() {
         0 => "-1",
         1 => params.trimmed(0),

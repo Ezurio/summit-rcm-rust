@@ -97,11 +97,11 @@ use self::provisioning_hook::{
 use self::pkcs11::convert_pkcs11_uri_to_pem;
 use summit_rcm_core::utils::{path_exists_sync, random_token_hex};
 
-#[cfg(feature = "runtime-docs")]
+#[cfg(all(feature = "swagger-ui", not(feature = "api-docs")))]
 const OPENAPI_DOC_PATH: &str = "/etc/summit-rcm-openapi.json";
 
-#[cfg(feature = "runtime-docs")]
-fn runtime_openapi_doc_path() -> String {
+#[cfg(all(feature = "swagger-ui", not(feature = "api-docs")))]
+fn stored_openapi_doc_path() -> String {
     std::env::var("SUMMIT_RCM_OPENAPI_PATH").unwrap_or_else(|_| OPENAPI_DOC_PATH.to_string())
 }
 
@@ -161,24 +161,33 @@ async fn index() -> impl IntoResponse {
     "Summit RCM"
 }
 
-#[cfg(feature = "runtime-docs")]
-async fn load_runtime_openapi_doc() -> anyhow::Result<serde_json::Value> {
-    let openapi_doc = summit_rcm_core::utils::read_text(runtime_openapi_doc_path()).await?;
-    Ok(serde_json::from_str(&openapi_doc)?)
-}
-
-#[cfg(feature = "api-docs")]
-fn load_compiled_openapi_doc() -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(self::openapi::build_openapi())?)
-}
-
-#[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-async fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
-    #[cfg(feature = "runtime-docs")]
-    match load_runtime_openapi_doc().await {
-        Ok(openapi_doc) => return Some(openapi_doc),
+#[cfg(all(feature = "swagger-ui", feature = "api-docs"))]
+async fn load_openapi_doc() -> Option<serde_json::Value> {
+    match serde_json::to_value(&*self::openapi::OPENAPI_DOC) {
+        Ok(openapi_doc) => Some(openapi_doc),
         Err(error) => {
-            let openapi_doc_path = runtime_openapi_doc_path();
+            warn!("Compiled OpenAPI spec unavailable: {}", error);
+            None
+        }
+    }
+}
+
+#[cfg(all(feature = "swagger-ui", not(feature = "api-docs")))]
+async fn load_openapi_doc() -> Option<serde_json::Value> {
+    let openapi_doc_path = stored_openapi_doc_path();
+
+    match summit_rcm_core::utils::read_text(&openapi_doc_path).await {
+        Ok(openapi_doc) => match serde_json::from_str(&openapi_doc) {
+            Ok(openapi_doc) => return Some(openapi_doc),
+            Err(error) => {
+                warn!(
+                    "OpenAPI spec file invalid ({}): {}",
+                    openapi_doc_path,
+                    error
+                );
+            }
+        },
+        Err(error) => {
             warn!(
                 "OpenAPI spec file unavailable ({}): {}",
                 openapi_doc_path,
@@ -187,20 +196,14 @@ async fn load_openapi_doc_for_runtime() -> Option<serde_json::Value> {
         }
     }
 
-    #[cfg(feature = "api-docs")]
-    match load_compiled_openapi_doc() {
-        Ok(openapi_doc) => return Some(openapi_doc),
-        Err(error) => {
-            warn!("Compiled OpenAPI spec unavailable: {}", error);
-        }
-    }
-
     None
 }
 
-#[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-async fn add_runtime_docs_routes(base_router: Router) -> Router {
-    let openapi_doc = match load_openapi_doc_for_runtime().await {
+#[cfg(feature = "swagger-ui")]
+async fn add_openapi_docs_routes(base_router: Router) -> Router {
+    // Resolve the OpenAPI document once during startup and reuse that cached
+    // JSON for every request handler invocation.
+    let openapi_doc = match load_openapi_doc().await {
         Some(openapi_doc) => openapi_doc,
         None => {
             return base_router.route("/", get(index));
@@ -639,10 +642,10 @@ pub fn build_router() -> Router {
 pub async fn run(shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<()> {
     let app = build_router();
 
-    #[cfg(any(feature = "runtime-docs", feature = "api-docs"))]
-    let app = add_runtime_docs_routes(app).await;
+    #[cfg(feature = "swagger-ui")]
+    let app = add_openapi_docs_routes(app).await;
 
-    #[cfg(not(any(feature = "runtime-docs", feature = "api-docs")))]
+    #[cfg(not(feature = "swagger-ui"))]
     let app = app.route("/", get(index));
 
     let bind_addr = std::env::var("SUMMIT_RCM_BIND").unwrap_or_else(|_| default_bind_addr());

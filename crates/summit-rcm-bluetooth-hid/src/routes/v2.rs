@@ -18,7 +18,7 @@ use summit_rcm_web::axum::{extract::Path, Json};
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_json_response_family! {
-    pub enum GetBluetoothHidResponses {
+    pub(crate) enum GetBluetoothHidResponses {
         Ok(BluetoothHidControlResponse) => 200;
         BadRequest => 400,
         NotFound => 404,
@@ -28,7 +28,7 @@ summit_rcm_web::define_json_response_family! {
 }
 
 summit_rcm_web::define_json_response_family! {
-    pub enum PutBluetoothHidResponses {
+    pub(crate) enum PutBluetoothHidResponses {
         Ok(BluetoothHidControlResponse) => 200;
         BadRequest => 400,
         NotFound => 404,
@@ -72,7 +72,7 @@ async fn run_hid_command(
     params(("controller" = String, Path, description = "Controller address")),
     responses(GetBluetoothHidResponses)
 ))]
-pub async fn get_bluetooth_hid(Path(_controller): Path<String>) -> GetBluetoothHidResponses {
+pub(crate) async fn get_bluetooth_hid(Path(_controller): Path<String>) -> GetBluetoothHidResponses {
     hid_connections_response(list_hid_connections().await).into()
 }
 
@@ -87,10 +87,14 @@ pub async fn get_bluetooth_hid(Path(_controller): Path<String>) -> GetBluetoothH
     request_body = BluetoothHidCommandRequest,
     responses(PutBluetoothHidResponses)
 ))]
-pub async fn put_bluetooth_hid(
+pub(crate) async fn put_bluetooth_hid(
     Path((controller, device)): Path<(String, String)>,
     Json(request): Json<BluetoothHidCommandRequest>,
 ) -> PutBluetoothHidResponses {
+    if request.tcp_port.is_none() {
+        return PutBluetoothHidResponses::BadRequest;
+    }
+
     let body = match serde_json::to_value(&request) {
         Ok(serde_json::Value::Object(map)) => map,
         _ => serde_json::Map::new(),
@@ -108,7 +112,7 @@ pub async fn put_bluetooth_hid(
     ),
     responses(PutBluetoothHidResponses)
 ))]
-pub async fn delete_bluetooth_hid(
+pub(crate) async fn delete_bluetooth_hid(
     Path((controller, device)): Path<(String, String)>,
 ) -> PutBluetoothHidResponses {
     run_hid_command(&controller, Some(&device), serde_json::Map::new(), "hidDisconnect").await

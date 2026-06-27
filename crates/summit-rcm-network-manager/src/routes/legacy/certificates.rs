@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetCertificatesLegacyResponses(LegacyCertificateInfoResponse);
+    pub(crate) enum GetCertificatesLegacyResponses(LegacyCertificateInfoResponse);
 }
 
 #[derive(Deserialize)]
-pub struct CertificateInfoQuery {
+pub(crate) struct CertificateInfoQuery {
     pub name: Option<String>,
     pub password: Option<String>,
 }
@@ -23,14 +23,14 @@ pub struct CertificateInfoQuery {
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(untagged)]
-pub enum LegacyCertificateInfoField {
+pub(crate) enum LegacyCertificateInfoField {
     Detailed(CertificateInfo),
     Empty(BTreeMap<String, String>),
 }
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyCertificateInfoResponse {
+pub(crate) struct LegacyCertificateInfoResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,7 +47,7 @@ pub struct LegacyCertificateInfoResponse {
     tag = "legacy",
     responses(GetCertificatesLegacyResponses)
 ))]
-pub async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> GetCertificatesLegacyResponses {
+pub(crate) async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> GetCertificatesLegacyResponses {
     if let Some(name) = q.name.as_deref().filter(|name| !name.is_empty()) {
         return match CertificatesService::get_cert_info_model(name, q.password.as_deref()).await {
             Ok(cert_info) => LegacyCertificateInfoResponse {

@@ -4,7 +4,12 @@
 //
 
 use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationOkResponse, LegacyOperationResponse};
+use std::sync::LazyLock;
 use crate::service::{ChronyNTPService, ChronySource, SourceCommand};
+
+const SOURCE_COMMAND_NAMES: [&str; 3] = ["addSource", "removeSource", "overrideSources"];
+static SOURCE_COMMAND_DISPLAY_NAMES: LazyLock<String> =
+    LazyLock::new(|| format!("['{}']", SOURCE_COMMAND_NAMES.join("', '")));
 use serde::{Deserialize, Serialize};
 use summit_rcm_web::axum::{extract::Path, Json};
 
@@ -13,7 +18,7 @@ pub(crate) use super::legacy_openapi::ApiDoc;
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyChronySourcesResponse {
+pub(crate) struct LegacyChronySourcesResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub sources: Vec<ChronySource>,
@@ -21,15 +26,15 @@ pub struct LegacyChronySourcesResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyChronyCommandRequest {
+pub(crate) struct LegacyChronyCommandRequest {
     pub sources: Vec<String>,
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetNtpLegacyResponses(LegacyChronySourcesResponse);
+    pub(crate) enum GetNtpLegacyResponses(LegacyChronySourcesResponse);
 }
 
-pub type PutNtpLegacyResponses = LegacyOperationOkResponse;
+pub(crate) type PutNtpLegacyResponses = LegacyOperationOkResponse;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -37,7 +42,7 @@ pub type PutNtpLegacyResponses = LegacyOperationOkResponse;
     tag = "chrony",
     responses(GetNtpLegacyResponses)
 ))]
-pub async fn get_ntp_legacy() -> GetNtpLegacyResponses {
+pub(crate) async fn get_ntp_legacy() -> GetNtpLegacyResponses {
     match ChronyNTPService::get_sources().await {
         Ok(sources) => LegacyChronySourcesResponse { operation: ok_response(""), sources }.into(),
         Err(e) => LegacyChronySourcesResponse {
@@ -55,7 +60,7 @@ pub async fn get_ntp_legacy() -> GetNtpLegacyResponses {
     params(("command" = String, Path, description = "NTP command")),
     responses(GetNtpLegacyResponses)
 ))]
-pub async fn get_ntp_legacy_with_command(Path(_command): Path<String>) -> GetNtpLegacyResponses {
+pub(crate) async fn get_ntp_legacy_with_command(Path(_command): Path<String>) -> GetNtpLegacyResponses {
     get_ntp_legacy().await
 }
 
@@ -66,7 +71,7 @@ pub async fn get_ntp_legacy_with_command(Path(_command): Path<String>) -> GetNtp
     request_body = LegacyChronyCommandRequest,
     responses(PutNtpLegacyResponses)
 ))]
-pub async fn put_ntp_legacy_default(Json(_body): Json<LegacyChronyCommandRequest>) -> PutNtpLegacyResponses {
+pub(crate) async fn put_ntp_legacy_default(Json(_body): Json<LegacyChronyCommandRequest>) -> PutNtpLegacyResponses {
     fail_response("No command specified").into()
 }
 
@@ -78,7 +83,7 @@ pub async fn put_ntp_legacy_default(Json(_body): Json<LegacyChronyCommandRequest
     request_body = LegacyChronyCommandRequest,
     responses(PutNtpLegacyResponses)
 ))]
-pub async fn put_ntp_legacy(
+pub(crate) async fn put_ntp_legacy(
     Path(command): Path<String>,
     Json(body): Json<LegacyChronyCommandRequest>,
 ) -> PutNtpLegacyResponses {
@@ -87,7 +92,7 @@ pub async fn put_ntp_legacy(
         Err(_) => return fail_response(format!(
             "supplied parameter 'command' value {} must be one of {}, ",
             command,
-            SourceCommand::display_names(),
+            SOURCE_COMMAND_DISPLAY_NAMES.as_str(),
         ))
         .into(),
     };

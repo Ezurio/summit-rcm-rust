@@ -19,13 +19,13 @@ fn sessions_enabled() -> bool {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyDefinitionsSettings {
+pub(crate) struct LegacyDefinitionsSettings {
     pub session_timeout: i64,
 }
 
 #[derive(Clone, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyPermissionDefinitions {
+pub(crate) struct LegacyPermissionDefinitions {
     #[serde(rename = "UserPermissionTypes")]
     pub user_permission_types: Vec<String>,
     #[serde(rename = "UserPermissionAttrs")]
@@ -34,7 +34,7 @@ pub struct LegacyPermissionDefinitions {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyDefinitionsPayload {
+pub(crate) struct LegacyDefinitionsPayload {
     #[serde(rename = "SDCERR")]
     pub sdcerr: legacy::LegacySdcerrDefinitions,
     #[serde(rename = "PERMISSIONS")]
@@ -51,7 +51,7 @@ pub struct LegacyDefinitionsPayload {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyDefinitionsResponse {
+pub(crate) struct LegacyDefinitionsResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "Definitions")]
@@ -163,7 +163,7 @@ fn permissions() -> LegacyPermissionDefinitions {
     tag = "legacy",
     responses(GetDefinitionsLegacyResponses)
 ))]
-pub async fn get_definitions() -> GetDefinitionsLegacyResponses {
+pub(crate) async fn get_definitions() -> GetDefinitionsLegacyResponses {
     let session_timeout = if sessions_enabled() {
         SystemSettingsManage::get_int("session_timeout", 10)
     } else {

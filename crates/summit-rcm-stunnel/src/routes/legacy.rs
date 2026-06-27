@@ -13,9 +13,9 @@ use summit_rcm_web::axum::Json;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-pub type GetStunnelLegacyResponses = LegacyStateResponses;
+pub(crate) type GetStunnelLegacyResponses = LegacyStateResponses;
 
-pub type PutStunnelLegacyResponses = GetStunnelLegacyResponses;
+pub(crate) type PutStunnelLegacyResponses = GetStunnelLegacyResponses;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
@@ -24,7 +24,7 @@ pub type PutStunnelLegacyResponses = GetStunnelLegacyResponses;
     request_body = StatePut,
     responses(PutStunnelLegacyResponses)
 ))]
-pub async fn put_stunnel_legacy(Json(body): Json<StatePut>) -> PutStunnelLegacyResponses {
+pub(crate) async fn put_stunnel_legacy(Json(body): Json<StatePut>) -> PutStunnelLegacyResponses {
     let requested = match validate_requested_state(body) {
         Ok(requested) => requested,
         Err(_) => {
@@ -58,7 +58,7 @@ pub async fn put_stunnel_legacy(Json(body): Json<StatePut>) -> PutStunnelLegacyR
     tag = "stunnel",
     responses(GetStunnelLegacyResponses)
 ))]
-pub async fn get_stunnel_legacy() -> GetStunnelLegacyResponses {
+pub(crate) async fn get_stunnel_legacy() -> GetStunnelLegacyResponses {
     let svc = StunnelService::new();
     match svc.try_get_active_state_legacy().await {
         Ok(state) => legacy_state_model(state, "Could not retrieve stunnel state").into(),

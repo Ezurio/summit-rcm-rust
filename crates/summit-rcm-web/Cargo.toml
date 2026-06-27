@@ -16,8 +16,7 @@ api-legacy = []
 # Application-wide websocket notification channel (payload-agnostic transport).
 notifications = ["axum/ws"]
 api-docs = ["dep:utoipa"]
-runtime-docs = []
-swagger-ui = ["runtime-docs"]
+swagger-ui = []
 
 [dependencies]
 summit-rcm-core = { path = "../summit-rcm-core" }

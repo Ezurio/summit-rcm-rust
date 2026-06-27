@@ -26,7 +26,7 @@ summit_rcm_web::define_zip_download_responses!(
     }
 );
 summit_rcm_web::define_status_response_family! {
-    pub enum ImportConfigResponses {
+    pub(crate) enum ImportConfigResponses {
         Ok => 200,
         BadRequest => 400,
         InternalError => 500
@@ -35,13 +35,13 @@ summit_rcm_web::define_status_response_family! {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ConfigExportRequest {
+pub(crate) struct ConfigExportRequest {
     pub password: String,
 }
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ConfigImportRequest {
+pub(crate) struct ConfigImportRequest {
     #[cfg_attr(feature = "api-docs", schema(value_type = String, format = Binary))]
     pub archive: Vec<u8>,
     pub password: String,
@@ -54,7 +54,7 @@ pub struct ConfigImportRequest {
     request_body = ConfigExportRequest,
     responses(ExportConfigResponses)
 ))]
-pub async fn export_config(
+pub(crate) async fn export_config(
     body: Option<axum::extract::Json<ConfigExportRequest>>,
 ) -> ExportConfigResponses {
     let password = body
@@ -123,7 +123,7 @@ async fn import_config_zip(multipart: Result<Multipart, MultipartRejection>) -> 
     request_body(content = ConfigImportRequest, content_type = "multipart/form-data"),
     responses(ImportConfigResponses)
 ))]
-pub async fn import_config_zip_put(multipart: Result<Multipart, MultipartRejection>) -> ImportConfigResponses {
+pub(crate) async fn import_config_zip_put(multipart: Result<Multipart, MultipartRejection>) -> ImportConfigResponses {
     import_config_zip(multipart).await
 }
 

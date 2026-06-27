@@ -14,14 +14,14 @@ use log::error;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct PowerStateRequest {
+pub(crate) struct PowerStateRequest {
     #[cfg_attr(feature = "api-docs", schema(value_type = PowerState))]
     pub state: String,
 }
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct PowerStateResponse {
+pub(crate) struct PowerStateResponse {
     pub state: PowerState,
 }
 
@@ -39,9 +39,9 @@ summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     tag = "system",
     responses(GetPowerResponses)
 ))]
-pub async fn get_power() -> GetPowerResponses {
+pub(crate) async fn get_power() -> GetPowerResponses {
     PowerStateResponse {
-        state: crate::SystemService::power_state(),
+        state: SystemService::power_state(),
     }
     .into()
 }
@@ -53,7 +53,7 @@ pub async fn get_power() -> GetPowerResponses {
     request_body = PowerStateRequest,
     responses(SetPowerResponses)
 ))]
-pub async fn set_power(Json(body): Json<PowerStateRequest>) -> SetPowerResponses {
+pub(crate) async fn set_power(Json(body): Json<PowerStateRequest>) -> SetPowerResponses {
     let desired: PowerState = match body.state.parse() {
         Ok(s) => s,
         Err(_) => return SetPowerResponses::BadRequest,

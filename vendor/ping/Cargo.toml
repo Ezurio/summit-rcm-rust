@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "ping"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["AN Long <aisk1988@gmail.com>"]
 build = false
 autolib = false

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyVersionResponse {
+pub(crate) struct LegacyVersionResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -46,7 +46,7 @@ summit_rcm_web::define_ok_json_response_family! {
     tag = "legacy",
     responses(GetVersionLegacyResponses)
 ))]
-pub async fn get_version_legacy() -> GetVersionLegacyResponses {
+pub(crate) async fn get_version_legacy() -> GetVersionLegacyResponses {
     match VersionService::get_version_info().await {
         Ok(VersionInfo {
             summit_rcm,

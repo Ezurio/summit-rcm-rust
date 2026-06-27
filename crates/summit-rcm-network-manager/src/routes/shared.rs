@@ -7,7 +7,7 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use summit_rcm_web::serde_json;
 
-pub fn parse_route_model<T>(value: serde_json::Value) -> Result<T, serde_json::Error>
+pub(crate) fn parse_route_model<T>(value: serde_json::Value) -> Result<T, serde_json::Error>
 where
     T: DeserializeOwned,
 {
@@ -16,7 +16,7 @@ where
 
 /// Serde `skip_serializing_if` predicate shared by NetworkManager response
 /// schemas (used by [`WifiStatus`]).
-pub fn is_zero(value: &i32) -> bool {
+pub(crate) fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 

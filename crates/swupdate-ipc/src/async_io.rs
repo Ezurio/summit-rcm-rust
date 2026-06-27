@@ -8,7 +8,6 @@
 //! `tokio::net::UnixStream`. The wire protocol is identical; only the I/O model
 //! differs.
 
-use std::ffi::c_char;
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -26,7 +25,15 @@ use crate::proto::{
 use crate::socket::{ctrl_socket_path, progress_socket_path};
 
 const PROGRESS_ACK_TIMEOUT: Duration = Duration::from_secs(5);
-const PROGRESS_RECONNECT_DELAY: Duration = Duration::from_millis(10);
+const PROGRESS_RECONNECT_DELAY: Duration = Duration::from_millis(500);
+const PROGRESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Delay between control-socket status polls in [`await_install_result`].
+///
+/// SWUpdate closes the control socket after each `GET_STATUS` reply, so every
+/// poll must reopen it. This interval keeps that overhead bounded instead of
+/// reopening the socket back-to-back.
+const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 async fn connect_ctrl() -> Result<UnixStream> {
     Ok(UnixStream::connect(ctrl_socket_path()).await?)
@@ -74,6 +81,21 @@ impl InstallConn {
     /// Consumes the connection and returns the raw stream for direct streaming.
     pub fn into_stream(self) -> UnixStream {
         self.stream
+    }
+
+    /// Streams an entire async source into SWUpdate, then flushes and closes
+    /// the connection.
+    ///
+    /// The transfer runs through a single [`tokio::io::copy`] loop, so the
+    /// caller hands off the whole image in one call instead of writing it block
+    /// by block. This is the most efficient path when the firmware is already
+    /// available as an [`AsyncRead`](tokio::io::AsyncRead) (e.g. a file).
+    pub async fn send_from<R>(mut self, mut src: R) -> Result<()>
+    where
+        R: tokio::io::AsyncRead + Unpin,
+    {
+        tokio::io::copy(&mut src, &mut self.stream).await?;
+        self.end().await
     }
 }
 
@@ -131,26 +153,28 @@ pub async fn get_status_timeout(duration: Duration) -> Result<Option<IpcMessage>
 /// Waits for a terminal SWUpdate install result within `timeout`, using the
 /// control status socket.
 ///
-/// Polls `get_status_timeout` in a loop and guards against acting on stale
-/// `Success`/`Failure` state left over from a previous install by tracking:
-///
-/// - **`seen_active`** — set when any in-progress status (`Start`, `Run`,
-///   `Download`, `Progress`, `Done`, `Subprocess`) is observed.
-/// - **`changed_since_start`** — true when `(current, last_result)` differs
-///   from the pair seen on the first reply.
-///
-/// Returns `Ok(())` on success, `Err(Error::InstallFailed)` on failure, and
-/// `Err(Error::Timeout)` if the deadline elapses.
+/// Returns `Ok(())` on success once SWUpdate is no longer in an active install
+/// state and `last_result=Success`, `Err(Error::InstallFailed)` on failure,
+/// and `Err(Error::Timeout)` if the deadline elapses.
 pub async fn await_install_result(timeout: Duration) -> Result<()> {
     use crate::RecoveryStatus;
 
-    let mut seen_active = false;
-    let mut initial: Option<(i32, i32)> = None;
+    let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
-        let msg = match get_status_timeout(timeout).await? {
+        let now = tokio::time::Instant::now();
+        if now >= deadline {
+            return Err(Error::Timeout);
+        }
+
+        let poll_timeout = deadline.saturating_duration_since(now).min(STATUS_POLL_INTERVAL);
+
+        let msg = match get_status_timeout(poll_timeout).await? {
             Some(msg) => msg,
-            None => return Err(Error::Timeout),
+            None => {
+                sleep(STATUS_POLL_INTERVAL).await;
+                continue;
+            }
         };
 
         // SAFETY: get_status replies always use the `status` union member.
@@ -158,38 +182,26 @@ pub async fn await_install_result(timeout: Duration) -> Result<()> {
             (msg.data.status.current, msg.data.status.last_result)
         };
 
-        if initial.is_none() {
-            initial = Some((current_raw, last_result_raw));
-        }
-        let changed_since_start = initial
-            .map(|(ic, ilr)| current_raw != ic || last_result_raw != ilr)
-            .unwrap_or(false);
-
         let current = RecoveryStatus::try_from(current_raw).ok();
         let last_result = RecoveryStatus::try_from(last_result_raw).ok();
 
-        match current {
+        let active = matches!(
+            current,
             Some(RecoveryStatus::Start)
-            | Some(RecoveryStatus::Run)
-            | Some(RecoveryStatus::Download)
-            | Some(RecoveryStatus::Progress)
-            | Some(RecoveryStatus::Done)
-            | Some(RecoveryStatus::Subprocess) => {
-                seen_active = true;
-            }
-            Some(RecoveryStatus::Success) if seen_active || changed_since_start => {
-                return Ok(());
-            }
-            Some(RecoveryStatus::Failure) if seen_active || changed_since_start => {
-                return Err(Error::InstallFailed);
-            }
-            Some(RecoveryStatus::Idle) if seen_active => match last_result {
+                | Some(RecoveryStatus::Run)
+                | Some(RecoveryStatus::Download)
+                | Some(RecoveryStatus::Progress)
+                | Some(RecoveryStatus::Subprocess)
+        );
+
+        if !active {
+            match last_result {
                 Some(RecoveryStatus::Success) => return Ok(()),
                 Some(RecoveryStatus::Failure) => return Err(Error::InstallFailed),
                 _ => {}
-            },
-            _ => {}
+            }
         }
+
     }
 }
 
@@ -200,7 +212,7 @@ pub async fn postupdate(info: &[u8]) -> Result<IpcMessage> {
     unsafe {
         let len = info.len().min(msg.data.procmsg.buf.len());
         for (slot, &byte) in msg.data.procmsg.buf.iter_mut().zip(info.iter()).take(len) {
-            *slot = byte as c_char;
+            *slot = byte as std::ffi::c_char;
         }
         msg.data.procmsg.len = len as u32;
     }
@@ -298,10 +310,14 @@ impl ProgressConn {
 }
 
 async fn progress_connect_path(path: &Path, reconnect: bool) -> Result<ProgressConn> {
+    let deadline = tokio::time::Instant::now() + PROGRESS_CONNECT_TIMEOUT;
     let mut stream = loop {
         match UnixStream::connect(path).await {
             Ok(stream) => break stream,
             Err(_) if reconnect => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(Error::ProgressConnectTimeout);
+                }
                 sleep(PROGRESS_RECONNECT_DELAY).await;
                 continue;
             }
@@ -328,7 +344,8 @@ async fn wait_for_progress_ack(stream: &mut UnixStream) -> Result<()> {
 }
 
 /// Connects to the progress interface using the default socket. When
-/// `reconnect` is `true`, connection attempts are retried until they succeed.
+/// `reconnect` is `true`, connection attempts are retried up to
+/// `PROGRESS_CONNECT_TIMEOUT` before returning `Error::ProgressConnectTimeout`.
 pub async fn progress_connect(reconnect: bool) -> Result<ProgressConn> {
     progress_connect_path(&progress_socket_path(), reconnect).await
 }
@@ -339,27 +356,26 @@ pub async fn progress_connect_with_path(path: impl AsRef<Path>, reconnect: bool)
 }
 
 /// Returns a [`Stream`] of progress frames that reconnects automatically on
-/// disconnect or connect failure, retrying every 500&nbsp;ms. The stream never
-/// terminates on its own; drop it to stop listening.
+/// disconnect or connect failure when `reconnect` is `true`. When `reconnect`
+/// is `false`, the stream terminates on the first connect error.
 ///
 /// API version compatibility is verified at connect time via the
 /// `progress_connect_ack` handshake; per-frame version checks are not needed.
-pub fn progress_stream() -> impl Stream<Item = ProgressMsg> {
-    const RETRY_DELAY: Duration = Duration::from_millis(500);
-    futures_util::stream::unfold(None::<ProgressConn>, |mut conn| async move {
+pub fn progress_stream(reconnect: bool) -> impl Stream<Item = ProgressMsg> {
+    futures_util::stream::unfold(None::<ProgressConn>, move |mut conn| async move {
         loop {
             if conn.is_none() {
-                match progress_connect(false).await {
+                match progress_connect(reconnect).await {
                     Ok(c) => conn = Some(c),
-                    Err(_) => {
-                        sleep(RETRY_DELAY).await;
-                        continue;
-                    }
+                    Err(_) => return None,
                 }
             }
-            match conn.as_mut().unwrap().receive().await {
-                Ok(msg) => return Some((msg, conn)),
-                Err(_) => conn = None,
+            match conn.as_mut() {
+                Some(active) => match active.receive().await {
+                    Ok(msg) => return Some((msg, conn)),
+                    Err(_) => conn = None,
+                },
+                None => continue,
             }
         }
     })

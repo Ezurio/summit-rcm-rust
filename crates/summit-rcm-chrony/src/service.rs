@@ -10,36 +10,24 @@ use summit_rcm_core::utils::read_text;
 use serde::{Deserialize, Serialize};
 use log::error;
 use std::collections::HashSet;
-use std::sync::LazyLock;
 
 const CHRONY_SOURCES_PATH: &str = "/etc/chrony/supplemental.sources";
 const CHRONYC_PATH: &str = "/usr/bin/chronyc";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ChronySource {
+pub(crate) struct ChronySource {
     pub address: String,
     #[serde(rename = "type")]
     pub source_type: String, // "static" | "dynamic"
 }
 
-const SOURCE_COMMAND_NAMES: [&str; 3] = ["addSource", "removeSource", "overrideSources"];
-
-static SOURCE_COMMAND_DISPLAY_NAMES: LazyLock<String> =
-    LazyLock::new(|| format!("['{}']", SOURCE_COMMAND_NAMES.join("', '")));
-
 #[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceCommand {
+pub(crate) enum SourceCommand {
     AddSource    = 0,
     RemoveSource = 1,
     OverrideSources = 2,
-}
-
-impl SourceCommand {
-    pub fn display_names() -> &'static str {
-        SOURCE_COMMAND_DISPLAY_NAMES.as_str()
-    }
 }
 
 impl std::str::FromStr for SourceCommand {
@@ -54,10 +42,10 @@ impl std::str::FromStr for SourceCommand {
     }
 }
 
-pub struct ChronyNTPService;
+pub(crate) struct ChronyNTPService;
 
 impl ChronyNTPService {
-    pub async fn reload_sources() -> Result<()> {
+    pub(crate) async fn reload_sources() -> Result<()> {
         let out = command_output_checked(CHRONYC_PATH, &["reload", "sources"]).await?;
         if String::from_utf8_lossy(&out.stdout).contains("OK") {
             Ok(())
@@ -70,7 +58,7 @@ impl ChronyNTPService {
         }
     }
 
-    pub async fn get_static_sources() -> Vec<String> {
+    pub(crate) async fn get_static_sources() -> Vec<String> {
         let content = match read_text(CHRONY_SOURCES_PATH).await {
             Ok(c) => c,
             Err(_) => return Vec::new(),
@@ -81,7 +69,7 @@ impl ChronyNTPService {
             .collect()
     }
 
-    pub async fn get_current_sources() -> Result<Vec<String>> {
+    pub(crate) async fn get_current_sources() -> Result<Vec<String>> {
         let output = match command_output(CHRONYC_PATH, &["-c", "-N", "sources"]).await {
             Ok(output) => output,
             Err(error) => {
@@ -101,7 +89,7 @@ impl ChronyNTPService {
             .collect())
     }
 
-    pub async fn get_sources() -> Result<Vec<ChronySource>> {
+    pub(crate) async fn get_sources() -> Result<Vec<ChronySource>> {
         let static_sources = Self::get_static_sources().await;
         let static_set: HashSet<&str> = static_sources.iter().map(String::as_str).collect();
         let mut result: Vec<ChronySource> = static_sources.iter()
@@ -115,7 +103,8 @@ impl ChronyNTPService {
         Ok(result)
     }
 
-    pub async fn get_source(address: &str) -> Result<Option<ChronySource>> {
+    #[cfg(feature = "api-v2")]
+    pub(crate) async fn get_source(address: &str) -> Result<Option<ChronySource>> {
         Ok(Self::get_sources().await?.into_iter().find(|s| s.address == address))
     }
 
@@ -123,7 +112,7 @@ impl ChronyNTPService {
     ///
     /// Returns `Ok(true)` in all cases except `RemoveSource` where no supplied address matched a
     /// known static source, in which case `Ok(false)` is returned without writing the file.
-    pub async fn configure_sources(command: SourceCommand, sources_in: &[String]) -> Result<bool> {
+    pub(crate) async fn configure_sources(command: SourceCommand, sources_in: &[String]) -> Result<bool> {
         let mut current = Self::get_static_sources().await;
         match command {
             SourceCommand::AddSource => {

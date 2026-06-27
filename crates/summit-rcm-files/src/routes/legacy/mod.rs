@@ -28,7 +28,7 @@ pub(crate) struct ApiDoc;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct FileQuery {
+pub(crate) struct FileQuery {
     pub file: Option<String>,
     #[serde(rename = "type")]
     pub file_type: Option<String>,
@@ -37,7 +37,7 @@ pub struct FileQuery {
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct FileDeleteBody {
+pub(crate) struct FileDeleteBody {
     pub file: Option<String>,
     #[serde(rename = "type")]
     pub file_type: Option<String>,
@@ -45,7 +45,7 @@ pub struct FileDeleteBody {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyFilesListResponse {
+pub(crate) struct LegacyFilesListResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub count: usize,
@@ -54,7 +54,7 @@ pub struct LegacyFilesListResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct ImportConnectionsRequest {
+pub(crate) struct ImportConnectionsRequest {
     #[cfg_attr(feature = "api-docs", schema(value_type = String, format = Binary))]
     pub archive: Vec<u8>,
     #[serde(rename = "type")]
@@ -64,7 +64,7 @@ pub struct ImportConnectionsRequest {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UploadLegacyFileRequest {
+pub(crate) struct UploadLegacyFileRequest {
     #[serde(rename = "type")]
     pub file_type: String,
     pub file_name: String,
@@ -74,7 +74,7 @@ pub struct UploadLegacyFileRequest {
 }
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::IntoResponses))]
-pub enum GetFilesLegacyResponses {
+pub(crate) enum GetFilesLegacyResponses {
     #[cfg_attr(feature = "api-docs", response(status = 200, description = "Legacy files list response"))]
     Json(LegacyFilesListResponse),
     #[cfg_attr(feature = "api-docs", response(status = 200, description = "Legacy network connections archive", content_type = "application/zip"))]
@@ -98,7 +98,7 @@ impl From<Vec<u8>> for GetFilesLegacyResponses {
 impl IntoResponse for GetFilesLegacyResponses {
     fn into_response(self) -> Response {
         match self {
-            Self::Json(body) => axum::Json(body).into_response(),
+            Self::Json(body) => Json(body).into_response(),
             Self::Zip(body) => summit_rcm_web::response::download_response(
                 StatusCode::OK,
                 "application/zip",
@@ -115,13 +115,13 @@ impl IntoResponse for GetFilesLegacyResponses {
     }
 }
 
-pub type DeleteFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type PutFilesLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type UploadFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type DeleteSingleFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutFilesLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type UploadFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteSingleFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_text_response_family! {
-    pub enum GetSingleFileLegacyResponses {
+    pub(crate) enum GetSingleFileLegacyResponses {
         Ok(Vec<u8>) => "text/plain";
         BadRequest => 400,
         InternalError => 500
@@ -265,7 +265,7 @@ fn validate_legacy_upload_request(
     tag = "legacy",
     responses(GetFilesLegacyResponses)
 ))]
-pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyResponses {
+pub(crate) async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyResponses {
     let valid = ["cert", "pac", "network"];
     let Some(file_type) = q.file_type.as_deref() else {
         return GetFilesLegacyResponses::from(LegacyFilesListResponse {
@@ -314,7 +314,7 @@ pub async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyRespo
     }
 }
 
-pub async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileLegacyResponses {
+pub(crate) async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileLegacyResponses {
     let file_type = body.file_type.as_deref().unwrap_or("cert");
     let name = match body.file.as_deref().filter(|value| !value.is_empty()) {
         Some(value) => value,
@@ -330,7 +330,7 @@ pub async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileL
     request_body(content = ImportConnectionsRequest, content_type = "multipart/form-data"),
     responses(PutFilesLegacyResponses)
 ))]
-pub async fn put_files_legacy(
+pub(crate) async fn put_files_legacy(
     Query(q): Query<FileQuery>,
     multipart: Multipart,
 ) -> PutFilesLegacyResponses {
@@ -351,7 +351,7 @@ pub async fn put_files_legacy(
     tag = "legacy",
     responses(GetSingleFileLegacyResponses)
 ))]
-pub async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyResponses {
+pub(crate) async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyResponses {
     let Some(file_type) = q.file_type.as_deref() else {
         return GetSingleFileLegacyResponses::BadRequest;
     };
@@ -402,7 +402,7 @@ pub async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyR
     request_body(content = UploadLegacyFileRequest, content_type = "multipart/form-data"),
     responses(UploadFileLegacyResponses)
 ))]
-pub async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacyResponses {
+pub(crate) async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacyResponses {
     let request = match parse_upload_legacy_file_request(multipart).await {
         Ok(request) => request,
         Err(response) => return UploadFileLegacyResponses::Ok(response),
@@ -434,7 +434,7 @@ mod tests;
     request_body = FileDeleteBody,
     responses(DeleteSingleFileLegacyResponses)
 ))]
-pub async fn delete_single_file_legacy(
+pub(crate) async fn delete_single_file_legacy(
     Query(query): Query<FileQuery>,
     body: Option<Json<FileDeleteBody>>,
 ) -> DeleteSingleFileLegacyResponses {

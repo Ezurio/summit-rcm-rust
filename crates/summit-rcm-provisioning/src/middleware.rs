@@ -82,7 +82,7 @@ async fn check_for_new_fallback_timestamp(tls_info: &ClientTlsInfo) {
 ///
 /// Applied only on routers built for fully-provisioned boot mode; in
 /// provisioning boot mode this layer is omitted entirely.
-pub async fn track_client_cert_fallback_timestamp(
+pub(crate) async fn track_client_cert_fallback_timestamp(
     req: Request<Body>,
     next: Next,
 ) -> Response<Body> {

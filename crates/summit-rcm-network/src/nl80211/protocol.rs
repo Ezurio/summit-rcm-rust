@@ -3,8 +3,9 @@
 //
 
 // Generated bindgen constants — allow dead_code since only a subset of the full
-// nl80211 enum space is referenced at any given time.
-#[allow(dead_code)]
+// nl80211 enum space is referenced at any given time. Bindgen emits `pub`
+// items, but this crate intentionally keeps the raw binding surface internal.
+#[allow(dead_code, unreachable_pub)]
 mod nl80211_bindings {
     include!("generated.rs");
 }
@@ -12,9 +13,7 @@ pub(super) use nl80211_bindings::*;
 
 use anyhow::{Context, Result, anyhow};
 use neli::attr::{AttrHandle, Attribute};
-use neli::consts::{
-    genl::NlAttrType,
-};
+use neli::consts::genl::NlAttrType;
 use neli::genl::{
     AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
 };

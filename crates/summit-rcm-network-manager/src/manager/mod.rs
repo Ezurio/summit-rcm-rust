@@ -17,24 +17,24 @@ use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, LazyLock}, time:
 use tokio::{sync::{Mutex, OnceCell, RwLock}, task::JoinHandle};
 use zbus::{zvariant::{OwnedValue, Value as DbusValue}, Connection};
 
-pub const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
-pub const NM_MAIN_OBJ: &str = "/org/freedesktop/NetworkManager";
-pub const NM_IFACE: &str = "org.freedesktop.NetworkManager";
-pub const NM_SETTINGS_OBJ: &str = "/org/freedesktop/NetworkManager/Settings";
-pub const NM_SETTINGS_IFACE: &str = "org.freedesktop.NetworkManager.Settings";
-pub const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Settings.Connection";
-pub const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
-pub const NM_DEVICE_WIRED_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wired";
-pub const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
-pub const NM_CONNECTION_ACTIVE_IFACE: &str = "org.freedesktop.NetworkManager.Connection.Active";
-pub const NM_IP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP4Config";
-pub const NM_IP6_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP6Config";
-pub const NM_DHCP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.DHCP4Config";
-pub const NM_DHCP6_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.DHCP6Config";
-pub const NM_ACCESS_POINT_IFACE: &str = "org.freedesktop.NetworkManager.AccessPoint";
+pub(crate) const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
+pub(crate) const NM_MAIN_OBJ: &str = "/org/freedesktop/NetworkManager";
+pub(crate) const NM_IFACE: &str = "org.freedesktop.NetworkManager";
+pub(crate) const NM_SETTINGS_OBJ: &str = "/org/freedesktop/NetworkManager/Settings";
+pub(crate) const NM_SETTINGS_IFACE: &str = "org.freedesktop.NetworkManager.Settings";
+pub(crate) const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Settings.Connection";
+pub(crate) const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
+pub(crate) const NM_DEVICE_WIRED_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wired";
+pub(crate) const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
+pub(crate) const NM_CONNECTION_ACTIVE_IFACE: &str = "org.freedesktop.NetworkManager.Connection.Active";
+pub(crate) const NM_IP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP4Config";
+pub(crate) const NM_IP6_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP6Config";
+pub(crate) const NM_DHCP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.DHCP4Config";
+pub(crate) const NM_DHCP6_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.DHCP6Config";
+pub(crate) const NM_ACCESS_POINT_IFACE: &str = "org.freedesktop.NetworkManager.AccessPoint";
 
-pub type NmProperties = HashMap<String, OwnedValue>;
-pub type NmConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
+pub(crate) type NmProperties = HashMap<String, OwnedValue>;
+pub(crate) type NmConnectionSettings = HashMap<String, HashMap<String, OwnedValue>>;
 
 static NETWORK_STATUS_CACHE: LazyLock<RwLock<Value>> = LazyLock::new(|| RwLock::new(json!({})));
 static NETWORK_STATUS_INIT_STARTED: AtomicBool = AtomicBool::new(false);
@@ -43,7 +43,7 @@ static NETWORK_STATUS_SIGNAL_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::const_
 
 /// NetworkManager connectivity state values
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NMConnectivityState {
+pub(crate) enum NMConnectivityState {
     Unknown = 0,
     None = 1,
     Portal = 2,
@@ -52,7 +52,7 @@ pub enum NMConnectivityState {
 }
 
 impl NMConnectivityState {
-    pub fn from_u32(v: u32) -> Self {
+    pub(crate) fn from_u32(v: u32) -> Self {
         match v {
             1 => Self::None,
             2 => Self::Portal,
@@ -62,7 +62,7 @@ impl NMConnectivityState {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Unknown => "Unknown",
             Self::None => "None",
@@ -73,7 +73,7 @@ impl NMConnectivityState {
     }
 }
 
-pub struct NetworkManagerService;
+pub(crate) struct NetworkManagerService;
 
 impl NetworkManagerService {
     async fn system_bus() -> Result<Arc<Connection>> {

@@ -11,23 +11,23 @@ use serde::{Deserialize, Serialize};
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_json_response_family! {
-	pub enum GetFipsResponses(FipsState);
+	pub(crate) enum GetFipsResponses(FipsState);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-	pub enum SetFipsResponses(FipsState);
+	pub(crate) enum SetFipsResponses(FipsState);
 }
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct FipsRequest {
+pub(crate) struct FipsRequest {
 	pub state: String,
 }
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct FipsState {
+pub(crate) struct FipsState {
 	pub state: String,
 }
 
@@ -37,7 +37,7 @@ pub struct FipsState {
 	tag = "fips",
 	responses(GetFipsResponses)
 ))]
-pub async fn get_fips() -> GetFipsResponses {
+pub(crate) async fn get_fips() -> GetFipsResponses {
 	let raw = FipsService::get_fips_state().await;
 	let fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
 	FipsState { state: fips_state.to_string() }.into()
@@ -50,7 +50,7 @@ pub async fn get_fips() -> GetFipsResponses {
 	request_body = FipsRequest,
 	responses(SetFipsResponses)
 ))]
-pub async fn set_fips(Json(body): Json<FipsRequest>) -> SetFipsResponses {
+pub(crate) async fn set_fips(Json(body): Json<FipsRequest>) -> SetFipsResponses {
 	let mut desired_state = body.state;
 	if desired_state == "fipsWifi" {
 		desired_state = "fips_wifi".to_string();

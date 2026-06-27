@@ -60,7 +60,7 @@ summit_rcm_web::define_status_response_family! {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UserResponse {
+pub(crate) struct UserResponse {
     pub username: String,
     pub permissions: String,
 }
@@ -68,7 +68,7 @@ pub struct UserResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UserCreateRequest {
+pub(crate) struct UserCreateRequest {
     pub username: String,
     pub password: String,
     pub permissions: String,
@@ -77,7 +77,7 @@ pub struct UserCreateRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct UserPatchRequest {
+pub(crate) struct UserPatchRequest {
     pub current_password: String,
     pub new_password: Option<String>,
     pub permissions: Option<String>,
@@ -90,7 +90,7 @@ pub struct UserPatchRequest {
     tag = "auth",
     responses(ListUsersResponses)
 ))]
-pub async fn list_users() -> ListUsersResponses {
+pub(crate) async fn list_users() -> ListUsersResponses {
     let mut users: Vec<_> = UserService::get_users_dict()
         .into_iter()
         .map(|(username, permissions)| UserResponse {
@@ -110,7 +110,7 @@ pub async fn list_users() -> ListUsersResponses {
     request_body = UserCreateRequest,
     responses(CreateUserResponses)
 ))]
-pub async fn create_user(Json(body): Json<UserCreateRequest>) -> CreateUserResponses {
+pub(crate) async fn create_user(Json(body): Json<UserCreateRequest>) -> CreateUserResponses {
     if body.username.is_empty() || body.password.is_empty() || body.permissions.is_empty() {
         return CreateUserResponses::BadRequest;
     }
@@ -138,7 +138,7 @@ pub async fn create_user(Json(body): Json<UserCreateRequest>) -> CreateUserRespo
     params(("username" = String, Path, description = "Username")),
     responses(GetUserResponses)
 ))]
-pub async fn get_user(Path(name): Path<String>) -> GetUserResponses {
+pub(crate) async fn get_user(Path(name): Path<String>) -> GetUserResponses {
     if !UserService::user_exists(&name) {
         return GetUserResponses::NotFound;
     }
@@ -158,7 +158,7 @@ pub async fn get_user(Path(name): Path<String>) -> GetUserResponses {
     request_body = UserPatchRequest,
     responses(PatchUserResponses)
 ))]
-pub async fn patch_user(
+pub(crate) async fn patch_user(
     Path(name): Path<String>,
     Json(body): Json<UserPatchRequest>,
 ) -> PatchUserResponses {
@@ -202,7 +202,7 @@ pub async fn patch_user(
     params(("username" = String, Path, description = "Username")),
     responses(DeleteUserResponses)
 ))]
-pub async fn delete_user(Path(name): Path<String>) -> DeleteUserResponses {
+pub(crate) async fn delete_user(Path(name): Path<String>) -> DeleteUserResponses {
     if !UserService::user_exists(&name) {
         return DeleteUserResponses::NotFound;
     }

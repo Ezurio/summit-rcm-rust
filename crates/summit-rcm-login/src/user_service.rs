@@ -5,6 +5,7 @@
 //! User management service
 
 use summit_rcm_core::config::{ServerConfig, SummitRcmConfigManage};
+#[cfg(feature = "api-v2")]
 use summit_rcm_core::config::SystemSettingsManage;
 use summit_rcm_core::utils::random_token_hex;
 use openssl::hash::{hash, MessageDigest};
@@ -94,6 +95,7 @@ impl UserService {
         map
     }
 
+    #[cfg(feature = "api-v2")]
     pub(crate) fn max_users_reached() -> bool {
         Self::get_number_of_users() >= SystemSettingsManage::get_int("max_web_clients", 1) as usize
     }

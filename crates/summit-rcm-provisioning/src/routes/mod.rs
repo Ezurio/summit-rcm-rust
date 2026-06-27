@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-pub mod shared;
+pub(crate) mod shared;
 
-pub mod v2;
+#[cfg(feature = "api-v2")]
+pub(crate) mod v2;
 
 #[cfg(feature = "api-legacy")]
-pub mod legacy;
+pub(crate) mod legacy;
 
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) mod v2_openapi {

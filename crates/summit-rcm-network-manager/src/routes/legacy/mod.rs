@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-pub mod certificates;
-pub mod network;
-pub mod network_status;
-pub mod types;
+pub(crate) mod certificates;
+pub(crate) mod network;
+pub(crate) mod network_status;
+pub(crate) mod types;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]

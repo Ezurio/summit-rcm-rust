@@ -17,7 +17,7 @@ use super::{
 };
 
 impl NetworkManagerService {
-    pub async fn get_properties(obj_path: &str, interface: &str) -> Result<NmProperties> {
+    pub(crate) async fn get_properties(obj_path: &str, interface: &str) -> Result<NmProperties> {
         let conn = Self::system_bus().await?;
         Self::get_properties_with_conn(conn.as_ref(), obj_path, interface).await
     }
@@ -39,7 +39,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn get_raw_connection_settings(connection_obj_path: &str) -> Result<NmConnectionSettings> {
+    pub(crate) async fn get_raw_connection_settings(connection_obj_path: &str) -> Result<NmConnectionSettings> {
         let conn = Self::system_bus().await?;
         Self::get_raw_connection_settings_with_conn(conn.as_ref(), connection_obj_path).await
     }
@@ -60,7 +60,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn get_connection_path_by_uuid(uuid: &str) -> Result<OwnedObjectPath> {
+    pub(crate) async fn get_connection_path_by_uuid(uuid: &str) -> Result<OwnedObjectPath> {
         let conn = Self::system_bus().await?;
         Self::get_connection_path_by_uuid_with_conn(conn.as_ref(), uuid).await
     }
@@ -89,7 +89,7 @@ impl NetworkManagerService {
         dbus::clone_owned_value(paths)?.try_into().map_err(Into::into)
     }
 
-    pub async fn get_active_connection_path_by_uuid(uuid: &str) -> Result<Option<OwnedObjectPath>> {
+    pub(crate) async fn get_active_connection_path_by_uuid(uuid: &str) -> Result<Option<OwnedObjectPath>> {
         let conn = Self::system_bus().await?;
         let connection_path = match Self::get_connection_path_by_uuid_with_conn(conn.as_ref(), uuid).await {
             Ok(path) => path,
@@ -115,7 +115,7 @@ impl NetworkManagerService {
         Ok(None)
     }
 
-    pub async fn get_active_connection_target_paths() -> Result<HashSet<OwnedObjectPath>> {
+    pub(crate) async fn get_active_connection_target_paths() -> Result<HashSet<OwnedObjectPath>> {
         let conn = Self::system_bus().await?;
         let active_paths = Self::get_active_connection_paths_with_conn(conn.as_ref()).await?;
         let mut active_connections = HashSet::with_capacity(active_paths.len());
@@ -137,7 +137,7 @@ impl NetworkManagerService {
         Ok(active_connections)
     }
 
-    pub async fn add_connection_dbus(connection: NmConnectionSettings) -> Result<OwnedObjectPath> {
+    pub(crate) async fn add_connection_dbus(connection: NmConnectionSettings) -> Result<OwnedObjectPath> {
         dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
@@ -150,7 +150,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn update_connection_dbus(
+    pub(crate) async fn update_connection_dbus(
         connection_obj_path: &str,
         connection: NmConnectionSettings,
     ) -> Result<()> {
@@ -168,7 +168,7 @@ impl NetworkManagerService {
         Ok(())
     }
 
-    pub async fn delete_connection_dbus(connection_obj_path: &str) -> Result<()> {
+    pub(crate) async fn delete_connection_dbus(connection_obj_path: &str) -> Result<()> {
         let response = dbus::call_method(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
@@ -184,7 +184,7 @@ impl NetworkManagerService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn reload_connections_dbus() -> Result<bool> {
+    pub(crate) async fn reload_connections_dbus() -> Result<bool> {
         dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
@@ -197,7 +197,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn get_device_path_by_iface(iface: &str) -> Result<OwnedObjectPath> {
+    pub(crate) async fn get_device_path_by_iface(iface: &str) -> Result<OwnedObjectPath> {
         dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
@@ -210,7 +210,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn activate_connection_dbus(
+    pub(crate) async fn activate_connection_dbus(
         connection_obj_path: &str,
         device_obj_path: Option<&str>,
     ) -> Result<OwnedObjectPath> {
@@ -228,7 +228,7 @@ impl NetworkManagerService {
         .await
     }
 
-    pub async fn deactivate_connection_dbus(active_connection_obj_path: &str) -> Result<()> {
+    pub(crate) async fn deactivate_connection_dbus(active_connection_obj_path: &str) -> Result<()> {
         let response = dbus::call_method(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),

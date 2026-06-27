@@ -3,5 +3,5 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub mod shared;
-pub mod v2;
+pub(crate) mod shared;
+pub(crate) mod v2;

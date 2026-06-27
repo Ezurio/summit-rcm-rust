@@ -13,9 +13,9 @@ use summit_rcm_web::axum::Json;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-pub type GetLogForwardingLegacyResponses = LegacyStateResponses;
+pub(crate) type GetLogForwardingLegacyResponses = LegacyStateResponses;
 
-pub type PutLogForwardingLegacyResponses = GetLogForwardingLegacyResponses;
+pub(crate) type PutLogForwardingLegacyResponses = GetLogForwardingLegacyResponses;
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
     get,
@@ -23,7 +23,7 @@ pub type PutLogForwardingLegacyResponses = GetLogForwardingLegacyResponses;
     tag = "log-forwarding",
     responses(GetLogForwardingLegacyResponses)
 ))]
-pub async fn get_log_forwarding_legacy() -> GetLogForwardingLegacyResponses {
+pub(crate) async fn get_log_forwarding_legacy() -> GetLogForwardingLegacyResponses {
     let svc = LogForwardingService::new();
     match svc.try_get_active_state_legacy().await {
         Ok(state) => legacy_state_model(state, "Could not retrieve log forwarding state").into(),
@@ -38,7 +38,7 @@ pub async fn get_log_forwarding_legacy() -> GetLogForwardingLegacyResponses {
     request_body = StatePut,
     responses(PutLogForwardingLegacyResponses)
 ))]
-pub async fn put_log_forwarding_legacy(Json(body): Json<StatePut>) -> PutLogForwardingLegacyResponses {
+pub(crate) async fn put_log_forwarding_legacy(Json(body): Json<StatePut>) -> PutLogForwardingLegacyResponses {
     let requested = match validate_requested_state(body) {
         Ok(requested) => requested,
         Err(_) => {

@@ -3,9 +3,9 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub mod advanced;
-pub mod definitions;
-pub mod version;
+pub(crate) mod advanced;
+pub(crate) mod definitions;
+pub(crate) mod version;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]

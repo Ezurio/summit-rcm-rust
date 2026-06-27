@@ -10,16 +10,16 @@ use crate::service::UnauthenticatedService;
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
 
-pub type PutUnauthenticatedLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub type DeleteUnauthenticatedLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutUnauthenticatedLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteUnauthenticatedLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetUnauthenticatedLegacyResponses(LegacyUnauthenticatedStateResponse);
+    pub(crate) enum GetUnauthenticatedLegacyResponses(LegacyUnauthenticatedStateResponse);
 }
 
 #[derive(serde::Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyUnauthenticatedStateResponse {
+pub(crate) struct LegacyUnauthenticatedStateResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     #[serde(rename = "allowUnauthenticatedRebootReset")]
@@ -69,7 +69,7 @@ fn legacy_unauthenticated_state_response() -> LegacyUnauthenticatedStateResponse
     tag = "unauthenticated",
     responses(PutUnauthenticatedLegacyResponses)
 ))]
-pub async fn put_unauthenticated_legacy() -> PutUnauthenticatedLegacyResponses {
+pub(crate) async fn put_unauthenticated_legacy() -> PutUnauthenticatedLegacyResponses {
     if legacy_gate_enabled() && UnauthenticatedService::set_allow_unauthenticated_enabled(true) {
         ok_response("").into()
     } else {
@@ -83,7 +83,7 @@ pub async fn put_unauthenticated_legacy() -> PutUnauthenticatedLegacyResponses {
     tag = "unauthenticated",
     responses(DeleteUnauthenticatedLegacyResponses)
 ))]
-pub async fn delete_unauthenticated_legacy() -> DeleteUnauthenticatedLegacyResponses {
+pub(crate) async fn delete_unauthenticated_legacy() -> DeleteUnauthenticatedLegacyResponses {
     if UnauthenticatedService::set_allow_unauthenticated_enabled(false) {
         ok_response("").into()
     } else {
@@ -97,6 +97,6 @@ pub async fn delete_unauthenticated_legacy() -> DeleteUnauthenticatedLegacyRespo
     tag = "unauthenticated",
     responses(GetUnauthenticatedLegacyResponses)
 ))]
-pub async fn get_unauthenticated_legacy() -> GetUnauthenticatedLegacyResponses {
+pub(crate) async fn get_unauthenticated_legacy() -> GetUnauthenticatedLegacyResponses {
     legacy_unauthenticated_state_response().into()
 }

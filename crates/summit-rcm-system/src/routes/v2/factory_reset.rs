@@ -14,7 +14,7 @@ summit_rcm_web::define_ok_internal_json_response_family! {
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct FactoryResetResponse {
+pub(crate) struct FactoryResetResponse {
     pub result: String,
 }
 
@@ -24,7 +24,7 @@ pub struct FactoryResetResponse {
     tag = "system",
     responses(FactoryResetResponses)
 ))]
-pub async fn factory_reset() -> FactoryResetResponses {
+pub(crate) async fn factory_reset() -> FactoryResetResponses {
     match shared::run_factory_reset().await {
         FactoryResetResult::Initiated => FactoryResetResponse {
             result: "ok".to_string(),
@@ -47,6 +47,6 @@ pub async fn factory_reset() -> FactoryResetResponses {
     tag = "system",
     responses(FactoryResetResponses)
 ))]
-pub async fn factory_reset_put() -> FactoryResetResponses {
+pub(crate) async fn factory_reset_put() -> FactoryResetResponses {
     factory_reset().await
 }

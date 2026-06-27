@@ -1,5 +1,6 @@
 use super::*;
 use std::{
+    collections::HashMap,
     fs,
     io::{BufRead, BufReader},
     path::PathBuf,
@@ -142,7 +143,7 @@ struct MockWriteCharacteristic {
 
 #[zbus::interface(name = "org.bluez.GattCharacteristic1")]
 impl MockWriteCharacteristic {
-    fn write_value(&self, value: Vec<u8>, _options: std::collections::HashMap<String, OwnedValue>) {
+    fn write_value(&self, value: Vec<u8>, _options: HashMap<String, OwnedValue>) {
         self.state.record_vsp_write(value);
     }
 

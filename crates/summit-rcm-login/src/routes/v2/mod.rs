@@ -3,8 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-pub mod login;
-pub mod users;
+pub(crate) mod login;
+pub(crate) mod users;
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
@@ -19,10 +19,10 @@ pub mod users;
 		crate::routes::v2::users::delete_user,
 	),
 	components(schemas(
-		crate::routes::v2::login::LoginRequest,
-		crate::routes::v2::users::UserCreateRequest,
-		crate::routes::v2::users::UserPatchRequest,
-		crate::routes::v2::users::UserResponse,
+		login::LoginRequest,
+		users::UserCreateRequest,
+		users::UserPatchRequest,
+		users::UserResponse,
 	))
 )]
 pub(crate) struct ApiDoc;

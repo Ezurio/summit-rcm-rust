@@ -15,7 +15,7 @@ pub(crate) const INVALID_RSSI: f64 = -9999.9999;
 
 mod certificates;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-mod routes;
+pub mod routes;
 #[cfg(feature = "at-interface")]
 pub(crate) mod at_commands;
 mod extras;
@@ -122,10 +122,10 @@ summit_rcm_web::declare_web_api! {
 	},
 	openapi {
 		v2 => [
-			<routes::v2::ApiDoc as utoipa::OpenApi>::openapi,
+			<routes::v2::ApiDoc as OpenApi>::openapi,
 		],
 		legacy => [
-			<routes::legacy::ApiDoc as utoipa::OpenApi>::openapi,
+			<routes::legacy::ApiDoc as OpenApi>::openapi,
 		],
 	},
 }

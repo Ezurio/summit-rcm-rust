@@ -14,15 +14,15 @@ use log::error;
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum ListCertificatesResponses(Vec<String>);
+    pub(crate) enum ListCertificatesResponses(Vec<String>);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum GetCertificateResponses(CertificateInfo);
+    pub(crate) enum GetCertificateResponses(CertificateInfo);
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum UploadCertificateResponses {
+    pub(crate) enum UploadCertificateResponses {
         Ok => 200,
         BadRequest => 400,
         InternalError => 500
@@ -30,7 +30,7 @@ summit_rcm_web::define_status_response_family! {
 }
 
 summit_rcm_web::define_status_response_family! {
-    pub enum DeleteCertificateResponses {
+    pub(crate) enum DeleteCertificateResponses {
         Ok => 200,
         NotFound => 404,
         InternalError => 500
@@ -39,7 +39,7 @@ summit_rcm_web::define_status_response_family! {
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize)]
-pub struct CertificateInfoRequest {
+pub(crate) struct CertificateInfoRequest {
     pub password: Option<String>,
 }
 
@@ -49,7 +49,7 @@ pub struct CertificateInfoRequest {
     tag = "network",
     responses(ListCertificatesResponses)
 ))]
-pub async fn list_certificates() -> ListCertificatesResponses {
+pub(crate) async fn list_certificates() -> ListCertificatesResponses {
     match FilesService::try_get_cert_and_pac_files().await {
         Ok(files) => files.into(),
         Err(error) => {
@@ -67,7 +67,7 @@ pub async fn list_certificates() -> ListCertificatesResponses {
     request_body = CertificateInfoRequest,
     responses(GetCertificateResponses)
 ))]
-pub async fn get_certificate(Path(name): Path<String>, req: axum::extract::Request) -> GetCertificateResponses {
+pub(crate) async fn get_certificate(Path(name): Path<String>, req: axum::extract::Request) -> GetCertificateResponses {
     let body = match to_bytes(req.into_body(), 64 * 1024).await {
         Ok(body) => body,
         Err(error) => {
@@ -105,7 +105,7 @@ pub async fn get_certificate(Path(name): Path<String>, req: axum::extract::Reque
     request_body(content = String, content_type = "multipart/form-data"),
     responses(UploadCertificateResponses)
 ))]
-pub async fn upload_certificate(
+pub(crate) async fn upload_certificate(
     Path(name): Path<String>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> UploadCertificateResponses {
@@ -145,7 +145,7 @@ pub async fn upload_certificate(
     params(("name" = String, Path, description = "Certificate name")),
     responses(DeleteCertificateResponses)
 ))]
-pub async fn delete_certificate(Path(name): Path<String>) -> DeleteCertificateResponses {
+pub(crate) async fn delete_certificate(Path(name): Path<String>) -> DeleteCertificateResponses {
     match FilesService::delete_file_typed("cert", &name).await {
         Ok(()) => DeleteCertificateResponses::Ok,
         Err(summit_rcm_core::files_service::FileDeleteError::NotFound) => {

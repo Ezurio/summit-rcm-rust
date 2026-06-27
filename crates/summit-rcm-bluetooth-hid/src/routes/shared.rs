@@ -15,18 +15,18 @@ use summit_rcm_web::serde_json;
 #[derive(Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct BluetoothHidCommandRequest {
+pub(crate) struct BluetoothHidCommandRequest {
     pub tcp_port: Option<u16>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct BluetoothHidControlResponse {
+pub(crate) struct BluetoothHidControlResponse {
     #[serde(rename = "HidConnections", skip_serializing_if = "Option::is_none")]
     pub hid_connections: Option<Vec<BluetoothConnectionModel>>,
 }
 
-pub fn hid_connections_response(
+pub(crate) fn hid_connections_response(
     connections: Vec<BluetoothConnectionModel>,
 ) -> BluetoothHidControlResponse {
     BluetoothHidControlResponse {
@@ -34,7 +34,7 @@ pub fn hid_connections_response(
     }
 }
 
-pub fn control_response_fragment(
+pub(crate) fn control_response_fragment(
     response: &BluetoothHidControlResponse,
 ) -> serde_json::Map<String, serde_json::Value> {
     match serde_json::to_value(response) {

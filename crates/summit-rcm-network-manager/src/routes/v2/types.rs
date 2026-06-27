@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct V2NetworkConnectionReference {
+pub(crate) struct V2NetworkConnectionReference {
     #[serde(flatten)]
     pub common: NetworkConnectionReference,
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -23,7 +23,7 @@ pub struct V2NetworkConnectionReference {
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct NetworkInterfaceResponse {
+pub(crate) struct NetworkInterfaceResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<NetworkInterfaceStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,7 +94,7 @@ pub struct NetworkInterfaceResponse {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct NetworkStatusResponse {
+pub(crate) struct NetworkStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub devices: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]

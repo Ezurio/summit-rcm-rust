@@ -138,7 +138,7 @@ pub(super) struct VspNotConnectedMessage {
     pub(super) connected: u8,
 }
 
-pub async fn list_vsp_connections() -> Vec<BluetoothConnectionModel> {
+pub(crate) async fn list_vsp_connections() -> Vec<BluetoothConnectionModel> {
     let guard = VSP_CONNECTIONS.lock().unwrap();
     guard
         .iter()
@@ -276,7 +276,7 @@ pub(super) async fn run_vsp_server(listener: TcpListener, state: Arc<VspConnecti
         {
             let (writer_tx, writer_rx) = mpsc::unbounded_channel();
             *state.writer_tx.lock().unwrap() = Some(writer_tx);
-            std::mem::drop(tokio::spawn(run_vsp_writer(writer, writer_rx)));
+            drop(tokio::spawn(run_vsp_writer(writer, writer_rx)));
         }
 
         let mut pending = Vec::new();
@@ -315,7 +315,7 @@ pub(super) async fn run_vsp_server(listener: TcpListener, state: Arc<VspConnecti
 pub(super) async fn send_vsp_chunk(
     state: &Arc<VspConnectionState>,
     chunk: &[u8],
-) -> std::result::Result<(), dbus::DbusCallError> {
+) -> Result<(), dbus::DbusCallError> {
     let write_char_path = state.write_char_path.lock().unwrap().clone();
     let mut options = HashMap::<String, Value<'static>>::new();
     if !state.write_type.is_empty() {
@@ -335,7 +335,7 @@ pub(super) async fn send_vsp_chunk(
     Ok(())
 }
 
-pub fn handle_vsp_list_command<'a>(
+pub(crate) fn handle_vsp_list_command<'a>(
     _ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move {
@@ -346,7 +346,7 @@ pub fn handle_vsp_list_command<'a>(
     })
 }
 
-pub fn handle_vsp_connect_command<'a>(
+pub(crate) fn handle_vsp_connect_command<'a>(
     ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move {
@@ -354,7 +354,7 @@ pub fn handle_vsp_connect_command<'a>(
     })
 }
 
-pub fn handle_vsp_disconnect_command<'a>(
+pub(crate) fn handle_vsp_disconnect_command<'a>(
     ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move { handle_gatt_disconnect(ctx.device).await })

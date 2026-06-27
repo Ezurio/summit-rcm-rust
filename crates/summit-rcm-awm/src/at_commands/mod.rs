@@ -9,12 +9,12 @@ use summit_rcm_at::commands::params::CsvParams;
 use summit_rcm_at::fsm::FsmHandle;
 use log::error;
 
-pub async fn execute_awm_mode(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_awm_mode(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     let lite = crate::service::AwmConfigService::get_lite_mode_enabled().await;
     CommandOutcome::WithData(format!("+AWMMODE: {}", if lite { 1 } else { 0 }))
 }
 
-pub async fn execute_awm_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_awm_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     match params.parameter_count() {
         0 => match crate::service::AwmConfigService::get_scan_attempts().await {
             Ok(value) => CommandOutcome::WithData(format!("+AWMSCAN: {}", value)),

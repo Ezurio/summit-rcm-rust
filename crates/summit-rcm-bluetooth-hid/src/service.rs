@@ -72,13 +72,13 @@ const HID_UPPERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
 static HID_CONNECTIONS: LazyLock<Mutex<HashMap<String, HidConnectionHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-pub fn handle_hid_list_command<'a>(
+pub(crate) fn handle_hid_list_command<'a>(
     _ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move { handle_hid_list().await })
 }
 
-pub fn handle_hid_connect_command<'a>(
+pub(crate) fn handle_hid_connect_command<'a>(
     ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move {
@@ -86,7 +86,7 @@ pub fn handle_hid_connect_command<'a>(
     })
 }
 
-pub fn handle_hid_disconnect_command<'a>(
+pub(crate) fn handle_hid_disconnect_command<'a>(
     ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move { handle_hid_disconnect(ctx.device).await })
@@ -209,7 +209,7 @@ impl HidRawReader {
     }
 }
 
-pub async fn list_hid_connections() -> Vec<BluetoothConnectionModel> {
+pub(crate) async fn list_hid_connections() -> Vec<BluetoothConnectionModel> {
     let guard = HID_CONNECTIONS.lock().unwrap();
     guard
         .iter()
@@ -359,7 +359,7 @@ async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, 
                 let (reader, writer) = stream.into_split();
                 let (writer_tx, writer_rx) = mpsc::unbounded_channel();
                 *state.writer_tx.lock().unwrap() = Some(writer_tx);
-                std::mem::drop(tokio::spawn(run_hid_writer(writer, writer_rx)));
+                drop(tokio::spawn(run_hid_writer(writer, writer_rx)));
                 tcp_reader = Some(reader);
             }
             read_result = async {

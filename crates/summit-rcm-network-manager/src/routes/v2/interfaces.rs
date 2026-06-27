@@ -13,11 +13,11 @@ use log::error;
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
-    pub enum ListInterfacesResponses(Vec<String>);
+    pub(crate) enum ListInterfacesResponses(Vec<String>);
 }
 
 summit_rcm_web::define_json_response_family! {
-    pub enum GetInterfaceResponses {
+    pub(crate) enum GetInterfaceResponses {
         Ok(NetworkInterfaceResponse) => 200;
         BadRequest => 400,
         NotFound => 404,
@@ -27,7 +27,7 @@ summit_rcm_web::define_json_response_family! {
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-    pub enum GetInterfaceDhcpLeasesResponses(DhcpLeasesResponse);
+    pub(crate) enum GetInterfaceDhcpLeasesResponses(DhcpLeasesResponse);
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -36,7 +36,7 @@ summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     tag = "network",
     responses(ListInterfacesResponses)
 ))]
-pub async fn list_interfaces() -> ListInterfacesResponses {
+pub(crate) async fn list_interfaces() -> ListInterfacesResponses {
     match NetworkService::get_all_interfaces_model().await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -53,7 +53,7 @@ pub async fn list_interfaces() -> ListInterfacesResponses {
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceResponses)
 ))]
-pub async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
+pub(crate) async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
     match NetworkService::get_interface(&name).await {
         Ok(value) => match serde_json::from_value::<NetworkInterfaceResponse>(value) {
             Ok(value) => value.into(),
@@ -78,7 +78,7 @@ pub async fn get_interface(Path(name): Path<String>) -> GetInterfaceResponses {
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceDhcpLeasesResponses)
 ))]
-pub async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetInterfaceDhcpLeasesResponses {
+pub(crate) async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetInterfaceDhcpLeasesResponses {
     match NetworkService::get_dhcp_leases(&name).await {
         Ok(value) => match serde_json::from_value::<DhcpLeasesResponse>(value) {
             Ok(value) => value.into(),

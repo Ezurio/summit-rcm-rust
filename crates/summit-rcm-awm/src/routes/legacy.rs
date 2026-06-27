@@ -14,23 +14,23 @@ pub(crate) use super::legacy_openapi::ApiDoc;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct AwmLegacyPut {
+pub(crate) struct AwmLegacyPut {
     pub geolocation_scanning_enable: Option<i32>,
 }
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
-pub struct LegacyAwmResponse {
+pub(crate) struct LegacyAwmResponse {
     #[serde(flatten)]
     pub operation: LegacyOperationResponse,
     pub geolocation_scanning_enable: i32,
 }
 
 summit_rcm_web::define_ok_json_response_family! {
-    pub enum GetAwmLegacyResponses(LegacyAwmResponse);
+    pub(crate) enum GetAwmLegacyResponses(LegacyAwmResponse);
 }
 
-pub type PutAwmLegacyResponses = GetAwmLegacyResponses;
+pub(crate) type PutAwmLegacyResponses = GetAwmLegacyResponses;
 
 fn legacy_awm_response(
     operation: LegacyOperationResponse,
@@ -48,7 +48,7 @@ fn legacy_awm_response(
     tag = "awm",
     responses(GetAwmLegacyResponses)
 ))]
-pub async fn get_awm_legacy() -> GetAwmLegacyResponses {
+pub(crate) async fn get_awm_legacy() -> GetAwmLegacyResponses {
     if AwmConfigService::get_scan_attempts().await.is_ok() {
         legacy_awm_response(ok_response(""), current_scan_attempts().await).into()
     } else {
@@ -63,7 +63,7 @@ pub async fn get_awm_legacy() -> GetAwmLegacyResponses {
     request_body = AwmLegacyPut,
     responses(PutAwmLegacyResponses)
 ))]
-pub async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyResponses {
+pub(crate) async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLegacyResponses {
     if !AwmConfigService::get_lite_mode_enabled().await {
         return legacy_awm_response(
             fail_response("AWM's geolocation scanning configuration only supported in LITE mode"),
