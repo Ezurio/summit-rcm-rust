@@ -15,16 +15,18 @@ use std::time::SystemTime;
 
 use deranged::{ri64, ri128, ru8, ru32};
 
+#[cfg(any(feature = "formatting", feature = "parsing"))]
+use crate::PrivateMethod;
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
 use crate::internal_macros::{bug, const_try, div_floor, ensure_ranged};
 use crate::num_fmt::{str_from_raw_parts, truncated_subsecond_from_nanos, u64_pad_none};
 #[cfg(feature = "parsing")]
-use crate::parsing::Parsable;
+use crate::parsing::{Parsable, Parsed};
 use crate::unit::*;
 use crate::util::Overflow;
 use crate::{
-    Date, Duration, Month, OffsetDateTime, Time, UtcDateTime, UtcOffset, Weekday, error, util,
+    Date, Month, OffsetDateTime, SignedDuration, Time, UtcDateTime, UtcOffset, Weekday, error, util,
 };
 
 type Seconds = ri64<{ UtcDateTime::MIN.unix_timestamp() }, { UtcDateTime::MAX.unix_timestamp() }>;
@@ -542,6 +544,11 @@ impl Timestamp {
     /// Get the Sunday-based week number of the timestamp in UTC.
     ///
     /// The returned value will always be in the range `0..=53`.
+    ///
+    /// ```rust
+    /// # use time_macros::timestamp;
+    /// assert_eq!(timestamp!(1_546_398_245).sunday_based_week(), 0);
+    /// ```
     #[inline]
     pub const fn sunday_based_week(self) -> u8 {
         self.date().sunday_based_week()
@@ -550,6 +557,11 @@ impl Timestamp {
     /// Get the Monday-based week number of the timestamp in UTC.
     ///
     /// The returned value will always be in the range `0..=53`.
+    ///
+    /// ```rust
+    /// # use time_macros::timestamp;
+    /// assert_eq!(timestamp!(1_546_398_245).monday_based_week(), 0);
+    /// ```
     #[inline]
     pub const fn monday_based_week(self) -> u8 {
         self.date().monday_based_week()
@@ -626,6 +638,11 @@ impl Timestamp {
     }
 
     /// Get the Julian day of the timestamp.
+    ///
+    /// ```rust
+    /// # use time_macros::timestamp;
+    /// assert_eq!(timestamp!(1_546_398_245).to_julian_day(), 2_458_486);
+    /// ```
     #[inline]
     pub const fn to_julian_day(self) -> i32 {
         const UNIX_EPOCH_JULIAN_DAY: i32 = Date::UNIX_EPOCH.to_julian_day();
@@ -752,10 +769,10 @@ impl Timestamp {
         self.nanoseconds.get()
     }
 
-    /// Add a [`Duration`] to the timestamp. Returns `Overflow::Positive` or `Overflow::Negative` if
-    /// the result is out of range.
+    /// Add a [`SignedDuration`] to the timestamp. Returns `Overflow::Positive` or
+    /// `Overflow::Negative` if the result is out of range.
     #[inline]
-    const fn add(self, duration: Duration) -> Result<Self, Overflow> {
+    const fn add(self, duration: SignedDuration) -> Result<Self, Overflow> {
         let (second_adj, nanoseconds) = if duration.is_negative() {
             let nanos = self.nanoseconds.get() as i32 + duration.subsec_nanoseconds();
             if nanos < 0 {
@@ -794,10 +811,10 @@ impl Timestamp {
         Ok(unsafe { Self::__new_unchecked(seconds, nanoseconds) })
     }
 
-    /// Subtract a [`Duration`] from the timestamp. Returns `Overflow::Positive` or
+    /// Subtract a [`SignedDuration`] from the timestamp. Returns `Overflow::Positive` or
     /// `Overflow::Negative` if the result is out of range.
     #[inline]
-    const fn sub(self, duration: Duration) -> Result<Self, Overflow> {
+    const fn sub(self, duration: SignedDuration) -> Result<Self, Overflow> {
         let nanos = self.nanoseconds.get() as i32 - duration.subsec_nanoseconds();
         let (second_adj, nanoseconds) = if duration.is_negative() {
             if nanos >= Nanosecond::per_t::<i32>(Second) {
@@ -893,7 +910,7 @@ impl Timestamp {
         Ok(unsafe { Self::__new_unchecked(seconds, nanoseconds as u32) })
     }
 
-    /// Checked addition of a [`Duration`], returning `None` if the result is out of range.
+    /// Checked addition of a [`SignedDuration`], returning `None` if the result is out of range.
     ///
     /// ```rust
     /// # use time_macros::timestamp;
@@ -908,14 +925,14 @@ impl Timestamp {
     /// );
     /// ```
     #[inline]
-    pub const fn checked_add(self, duration: Duration) -> Option<Self> {
+    pub const fn checked_add(self, duration: SignedDuration) -> Option<Self> {
         match self.add(duration) {
             Ok(timestamp) => Some(timestamp),
             Err(Overflow::Positive | Overflow::Negative) => None,
         }
     }
 
-    /// Checked subtraction of a [`Duration`], returning `None` if the result is out of range.
+    /// Checked subtraction of a [`SignedDuration`], returning `None` if the result is out of range.
     ///
     /// ```rust
     /// # use time_macros::timestamp;
@@ -930,14 +947,14 @@ impl Timestamp {
     /// );
     /// ```
     #[inline]
-    pub const fn checked_sub(self, duration: Duration) -> Option<Self> {
+    pub const fn checked_sub(self, duration: SignedDuration) -> Option<Self> {
         match self.sub(duration) {
             Ok(timestamp) => Some(timestamp),
             Err(Overflow::Positive | Overflow::Negative) => None,
         }
     }
 
-    /// Saturating addition of a [`Duration`].
+    /// Saturating addition of a [`SignedDuration`].
     ///
     /// Returns [`Timestamp::MAX`] or [`Timestamp::MIN`] if the result is out of range.
     ///
@@ -953,7 +970,7 @@ impl Timestamp {
     /// assert_eq!(Timestamp::MIN.saturating_add((-1).days()), Timestamp::MIN);
     /// ```
     #[inline]
-    pub const fn saturating_add(self, duration: Duration) -> Self {
+    pub const fn saturating_add(self, duration: SignedDuration) -> Self {
         match self.add(duration) {
             Ok(timestamp) => timestamp,
             Err(Overflow::Positive) => Self::MAX,
@@ -961,7 +978,7 @@ impl Timestamp {
         }
     }
 
-    /// Saturating subtraction of a [`Duration`].
+    /// Saturating subtraction of a [`SignedDuration`].
     ///
     /// Returns [`Timestamp::MAX`] or [`Timestamp::MIN`] if the result is out of range.
     ///
@@ -977,7 +994,7 @@ impl Timestamp {
     /// assert_eq!(Timestamp::MAX.saturating_sub((-1).days()), Timestamp::MAX);
     /// ```
     #[inline]
-    pub const fn saturating_sub(self, duration: Duration) -> Self {
+    pub const fn saturating_sub(self, duration: SignedDuration) -> Self {
         match self.sub(duration) {
             Ok(timestamp) => timestamp,
             Err(Overflow::Positive) => Self::MAX,
@@ -1285,7 +1302,7 @@ impl Timestamp {
         output: &mut (impl io::Write + ?Sized),
         format: &(impl Formattable + ?Sized),
     ) -> Result<usize, error::Format> {
-        format.format_into(output, &self, &mut Default::default())
+        format.format_into(output, &self, &mut Default::default(), PrivateMethod)
     }
 
     /// Format the `Timestamp` using the provided [format description](crate::format_description).
@@ -1298,7 +1315,7 @@ impl Timestamp {
     /// ```
     #[inline]
     pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
-        format.format(&self, &mut Default::default())
+        format.format(&self, &mut Default::default(), PrivateMethod)
     }
 }
 
@@ -1322,7 +1339,31 @@ impl Timestamp {
         input: &str,
         description: &(impl Parsable + ?Sized),
     ) -> Result<Self, error::Parse> {
-        description.parse_timestamp(input.as_bytes())
+        description.parse_timestamp(input.as_bytes(), None, PrivateMethod)
+    }
+
+    /// Parse a `Timestamp` from the input using the provided [format
+    /// description](crate::format_description) and default values.
+    ///
+    /// ```rust
+    /// # use time::Timestamp;
+    /// # use time::parsing::Parsed;
+    /// # use time_macros::{format_description, timestamp};
+    /// let format = format_description!("[year]-[month]-[day]");
+    /// let defaults = Parsed::new().with_hour_24(0).expect("0 is a valid hour");
+    /// assert_eq!(
+    ///     Timestamp::parse_with_defaults(b"2020-01-02", &format, defaults)?,
+    ///     timestamp!(1_577_923_200)
+    /// );
+    /// # Ok::<_, time::Error>(())
+    /// ```
+    #[inline]
+    pub fn parse_with_defaults(
+        input: &[u8],
+        description: &(impl Parsable + ?Sized),
+        defaults: Parsed,
+    ) -> Result<Self, error::Parse> {
+        description.parse_timestamp(input, Some(defaults), PrivateMethod)
     }
 }
 
@@ -1404,7 +1445,7 @@ impl fmt::Debug for Timestamp {
     }
 }
 
-impl Add<Duration> for Timestamp {
+impl Add<SignedDuration> for Timestamp {
     type Output = Self;
 
     /// # Panics
@@ -1412,7 +1453,7 @@ impl Add<Duration> for Timestamp {
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn add(self, rhs: Duration) -> Self::Output {
+    fn add(self, rhs: SignedDuration) -> Self::Output {
         self.checked_add(rhs)
             .expect("resulting value is out of range")
     }
@@ -1431,13 +1472,13 @@ impl Add<StdDuration> for Timestamp {
     }
 }
 
-impl AddAssign<Duration> for Timestamp {
+impl AddAssign<SignedDuration> for Timestamp {
     /// # Panics
     ///
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn add_assign(&mut self, rhs: Duration) {
+    fn add_assign(&mut self, rhs: SignedDuration) {
         *self = *self + rhs;
     }
 }
@@ -1453,7 +1494,7 @@ impl AddAssign<StdDuration> for Timestamp {
     }
 }
 
-impl Sub<Duration> for Timestamp {
+impl Sub<SignedDuration> for Timestamp {
     type Output = Self;
 
     /// # Panics
@@ -1461,7 +1502,7 @@ impl Sub<Duration> for Timestamp {
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn sub(self, rhs: Duration) -> Self::Output {
+    fn sub(self, rhs: SignedDuration) -> Self::Output {
         self.checked_sub(rhs)
             .expect("resulting value is out of range")
     }
@@ -1480,13 +1521,13 @@ impl Sub<StdDuration> for Timestamp {
     }
 }
 
-impl SubAssign<Duration> for Timestamp {
+impl SubAssign<SignedDuration> for Timestamp {
     /// # Panics
     ///
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn sub_assign(&mut self, rhs: Duration) {
+    fn sub_assign(&mut self, rhs: SignedDuration) {
         *self = *self - rhs;
     }
 }
@@ -1503,7 +1544,7 @@ impl SubAssign<StdDuration> for Timestamp {
 }
 
 impl Sub for Timestamp {
-    type Output = Duration;
+    type Output = SignedDuration;
 
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
@@ -1511,9 +1552,9 @@ impl Sub for Timestamp {
         let nanoseconds = self.nanoseconds.get() as i32 - rhs.nanoseconds.get() as i32;
 
         if nanoseconds < 0 {
-            Duration::new(seconds - 1, nanoseconds + Nanosecond::per_t::<i32>(Second))
+            SignedDuration::new(seconds - 1, nanoseconds + Nanosecond::per_t::<i32>(Second))
         } else {
-            Duration::new(seconds, nanoseconds)
+            SignedDuration::new(seconds, nanoseconds)
         }
     }
 }

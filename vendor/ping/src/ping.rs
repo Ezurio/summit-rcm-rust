@@ -1,5 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 use rand::random;
 use socket2::{Domain, Protocol, Socket, Type};
@@ -7,9 +7,95 @@ use socket2::{Domain, Protocol, Socket, Type};
 use crate::errors::Error;
 use crate::packet::{EchoReply, EchoRequest, ICMP_HEADER_SIZE, IcmpV4, IcmpV6, IpV4Packet};
 
+#[cfg(feature = "tokio")]
+mod async_ping;
+
 const TOKEN_SIZE: usize = 24;
 const ECHO_REQUEST_BUFFER_SIZE: usize = ICMP_HEADER_SIZE + TOKEN_SIZE;
 type Token = [u8; TOKEN_SIZE];
+
+fn remaining_timeout(started_at: Instant, timeout: Duration) -> std::io::Result<Duration> {
+    timeout
+        .checked_sub(started_at.elapsed())
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::TimedOut, "ping request timed out"))
+}
+
+fn prepare_request(
+    addr: IpAddr,
+    ident: Option<u16>,
+    seq_cnt: Option<u16>,
+    payload: Option<&Token>,
+) -> Result<([u8; ECHO_REQUEST_BUFFER_SIZE], Token), Error> {
+    let payload = payload.copied().unwrap_or_else(random);
+    let request = EchoRequest {
+        ident: ident.unwrap_or_else(random),
+        seq_cnt: seq_cnt.unwrap_or(1),
+        payload: &payload,
+    };
+    let mut bytes = [0; ECHO_REQUEST_BUFFER_SIZE];
+
+    let encoded = if addr.is_ipv4() {
+        request.encode::<IcmpV4>(&mut bytes)
+    } else {
+        request.encode::<IcmpV6>(&mut bytes)
+    };
+    encoded.map_err(|_| Error::InternalError)?;
+
+    Ok((bytes, payload))
+}
+
+fn create_socket(
+    socket_type: Type,
+    addr: IpAddr,
+    ttl: Option<u32>,
+    bind_device: Option<&str>,
+) -> Result<Socket, Error> {
+    let socket = if addr.is_ipv4() {
+        Socket::new(Domain::IPV4, socket_type, Some(Protocol::ICMPV4))?
+    } else {
+        Socket::new(Domain::IPV6, socket_type, Some(Protocol::ICMPV6))?
+    };
+
+    if addr.is_ipv4() {
+        socket.set_ttl_v4(ttl.unwrap_or(64))?;
+    } else {
+        socket.set_unicast_hops_v6(ttl.unwrap_or(64))?;
+    }
+
+    #[allow(unused)]
+    if let Some(device) = bind_device {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        socket.bind_device(Some(device.as_bytes()))?;
+
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        eprintln!("Warning: bind_device is only supported on Linux and Android platforms");
+    }
+
+    Ok(socket)
+}
+
+fn decode_reply(addr: IpAddr, packet: &[u8]) -> Option<(EchoReply<'_>, Option<u8>)> {
+    if addr.is_ipv4() {
+        // DGRAM socket on Linux may return a pure ICMP packet without an IP header.
+        if packet.len() == ECHO_REQUEST_BUFFER_SIZE {
+            EchoReply::decode::<IcmpV4>(packet)
+                .ok()
+                .map(|reply| (reply, None))
+        } else {
+            // Ignore malformed, truncated, and unrelated packets while waiting
+            // for the reply that matches this request.
+            let ipv4_packet = IpV4Packet::decode(packet).ok()?;
+            let ttl = Some(ipv4_packet.ttl);
+            EchoReply::decode::<IcmpV4>(ipv4_packet.data)
+                .ok()
+                .map(|reply| (reply, ttl))
+        }
+    } else {
+        EchoReply::decode::<IcmpV6>(packet)
+            .ok()
+            .map(|reply| (reply, None))
+    }
+}
 
 /// The kind of socket used to send the ICMP request.
 ///
@@ -75,62 +161,23 @@ fn ping_with_socktype(
     payload: Option<&Token>,
     bind_device: Option<&str>,
 ) -> Result<PingResult, Error> {
-    let time_start = SystemTime::now();
-
     let timeout = match timeout {
         Some(timeout) => timeout,
         None => Duration::from_secs(4),
     };
 
     let dest = SocketAddr::new(addr, 0);
-    let mut buffer = [0; ECHO_REQUEST_BUFFER_SIZE];
-
-    let default_payload: &Token = &random();
-
-    let request = EchoRequest {
-        ident: ident.unwrap_or(random()),
-        seq_cnt: seq_cnt.unwrap_or(1),
-        payload: payload.unwrap_or(default_payload),
-    };
-
-    let socket = if dest.is_ipv4() {
-        if request.encode::<IcmpV4>(&mut buffer[..]).is_err() {
-            return Err(Error::InternalError.into());
-        }
-        Socket::new(Domain::IPV4, socket_type, Some(Protocol::ICMPV4))?
-    } else {
-        if request.encode::<IcmpV6>(&mut buffer[..]).is_err() {
-            return Err(Error::InternalError.into());
-        }
-        Socket::new(Domain::IPV6, socket_type, Some(Protocol::ICMPV6))?
-    };
-
-    if dest.is_ipv4() {
-        socket.set_ttl_v4(ttl.unwrap_or(64))?;
-    } else {
-        socket.set_unicast_hops_v6(ttl.unwrap_or(64))?;
-    }
-
-    #[allow(unused)]
-    if let Some(device) = bind_device {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        {
-            socket.bind_device(Some(device.as_bytes()))?;
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        {
-            eprintln!("Warning: bind_device is only supported on Linux and Android platforms");
-        }
-    }
+    let (request_bytes, request_payload) = prepare_request(addr, ident, seq_cnt, payload)?;
+    let socket = create_socket(socket_type, addr, ttl, bind_device)?;
 
     socket.set_write_timeout(Some(timeout))?;
 
-    socket.send_to(&mut buffer, &dest.into())?;
+    let started_at = Instant::now();
+    socket.send_to(&request_bytes, &dest.into())?;
 
     // loop until either an echo whose payload token matches was received or timeout is over
-    let mut elapsed_time = Duration::from_secs(0);
     loop {
-        socket.set_read_timeout(Some(timeout - elapsed_time))?;
+        socket.set_read_timeout(Some(remaining_timeout(started_at, timeout)?))?;
 
         let mut buffer: [u8; 2048] = [0; 2048];
         // socket2 0.6 recv_from requires &mut [MaybeUninit<u8>]; cast is sound
@@ -143,45 +190,14 @@ fn ping_with_socktype(
         })?;
         let source_ip = src_addr.as_socket().map(|s| s.ip()).unwrap_or(addr);
 
-        let mut recv_ttl: Option<u8> = None;
-        let reply = if dest.is_ipv4() {
-            // DGRAM socket on Linux may return pure ICMP packet without IP header.
-            if n == ECHO_REQUEST_BUFFER_SIZE {
-                match EchoReply::decode::<IcmpV4>(&buffer[..n]) {
-                    Ok(reply) => reply,
-                    Err(_) => continue,
-                }
-            } else {
-                // Skip undecodable IP packets (malformed, truncated, or
-                // unrelated ICMP traffic from other hosts on a RAW socket)
-                // instead of failing the whole ping; keep waiting for our reply.
-                let ipv4_packet = match IpV4Packet::decode(&buffer[..n]) {
-                    Ok(packet) => packet,
-                    Err(_) => continue,
-                };
-                recv_ttl = Some(ipv4_packet.ttl);
-                match EchoReply::decode::<IcmpV4>(ipv4_packet.data) {
-                    Ok(reply) => reply,
-                    Err(_) => continue,
-                }
-            }
-        } else {
-            match EchoReply::decode::<IcmpV6>(&buffer[..n]) {
-                Ok(reply) => reply,
-                Err(_) => continue,
-            }
+        let Some((reply, recv_ttl)) = decode_reply(addr, &buffer[..n]) else {
+            continue;
         };
 
-        // update elapsed time before deciding whether the payload token matches
-        elapsed_time = match SystemTime::now().duration_since(time_start) {
-            Ok(reply) => reply,
-            Err(_) => return Err(Error::InternalError.into()),
-        };
-
-        if reply.payload == request.payload {
+        if reply.payload == request_payload {
             // payload token matched: this reply belongs to our request
             return Ok(PingResult {
-                rtt: elapsed_time,
+                rtt: started_at.elapsed(),
                 ident: reply.ident,
                 seq_cnt: reply.seq_cnt,
                 payload: reply.payload.to_vec(),
@@ -189,11 +205,6 @@ fn ping_with_socktype(
                 target: addr,
                 ttl: recv_ttl,
             });
-        }
-
-        if elapsed_time >= timeout {
-            let error = std::io::Error::new(std::io::ErrorKind::TimedOut, "Timeout occured");
-            return Err(Error::IoError { error: (error) });
         }
     }
 }
@@ -237,6 +248,10 @@ pub mod dgramsock {
     }
 }
 
+#[deprecated(
+    since = "0.8.0",
+    note = "use `Ping::new` builder and `Ping::send` instead"
+)]
 pub fn ping(
     addr: IpAddr,
     timeout: Option<Duration>,

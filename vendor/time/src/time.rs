@@ -15,6 +15,8 @@ use deranged::{ru8, ru32};
 use num_conv::prelude::*;
 use powerfmt::smart_display::{FormatterOptions, Metadata, SmartDisplay};
 
+#[cfg(any(feature = "formatting", feature = "parsing"))]
+use crate::PrivateMethod;
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
 use crate::internal_macros::{cascade, ensure_ranged};
@@ -23,10 +25,10 @@ use crate::num_fmt::{
     two_digits_zero_padded,
 };
 #[cfg(feature = "parsing")]
-use crate::parsing::Parsable;
+use crate::parsing::{Parsable, Parsed};
 use crate::unit::*;
 use crate::util::DateAdjustment;
-use crate::{Duration, error};
+use crate::{SignedDuration, error};
 
 /// By explicitly inserting this enum where padding is expected, the compiler is able to better
 /// perform niche value optimization.
@@ -461,7 +463,7 @@ impl Time {
         self.nanosecond.get()
     }
 
-    /// Determine the [`Duration`] that, if added to `self`, would result in the parameter.
+    /// Determine the [`SignedDuration`] that, if added to `self`, would result in the parameter.
     ///
     /// ```rust
     /// # use time::Time;
@@ -471,7 +473,7 @@ impl Time {
     /// assert_eq!(time!(23:00).duration_until(time!(1:00)), 2.hours());
     /// ```
     #[inline]
-    pub const fn duration_until(self, other: Self) -> Duration {
+    pub const fn duration_until(self, other: Self) -> SignedDuration {
         let mut nanoseconds =
             other.nanosecond.get().cast_signed() - self.nanosecond.get().cast_signed();
         let seconds = other.second.get().cast_signed() - self.second.get().cast_signed();
@@ -520,10 +522,10 @@ impl Time {
         }
 
         // Safety: The range of `nanoseconds` is guaranteed by the cascades above.
-        unsafe { Duration::new_unchecked(total_seconds as i64, nanoseconds) }
+        unsafe { SignedDuration::new_unchecked(total_seconds as i64, nanoseconds) }
     }
 
-    /// Determine the [`Duration`] that, if added to the parameter, would result in `self`.
+    /// Determine the [`SignedDuration`] that, if added to the parameter, would result in `self`.
     ///
     /// ```rust
     /// # use time::Time;
@@ -533,14 +535,14 @@ impl Time {
     /// assert_eq!(time!(1:00).duration_since(time!(23:00)), 2.hours());
     /// ```
     #[inline]
-    pub const fn duration_since(self, other: Self) -> Duration {
+    pub const fn duration_since(self, other: Self) -> SignedDuration {
         other.duration_until(self)
     }
 
-    /// Add the sub-day time of the [`Duration`] to the `Time`. Wraps on overflow, returning whether
-    /// the date is different.
+    /// Add the sub-day time of the [`SignedDuration`] to the `Time`. Wraps on overflow, returning
+    /// whether the date is different.
     #[inline]
-    pub(crate) const fn adjusting_add(self, duration: Duration) -> (DateAdjustment, Self) {
+    pub(crate) const fn adjusting_add(self, duration: SignedDuration) -> (DateAdjustment, Self) {
         let mut nanoseconds = self.nanosecond.get().cast_signed() + duration.subsec_nanoseconds();
         let mut seconds = self.second.get().cast_signed()
             + (duration.whole_seconds() % Second::per_t::<i64>(Minute)) as i8;
@@ -575,10 +577,10 @@ impl Time {
         )
     }
 
-    /// Subtract the sub-day time of the [`Duration`] to the `Time`. Wraps on overflow, returning
-    /// whether the date is different.
+    /// Subtract the sub-day time of the [`SignedDuration`] to the `Time`. Wraps on overflow,
+    /// returning whether the date is different.
     #[inline]
-    pub(crate) const fn adjusting_sub(self, duration: Duration) -> (DateAdjustment, Self) {
+    pub(crate) const fn adjusting_sub(self, duration: SignedDuration) -> (DateAdjustment, Self) {
         let mut nanoseconds = self.nanosecond.get().cast_signed() - duration.subsec_nanoseconds();
         let mut seconds = self.second.get().cast_signed()
             - (duration.whole_seconds() % Second::per_t::<i64>(Minute)) as i8;
@@ -901,7 +903,7 @@ impl Time {
         output: &mut (impl io::Write + ?Sized),
         format: &(impl Formattable + ?Sized),
     ) -> Result<usize, error::Format> {
-        format.format_into(output, &self, &mut Default::default())
+        format.format_into(output, &self, &mut Default::default(), PrivateMethod)
     }
 
     /// Format the `Time` using the provided [format description](crate::format_description).
@@ -915,7 +917,7 @@ impl Time {
     /// ```
     #[inline]
     pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
-        format.format(&self, &mut Default::default())
+        format.format(&self, &mut Default::default(), PrivateMethod)
     }
 }
 
@@ -936,23 +938,39 @@ impl Time {
         input: &str,
         description: &(impl Parsable + ?Sized),
     ) -> Result<Self, error::Parse> {
-        description.parse_time(input.as_bytes())
+        description.parse_time(input.as_bytes(), None, PrivateMethod)
+    }
+
+    /// Parse a `Time` from the input using the provided [format
+    /// description](crate::format_description) and default values.
+    ///
+    /// ```rust
+    /// # use time::Time;
+    /// # use time::parsing::Parsed;
+    /// # use time_macros::{time, format_description};
+    /// let format = format_description!("[hour]");
+    /// let defaults = Parsed::new().with_minute(30).expect("30 is a valid minute");
+    /// assert_eq!(
+    ///     Time::parse_with_defaults(b"12", &format, defaults)?,
+    ///     time!(12:30)
+    /// );
+    /// # Ok::<_, time::Error>(())
+    /// ```
+    #[inline]
+    pub fn parse_with_defaults(
+        input: &[u8],
+        description: &(impl Parsable + ?Sized),
+        defaults: Parsed,
+    ) -> Result<Self, error::Parse> {
+        description.parse_time(input, Some(defaults), PrivateMethod)
     }
 }
-
-mod private {
-    /// Metadata for `Time`.
-    #[non_exhaustive]
-    #[derive(Debug)]
-    pub struct TimeMetadata;
-}
-use private::TimeMetadata;
 
 // This no longer needs special handling, as the format is fixed and doesn't require anything
 // advanced. Trait impls can't be deprecated and the info is still useful for other types
 // implementing `SmartDisplay`, so leave it as-is for now.
 impl SmartDisplay for Time {
-    type Metadata = TimeMetadata;
+    type Metadata = ();
 
     #[inline]
     fn metadata(&self, _: FormatterOptions) -> Metadata<'_, Self> {
@@ -970,7 +988,7 @@ impl SmartDisplay for Time {
         };
         let total_width = hour_width + subsecond_width + 7;
 
-        Metadata::new(total_width, self, TimeMetadata)
+        Metadata::new(total_width, self, ())
     }
 
     #[inline]
@@ -1065,10 +1083,10 @@ impl fmt::Debug for Time {
     }
 }
 
-impl Add<Duration> for Time {
+impl Add<SignedDuration> for Time {
     type Output = Self;
 
-    /// Add the sub-day time of the [`Duration`] to the `Time`. Wraps on overflow.
+    /// Add the sub-day time of the [`SignedDuration`] to the `Time`. Wraps on overflow.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -1077,14 +1095,14 @@ impl Add<Duration> for Time {
     /// assert_eq!(time!(0:00:01) + (-2).seconds(), time!(23:59:59));
     /// ```
     #[inline]
-    fn add(self, duration: Duration) -> Self::Output {
+    fn add(self, duration: SignedDuration) -> Self::Output {
         self.adjusting_add(duration).1
     }
 }
 
-impl AddAssign<Duration> for Time {
+impl AddAssign<SignedDuration> for Time {
     #[inline]
-    fn add_assign(&mut self, rhs: Duration) {
+    fn add_assign(&mut self, rhs: SignedDuration) {
         *self = *self + rhs;
     }
 }
@@ -1113,10 +1131,10 @@ impl AddAssign<StdDuration> for Time {
     }
 }
 
-impl Sub<Duration> for Time {
+impl Sub<SignedDuration> for Time {
     type Output = Self;
 
-    /// Subtract the sub-day time of the [`Duration`] from the `Time`. Wraps on overflow.
+    /// Subtract the sub-day time of the [`SignedDuration`] from the `Time`. Wraps on overflow.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -1125,14 +1143,14 @@ impl Sub<Duration> for Time {
     /// assert_eq!(time!(23:59:59) - (-2).seconds(), time!(0:00:01));
     /// ```
     #[inline]
-    fn sub(self, duration: Duration) -> Self::Output {
+    fn sub(self, duration: SignedDuration) -> Self::Output {
         self.adjusting_sub(duration).1
     }
 }
 
-impl SubAssign<Duration> for Time {
+impl SubAssign<SignedDuration> for Time {
     #[inline]
-    fn sub_assign(&mut self, rhs: Duration) {
+    fn sub_assign(&mut self, rhs: SignedDuration) {
         *self = *self - rhs;
     }
 }
@@ -1162,10 +1180,10 @@ impl SubAssign<StdDuration> for Time {
 }
 
 impl Sub for Time {
-    type Output = Duration;
+    type Output = SignedDuration;
 
-    /// Subtract two `Time`s, returning the [`Duration`] between. This assumes both `Time`s are in
-    /// the same calendar day.
+    /// Subtract two `Time`s, returning the [`SignedDuration`] between. This assumes both `Time`s
+    /// are in the same calendar day.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -1202,6 +1220,6 @@ impl Sub for Time {
         };
 
         // Safety: `nanoseconds` is in range due to the overflow handling.
-        unsafe { Duration::new_unchecked(seconds.widen(), nanoseconds) }
+        unsafe { SignedDuration::new_unchecked(seconds.widen(), nanoseconds) }
     }
 }

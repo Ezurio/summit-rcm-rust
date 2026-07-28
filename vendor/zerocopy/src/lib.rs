@@ -435,7 +435,6 @@ const _: () = {
     WARNING
 };
 
-#[doc(hidden)]
 #[cfg(all(any(feature = "derive", test), zerocopy_unstable_linux))]
 pub use zerocopy_derive::most_traits;
 /// Implements [`KnownLayout`].
@@ -5603,6 +5602,10 @@ fn mut_from_prefix_suffix<T: FromBytes + IntoBytes + KnownLayout + ?Sized>(
 ///       if its field is [`IntoBytes`]; else,
 ///     - if the type has no generic parameters, it is [`IntoBytes`] if the type
 ///       is sized and has no padding bytes; else,
+///     - if the type is `repr(C)` without an `align(N)` modifier for `N > 1`
+///       (it may have `align(1)` or `packed(N)`), and every field is `T`,
+///       `[T; N]`, or a final `[T]` for the same type parameter `T`, it is
+///       [`IntoBytes`]; else,
 ///     - if the type is `repr(C)`, its fields must be [`Unaligned`].
 /// - If the type is an enum:
 ///   - It must have a defined representation (`repr`s `C`, `u8`, `u16`, `u32`,

@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.87"
 name = "zbus"
-version = "5.16.0"
+version = "5.18.0"
 authors = ["Zeeshan Ali Khan <zeeshanak@gnome.org>"]
 build = false
 autolib = false
@@ -116,6 +116,10 @@ name = "builder_message_stream"
 path = "tests/builder_message_stream.rs"
 
 [[test]]
+name = "connection_closed"
+path = "tests/connection_closed.rs"
+
+[[test]]
 name = "e2e"
 path = "tests/e2e.rs"
 
@@ -135,6 +139,12 @@ path = "tests/unixexec.rs"
 name = "benchmarks"
 path = "benches/benchmarks.rs"
 harness = false
+
+[[bench]]
+name = "concurrent_method_calls"
+path = "benches/concurrent_method_calls.rs"
+harness = false
+required-features = ["p2p"]
 
 [dependencies.async-broadcast]
 version = "0.7.0"
@@ -220,17 +230,17 @@ features = ["serde"]
 version = "1.0"
 
 [dependencies.zbus_macros]
-version = "5.16.0"
+version = "5.18.0"
 
 [dependencies.zbus_names]
-version = "4.3.2"
+version = "4.3.4"
 
 [dependencies.zvariant]
-version = "5.12.0"
+version = "5.13.1"
 features = ["enumflags2"]
 
 [dev-dependencies.criterion]
-version = "4.0.4"
+version = "5.0.0"
 package = "codspeed-criterion-compat"
 
 [dev-dependencies.doc-comment]

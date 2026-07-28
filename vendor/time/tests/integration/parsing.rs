@@ -6,11 +6,13 @@ use time::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
 use time::format_description::{
     Component, FormatDescriptionV3, OwnedFormatItem, StaticFormatDescription, modifier,
 };
-use time::macros::{date, datetime, format_description as fd, offset, time, utc_datetime};
+use time::macros::{
+    date, datetime, format_description as fd, offset, time, timestamp, utc_datetime,
+};
 use time::parsing::Parsed;
 use time::{
-    Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcDateTime, UtcOffset, Weekday, error,
-    format_description as fd,
+    Date, Month, OffsetDateTime, PlainDateTime, Time, Timestamp, UtcDateTime, UtcOffset, Weekday,
+    error, format_description as fd,
 };
 
 #[rstest]
@@ -256,7 +258,7 @@ fn rfc_3339_err_component_range_pdt(
     #[case] is_conditional: bool,
 ) {
     assert!(matches!(
-        PrimitiveDateTime::parse(input, &Rfc3339),
+        PlainDateTime::parse(input, &Rfc3339),
         Err(error::Parse::TryFromParsed(error::TryFromParsed::ComponentRange(component)))
             if component.name() == component_name && component.is_conditional() == is_conditional
     ));
@@ -270,7 +272,7 @@ fn rfc_3339_err_component_range_pdt(
 #[case("2021-01-01T00:00:00+00x")]
 fn rfc_3339_err_invalid_literal_pdt(#[case] input: &str) {
     assert!(matches!(
-        PrimitiveDateTime::parse(input, &Rfc3339),
+        PlainDateTime::parse(input, &Rfc3339),
         Err(error::Parse::ParseFromDescription(
             error::ParseFromDescription::InvalidLiteral { .. }
         ))
@@ -294,7 +296,7 @@ fn rfc_3339_err_invalid_literal_pdt(#[case] input: &str) {
 #[case("2021-01-01T00:00:00+24:00", "offset hour")]
 fn rfc_3339_err_invalid_component_pdt(#[case] input: &str, #[case] component_name: &str) {
     assert!(matches!(
-        PrimitiveDateTime::parse(input, &Rfc3339),
+        PlainDateTime::parse(input, &Rfc3339),
         Err(error::Parse::ParseFromDescription(error::ParseFromDescription::InvalidComponent(name)))
             if name == component_name
     ));
@@ -357,9 +359,9 @@ fn iso_8601_offset(#[case] input: &str, #[case] expected: UtcOffset) {
 
 #[rstest]
 #[case("2022-07-22T12:52:50.349409", datetime!(2022-07-22 12:52:50.349409000))]
-fn iso_8601_pdt(#[case] input: &str, #[case] expected: PrimitiveDateTime) {
+fn iso_8601_pdt(#[case] input: &str, #[case] expected: PlainDateTime) {
     assert_eq!(
-        PrimitiveDateTime::parse(input, &Iso8601::DEFAULT).ok(),
+        PlainDateTime::parse(input, &Iso8601::DEFAULT).ok(),
         Some(expected)
     );
 }
@@ -694,38 +696,38 @@ fn parse_offset_invalid_component(
 
 #[rstest]
 #[case("2023-07-27 23", fd!("[year]-[month]-[day] [hour]"), datetime!(2023-07-27 23:00))]
-fn parse_primitive_date_time(
+fn parse_plain_date_time(
     #[case] input: &str,
     #[case] format_description: StaticFormatDescription,
-    #[case] expected: PrimitiveDateTime,
+    #[case] expected: PlainDateTime,
 ) {
     assert_eq!(
-        PrimitiveDateTime::parse(input, format_description).ok(),
+        PlainDateTime::parse(input, format_description).ok(),
         Some(expected)
     );
     assert_eq!(
-        PrimitiveDateTime::parse(input, &OwnedFormatItem::from(format_description)).ok(),
+        PlainDateTime::parse(input, &OwnedFormatItem::from(format_description)).ok(),
         Some(expected)
     );
 }
 
 #[rstest]
-fn parse_primitive_date_time_insufficient_information_standalone() {
+fn parse_plain_date_time_insufficient_information_standalone() {
     assert_eq!(
-        PrimitiveDateTime::try_from(Parsed::new()),
+        PlainDateTime::try_from(Parsed::new()),
         Err(error::TryFromParsed::InsufficientInformation)
     );
 }
 
 #[rstest]
 #[case("2021-001 13 PM", fd!("[year]-[ordinal] [hour repr:12] [period]"), "hour")]
-fn parse_primitive_date_time_invalid_component(
+fn parse_plain_date_time_invalid_component(
     #[case] input: &str,
     #[case] fd: StaticFormatDescription,
     #[case] component_name: &str,
 ) {
     assert!(matches!(
-        PrimitiveDateTime::parse(input, fd),
+        PlainDateTime::parse(input, fd),
         Err(error::Parse::ParseFromDescription(
             error::ParseFromDescription::InvalidComponent(name)
         )) if name == component_name
@@ -734,12 +736,12 @@ fn parse_primitive_date_time_invalid_component(
 
 #[rstest]
 #[case("2023-07-27 23:30", fd!("[year]-[month]-[day] [hour]"))]
-fn parse_primitive_date_time_unexpected_trailing_characters(
+fn parse_plain_date_time_unexpected_trailing_characters(
     #[case] input: &str,
     #[case] fd: StaticFormatDescription,
 ) {
     assert!(matches!(
-        PrimitiveDateTime::parse(input, fd),
+        PlainDateTime::parse(input, fd),
         Err(error::Parse::ParseFromDescription(
             error::ParseFromDescription::UnexpectedTrailingCharacters { .. }
         ))
@@ -1488,4 +1490,435 @@ fn end_err_invalid_literal(
             error::ParseFromDescription::InvalidLiteral { .. }
         ))
     ));
+}
+
+#[rstest]
+#[case(
+    fd!("[month]-[day]"),
+    b"01-15",
+    Parsed::new().with_year(2020).expect("value is valid"),
+    date!(2020-01-15)
+)]
+#[case(
+    fd!("[year]-[month]-[day]"),
+    b"2020-01-15",
+    Parsed::new().with_year(1999).expect("value is valid"),
+    date!(2020-01-15)
+)]
+fn parse_with_defaults_date_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: Date,
+) {
+    assert_eq!(
+        Date::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!("[month]"), b"01", Parsed::new())]
+fn parse_with_defaults_date_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        Date::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(
+    fd!("[month]-[day]"),
+    b"Ja-15",
+    Parsed::new().with_year(2020).expect("value is valid"),
+    "month"
+)]
+fn parse_with_defaults_date_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        Date::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[month]-[day]"),
+    b"02-30",
+    Parsed::new().with_year(2020).expect("value is valid"),
+    "day"
+)]
+fn parse_with_defaults_date_component_range(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        Date::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::ComponentRange(component)
+        )) if component.name() == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[hour]"),
+    b"12",
+    Parsed::new().with_minute(30).expect("value is valid"),
+    time!(12:30)
+)]
+#[case(
+    fd!("[hour]:[minute]"),
+    b"12:30",
+    Parsed::new().with_minute(0).expect("value is valid"),
+    time!(12:30)
+)]
+fn parse_with_defaults_time_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: Time,
+) {
+    assert_eq!(
+        Time::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!(""), b"", Parsed::new())]
+fn parse_with_defaults_time_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        Time::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(fd!("[hour]"), b"a", Parsed::new().with_minute(30).expect("value is valid"), "hour")]
+fn parse_with_defaults_time_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        Time::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[offset_hour sign:mandatory]"),
+    b"+05",
+    Parsed::new().with_offset_minute_signed(30).expect("value is valid"),
+    offset!(+5:30),
+)]
+#[case(
+    fd!("[offset_hour sign:mandatory]:[offset_minute]"),
+    b"+05:30",
+    Parsed::new().with_offset_minute_signed(0).expect("value is valid"),
+    offset!(+5:30),
+)]
+fn parse_with_defaults_utc_offset_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: UtcOffset,
+) {
+    assert_eq!(
+        UtcOffset::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!(""), b"", Parsed::new())]
+fn parse_with_defaults_utc_offset_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        UtcOffset::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(
+    fd!("[offset_hour sign:mandatory]"),
+    b"*05",
+    Parsed::new().with_offset_minute_signed(30).expect("value is valid"),
+    "offset hour",
+)]
+fn parse_with_defaults_utc_offset_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        UtcOffset::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day]"),
+    b"2020-01-02",
+    Parsed::new().with_hour_24(12).expect("value is valid"),
+    datetime!(2020-01-02 12:00),
+)]
+#[case(
+    fd!("[year]-[month]-[day] [hour]"),
+    b"2020-01-02 12",
+    Parsed::new().with_hour_24(0).expect("value is valid"),
+    datetime!(2020-01-02 12:00),
+)]
+fn parse_with_defaults_plain_date_time_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: PlainDateTime,
+) {
+    assert_eq!(
+        PlainDateTime::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!("[month]-[day]"), b"01-15", Parsed::new())]
+fn parse_with_defaults_plain_date_time_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        PlainDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day] [hour]"),
+    b"2020-01-02 Ja",
+    Parsed::new().with_hour_24(12).expect("value is valid"),
+    "hour",
+)]
+fn parse_with_defaults_plain_date_time_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        PlainDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day]"),
+    b"2020-01-02",
+    Parsed::new().with_hour_24(12).expect("value is valid"),
+    utc_datetime!(2020-01-02 12:00),
+)]
+#[case(
+    fd!("[year]-[month]-[day] [hour]"),
+    b"2020-01-02 12",
+    Parsed::new().with_hour_24(0).expect("value is valid"),
+    utc_datetime!(2020-01-02 12:00),
+)]
+fn parse_with_defaults_utc_date_time_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: UtcDateTime,
+) {
+    assert_eq!(
+        UtcDateTime::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!("[month]-[day]"), b"01-15", Parsed::new())]
+fn parse_with_defaults_utc_date_time_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        UtcDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day] [hour]"),
+    b"2020-01-02 Ja",
+    Parsed::new().with_hour_24(12).expect("value is valid"),
+    "hour",
+)]
+fn parse_with_defaults_utc_date_time_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        UtcDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day] [hour]:[minute]"),
+    b"2020-01-02 03:04",
+    Parsed::new()
+        .with_offset_hour(0)
+        .and_then(|p| p.with_offset_minute_signed(0))
+        .expect("value is valid"),
+    datetime!(2020-01-02 03:04 +0:00),
+)]
+#[case(
+    fd!("[year]-[month]-[day] [hour]:[minute][offset_hour sign:mandatory]:[offset_minute]"),
+    b"2020-01-02 03:04+05:30",
+    Parsed::new().with_offset_hour(0).expect("value is valid"),
+    datetime!(2020-01-02 03:04 +5:30),
+)]
+fn parse_with_defaults_offset_date_time_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: OffsetDateTime,
+) {
+    assert_eq!(
+        OffsetDateTime::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!("[year]-[month]-[day] [hour]:[minute]"), b"2020-01-02 03:04", Parsed::new())]
+fn parse_with_defaults_offset_date_time_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        OffsetDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day] [hour]:[minute]"),
+    b"2020-01-a 03:04",
+    Parsed::new()
+        .with_offset_hour(0)
+        .and_then(|p| p.with_offset_minute_signed(0))
+        .expect("value is valid"),
+    "day",
+)]
+fn parse_with_defaults_offset_date_time_invalid_component(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] component_name: &str,
+) {
+    assert!(matches!(
+        OffsetDateTime::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::ParseFromDescription(
+            error::ParseFromDescription::InvalidComponent(name)
+        )) if name == component_name
+    ));
+}
+
+#[rstest]
+#[case(
+    fd!("[year]-[month]-[day]"),
+    b"2020-01-02",
+    Parsed::new().with_hour_24(0).expect("value is valid"),
+    timestamp!(1_577_923_200),
+)]
+#[case(
+    fd!("[year]-[month]-[day] [hour]:[minute]"),
+    b"2020-01-02 12:30",
+    Parsed::new()
+        .with_hour_24(0)
+        .and_then(|p| p.with_minute(0))
+        .expect("value is valid"),
+    timestamp!(1_577_968_200),
+)]
+fn parse_with_defaults_timestamp_success(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+    #[case] expected: Timestamp,
+) {
+    assert_eq!(
+        Timestamp::parse_with_defaults(input, &format, defaults).ok(),
+        Some(expected)
+    );
+}
+
+#[rstest]
+#[case(fd!("[month]-[day]"), b"01-15", Parsed::new())]
+fn parse_with_defaults_timestamp_insufficient_information(
+    #[case] format: StaticFormatDescription,
+    #[case] input: &[u8],
+    #[case] defaults: Parsed,
+) {
+    assert_eq!(
+        Timestamp::parse_with_defaults(input, &format, defaults),
+        Err(error::Parse::TryFromParsed(
+            error::TryFromParsed::InsufficientInformation
+        ))
+    );
 }

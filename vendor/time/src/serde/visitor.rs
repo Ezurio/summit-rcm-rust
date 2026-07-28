@@ -9,14 +9,14 @@ use serde_core::de;
 
 #[cfg(feature = "parsing")]
 use super::{
-    DATE_FORMAT, OFFSET_DATE_TIME_FORMAT, PRIMITIVE_DATE_TIME_FORMAT, TIME_FORMAT,
+    DATE_FORMAT, OFFSET_DATE_TIME_FORMAT, PLAIN_DATE_TIME_FORMAT, TIME_FORMAT,
     UTC_DATE_TIME_FORMAT, UTC_OFFSET_FORMAT,
 };
 use crate::error::ComponentRange;
 #[cfg(feature = "parsing")]
 use crate::format_description::well_known::*;
 use crate::{
-    Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, Timestamp, UtcDateTime,
+    Date, Month, OffsetDateTime, PlainDateTime, SignedDuration, Time, Timestamp, UtcDateTime,
     UtcOffset, Weekday,
 };
 
@@ -53,16 +53,16 @@ impl<'a> de::Visitor<'a> for Visitor<Date> {
     }
 }
 
-impl<'a> de::Visitor<'a> for Visitor<Duration> {
-    type Value = Duration;
+impl<'a> de::Visitor<'a> for Visitor<SignedDuration> {
+    type Value = SignedDuration;
 
     #[inline]
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a `Duration`")
+        formatter.write_str("a `SignedDuration`")
     }
 
     #[inline]
-    fn visit_str<E>(self, value: &str) -> Result<Duration, E>
+    fn visit_str<E>(self, value: &str) -> Result<SignedDuration, E>
     where
         E: de::Error,
     {
@@ -84,17 +84,17 @@ impl<'a> de::Visitor<'a> for Visitor<Duration> {
             nanoseconds *= -1;
         }
 
-        Ok(Duration::new(seconds, nanoseconds))
+        Ok(SignedDuration::new(seconds, nanoseconds))
     }
 
     #[inline]
-    fn visit_seq<A>(self, mut seq: A) -> Result<Duration, A::Error>
+    fn visit_seq<A>(self, mut seq: A) -> Result<SignedDuration, A::Error>
     where
         A: de::SeqAccess<'a>,
     {
         let seconds = item!(seq, "seconds")?;
         let nanoseconds = item!(seq, "nanoseconds")?;
-        Ok(Duration::new(seconds, nanoseconds))
+        Ok(SignedDuration::new(seconds, nanoseconds))
     }
 }
 
@@ -140,25 +140,25 @@ impl<'a> de::Visitor<'a> for Visitor<OffsetDateTime> {
     }
 }
 
-impl<'a> de::Visitor<'a> for Visitor<PrimitiveDateTime> {
-    type Value = PrimitiveDateTime;
+impl<'a> de::Visitor<'a> for Visitor<PlainDateTime> {
+    type Value = PlainDateTime;
 
     #[inline]
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a `PrimitiveDateTime`")
+        formatter.write_str("a `PlainDateTime`")
     }
 
     #[cfg(feature = "parsing")]
     #[inline]
-    fn visit_str<E>(self, value: &str) -> Result<PrimitiveDateTime, E>
+    fn visit_str<E>(self, value: &str) -> Result<PlainDateTime, E>
     where
         E: de::Error,
     {
-        PrimitiveDateTime::parse(value, &PRIMITIVE_DATE_TIME_FORMAT).map_err(E::custom)
+        PlainDateTime::parse(value, &PLAIN_DATE_TIME_FORMAT).map_err(E::custom)
     }
 
     #[inline]
-    fn visit_seq<A>(self, mut seq: A) -> Result<PrimitiveDateTime, A::Error>
+    fn visit_seq<A>(self, mut seq: A) -> Result<PlainDateTime, A::Error>
     where
         A: de::SeqAccess<'a>,
     {
@@ -180,7 +180,7 @@ impl<'a> de::Visitor<'a> for Visitor<UtcDateTime> {
 
     #[inline]
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a `PrimitiveDateTime`")
+        formatter.write_str("a `PlainDateTime`")
     }
 
     #[cfg(feature = "parsing")]
@@ -206,7 +206,7 @@ impl<'a> de::Visitor<'a> for Visitor<UtcDateTime> {
 
         Date::from_ordinal_date(year, ordinal)
             .and_then(|date| date.with_hms_nano(hour, minute, second, nanosecond))
-            .map(UtcDateTime::from_primitive)
+            .map(UtcDateTime::from_plain)
             .map_err(ComponentRange::into_de_error)
     }
 }

@@ -12,30 +12,32 @@ use std::io;
 use deranged::ri64;
 use powerfmt::smart_display::{FormatterOptions, Metadata, SmartDisplay};
 
+#[cfg(any(feature = "formatting", feature = "parsing"))]
+use crate::PrivateMethod;
 use crate::date::{MAX_YEAR, MIN_YEAR};
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
 use crate::internal_macros::{carry, cascade, const_try, const_try_opt, div_floor, ensure_ranged};
 use crate::num_fmt::str_from_raw_parts;
 #[cfg(feature = "parsing")]
-use crate::parsing::Parsable;
+use crate::parsing::{Parsable, Parsed};
 use crate::unit::*;
 use crate::util::days_in_year;
 use crate::{
-    Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday, error,
+    Date, Month, OffsetDateTime, PlainDateTime, SignedDuration, Time, UtcOffset, Weekday, error,
 };
 
 /// The Julian day of the Unix epoch.
 const UNIX_EPOCH_JULIAN_DAY: i32 = UtcDateTime::UNIX_EPOCH.to_julian_day();
 
-/// A [`PrimitiveDateTime`] that is known to be UTC.
+/// A [`PlainDateTime`] that is known to be UTC.
 ///
-/// `UtcDateTime` is guaranteed to be ABI-compatible with [`PrimitiveDateTime`], meaning that
+/// `UtcDateTime` is guaranteed to be ABI-compatible with [`PlainDateTime`], meaning that
 /// transmuting from one to the other will not result in undefined behavior.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UtcDateTime {
-    inner: PrimitiveDateTime,
+    inner: PlainDateTime,
 }
 
 impl UtcDateTime {
@@ -145,20 +147,20 @@ impl UtcDateTime {
     #[inline]
     pub const fn new(date: Date, time: Time) -> Self {
         Self {
-            inner: PrimitiveDateTime::new(date, time),
+            inner: PlainDateTime::new(date, time),
         }
     }
 
-    /// Create a new `UtcDateTime` from the [`PrimitiveDateTime`], assuming that the latter is UTC.
+    /// Create a new `UtcDateTime` from the [`PlainDateTime`], assuming that the latter is UTC.
     #[inline]
-    pub(crate) const fn from_primitive(date_time: PrimitiveDateTime) -> Self {
+    pub(crate) const fn from_plain(date_time: PlainDateTime) -> Self {
         Self { inner: date_time }
     }
 
-    /// Obtain the [`PrimitiveDateTime`] that this `UtcDateTime` represents. The no-longer-attached
+    /// Obtain the [`PlainDateTime`] that this `UtcDateTime` represents. The no-longer-attached
     /// [`UtcOffset`] is assumed to be UTC.
     #[inline]
-    pub(crate) const fn as_primitive(self) -> PrimitiveDateTime {
+    pub(crate) const fn as_plain(self) -> PlainDateTime {
         self.inner
     }
 
@@ -181,10 +183,10 @@ impl UtcDateTime {
     /// following:
     ///
     /// ```rust
-    /// # use time::{Duration, UtcDateTime, ext::NumericalDuration};
+    /// # use time::{SignedDuration, UtcDateTime, ext::NumericalDuration};
     /// let (timestamp, nanos) = (1, 500_000_000);
     /// assert_eq!(
-    ///     UtcDateTime::from_unix_timestamp(timestamp)? + Duration::nanoseconds(nanos),
+    ///     UtcDateTime::from_unix_timestamp(timestamp)? + SignedDuration::nanoseconds(nanos),
     ///     UtcDateTime::UNIX_EPOCH + 1.5.seconds()
     /// );
     /// # Ok::<_, time::Error>(())
@@ -774,8 +776,8 @@ impl UtcDateTime {
     /// );
     /// ```
     #[inline]
-    pub const fn checked_add(self, duration: Duration) -> Option<Self> {
-        Some(Self::from_primitive(const_try_opt!(
+    pub const fn checked_add(self, duration: SignedDuration) -> Option<Self> {
+        Some(Self::from_plain(const_try_opt!(
             self.inner.checked_add(duration)
         )))
     }
@@ -793,8 +795,8 @@ impl UtcDateTime {
     /// );
     /// ```
     #[inline]
-    pub const fn checked_sub(self, duration: Duration) -> Option<Self> {
-        Some(Self::from_primitive(const_try_opt!(
+    pub const fn checked_sub(self, duration: SignedDuration) -> Option<Self> {
+        Some(Self::from_plain(const_try_opt!(
             self.inner.checked_sub(duration)
         )))
     }
@@ -818,8 +820,8 @@ impl UtcDateTime {
     /// );
     /// ```
     #[inline]
-    pub const fn saturating_add(self, duration: Duration) -> Self {
-        Self::from_primitive(self.inner.saturating_add(duration))
+    pub const fn saturating_add(self, duration: SignedDuration) -> Self {
+        Self::from_plain(self.inner.saturating_add(duration))
     }
 
     /// Computes `self - duration`, saturating value on overflow.
@@ -841,8 +843,8 @@ impl UtcDateTime {
     /// );
     /// ```
     #[inline]
-    pub const fn saturating_sub(self, duration: Duration) -> Self {
-        Self::from_primitive(self.inner.saturating_sub(duration))
+    pub const fn saturating_sub(self, duration: SignedDuration) -> Self {
+        Self::from_plain(self.inner.saturating_sub(duration))
     }
 }
 
@@ -860,7 +862,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_time(self, time: Time) -> Self {
-        Self::from_primitive(self.inner.replace_time(time))
+        Self::from_plain(self.inner.replace_time(time))
     }
 
     /// Replace the date, preserving the time.
@@ -875,7 +877,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_date(self, date: Date) -> Self {
-        Self::from_primitive(self.inner.replace_date(date))
+        Self::from_plain(self.inner.replace_date(date))
     }
 
     /// Replace the year. The month and day will be unchanged.
@@ -892,9 +894,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_year(self, year: i32) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
-            self.inner.replace_year(year)
-        )))
+        Ok(Self::from_plain(const_try!(self.inner.replace_year(year))))
     }
 
     /// Replace the month of the year.
@@ -911,7 +911,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_month(self, month: Month) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_month(month)
         )))
     }
@@ -930,9 +930,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_day(self, day: u8) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
-            self.inner.replace_day(day)
-        )))
+        Ok(Self::from_plain(const_try!(self.inner.replace_day(day))))
     }
 
     /// Replace the day of the year.
@@ -946,7 +944,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_ordinal(self, ordinal: u16) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_ordinal(ordinal)
         )))
     }
@@ -963,7 +961,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_day(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_day())
+        Self::from_plain(self.inner.truncate_to_day())
     }
 
     /// Replace the clock hour.
@@ -979,9 +977,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_hour(self, hour: u8) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
-            self.inner.replace_hour(hour)
-        )))
+        Ok(Self::from_plain(const_try!(self.inner.replace_hour(hour))))
     }
 
     /// Truncate to the hour, setting the minute, second, and subsecond components to zero.
@@ -996,7 +992,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_hour(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_hour())
+        Self::from_plain(self.inner.truncate_to_hour())
     }
 
     /// Replace the minutes within the hour.
@@ -1012,7 +1008,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_minute(self, minute: u8) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_minute(minute)
         )))
     }
@@ -1029,7 +1025,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_minute(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_minute())
+        Self::from_plain(self.inner.truncate_to_minute())
     }
 
     /// Replace the seconds within the minute.
@@ -1045,7 +1041,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_second(self, second: u8) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_second(second)
         )))
     }
@@ -1062,7 +1058,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_second(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_second())
+        Self::from_plain(self.inner.truncate_to_second())
     }
 
     /// Replace the milliseconds within the second.
@@ -1081,7 +1077,7 @@ impl UtcDateTime {
         self,
         millisecond: u16,
     ) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_millisecond(millisecond)
         )))
     }
@@ -1098,7 +1094,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_millisecond(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_millisecond())
+        Self::from_plain(self.inner.truncate_to_millisecond())
     }
 
     /// Replace the microseconds within the second.
@@ -1117,7 +1113,7 @@ impl UtcDateTime {
         self,
         microsecond: u32,
     ) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_microsecond(microsecond)
         )))
     }
@@ -1134,7 +1130,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn truncate_to_microsecond(self) -> Self {
-        Self::from_primitive(self.inner.truncate_to_microsecond())
+        Self::from_plain(self.inner.truncate_to_microsecond())
     }
 
     /// Replace the nanoseconds within the second.
@@ -1150,7 +1146,7 @@ impl UtcDateTime {
     #[must_use = "This method does not mutate the original `UtcDateTime`."]
     #[inline]
     pub const fn replace_nanosecond(self, nanosecond: u32) -> Result<Self, error::ComponentRange> {
-        Ok(Self::from_primitive(const_try!(
+        Ok(Self::from_plain(const_try!(
             self.inner.replace_nanosecond(nanosecond)
         )))
     }
@@ -1166,7 +1162,7 @@ impl UtcDateTime {
         output: &mut (impl io::Write + ?Sized),
         format: &(impl Formattable + ?Sized),
     ) -> Result<usize, error::Format> {
-        format.format_into(output, &self, &mut Default::default())
+        format.format_into(output, &self, &mut Default::default(), PrivateMethod)
     }
 
     /// Format the `UtcDateTime` using the provided [format
@@ -1187,7 +1183,7 @@ impl UtcDateTime {
     /// ```
     #[inline]
     pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
-        format.format(&self, &mut Default::default())
+        format.format(&self, &mut Default::default(), PrivateMethod)
     }
 }
 
@@ -1212,7 +1208,31 @@ impl UtcDateTime {
         input: &str,
         description: &(impl Parsable + ?Sized),
     ) -> Result<Self, error::Parse> {
-        description.parse_utc_date_time(input.as_bytes())
+        description.parse_utc_date_time(input.as_bytes(), None, PrivateMethod)
+    }
+
+    /// Parse a `UtcDateTime` from the input using the provided [format
+    /// description](crate::format_description) and default values.
+    ///
+    /// ```rust
+    /// # use time::UtcDateTime;
+    /// # use time::parsing::Parsed;
+    /// # use time_macros::{utc_datetime, format_description};
+    /// let format = format_description!("[year]-[month]-[day]");
+    /// let defaults = Parsed::new().with_hour_24(12).expect("12 is a valid hour");
+    /// assert_eq!(
+    ///     UtcDateTime::parse_with_defaults(b"2020-01-02", &format, defaults)?,
+    ///     utc_datetime!(2020-01-02 12:00)
+    /// );
+    /// # Ok::<_, time::Error>(())
+    /// ```
+    #[inline]
+    pub fn parse_with_defaults(
+        input: &[u8],
+        description: &(impl Parsable + ?Sized),
+        defaults: Parsed,
+    ) -> Result<Self, error::Parse> {
+        description.parse_utc_date_time(input, Some(defaults), PrivateMethod)
     }
 
     /// A helper method to check if the `UtcDateTime` is a valid representation of a leap second.
@@ -1239,7 +1259,7 @@ impl SmartDisplay for UtcDateTime {
 
     #[inline]
     fn metadata(&self, f: FormatterOptions) -> Metadata<'_, Self> {
-        let width = self.as_primitive().metadata(f).unpadded_width() + 4;
+        let width = self.as_plain().metadata(f).unpadded_width() + 4;
         Metadata::new(width, self, ())
     }
 
@@ -1252,10 +1272,9 @@ impl SmartDisplay for UtcDateTime {
 impl UtcDateTime {
     /// The maximum number of bytes that the `fmt_into_buffer` method will write, which is also used
     /// for the `Display` implementation.
-    pub(crate) const DISPLAY_BUFFER_SIZE: usize = PrimitiveDateTime::DISPLAY_BUFFER_SIZE + 4;
+    pub(crate) const DISPLAY_BUFFER_SIZE: usize = PlainDateTime::DISPLAY_BUFFER_SIZE + 4;
 
-    /// Format the `PrimitiveDateTime` into the provided buffer, returning the number of bytes
-    /// written.
+    /// Format the `PlainDateTime` into the provided buffer, returning the number of bytes written.
     #[inline]
     pub(crate) fn fmt_into_buffer(
         self,
@@ -1293,7 +1312,7 @@ impl fmt::Debug for UtcDateTime {
     }
 }
 
-impl Add<Duration> for UtcDateTime {
+impl Add<SignedDuration> for UtcDateTime {
     type Output = Self;
 
     /// # Panics
@@ -1301,7 +1320,7 @@ impl Add<Duration> for UtcDateTime {
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn add(self, duration: Duration) -> Self::Output {
+    fn add(self, duration: SignedDuration) -> Self::Output {
         self.inner.add(duration).as_utc()
     }
 }
@@ -1319,13 +1338,13 @@ impl Add<StdDuration> for UtcDateTime {
     }
 }
 
-impl AddAssign<Duration> for UtcDateTime {
+impl AddAssign<SignedDuration> for UtcDateTime {
     /// # Panics
     ///
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn add_assign(&mut self, rhs: Duration) {
+    fn add_assign(&mut self, rhs: SignedDuration) {
         self.inner.add_assign(rhs);
     }
 }
@@ -1341,7 +1360,7 @@ impl AddAssign<StdDuration> for UtcDateTime {
     }
 }
 
-impl Sub<Duration> for UtcDateTime {
+impl Sub<SignedDuration> for UtcDateTime {
     type Output = Self;
 
     /// # Panics
@@ -1349,7 +1368,7 @@ impl Sub<Duration> for UtcDateTime {
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn sub(self, rhs: Duration) -> Self::Output {
+    fn sub(self, rhs: SignedDuration) -> Self::Output {
         self.checked_sub(rhs)
             .expect("resulting value is out of range")
     }
@@ -1364,17 +1383,17 @@ impl Sub<StdDuration> for UtcDateTime {
     #[inline]
     #[track_caller]
     fn sub(self, duration: StdDuration) -> Self::Output {
-        Self::from_primitive(self.inner.sub(duration))
+        Self::from_plain(self.inner.sub(duration))
     }
 }
 
-impl SubAssign<Duration> for UtcDateTime {
+impl SubAssign<SignedDuration> for UtcDateTime {
     /// # Panics
     ///
     /// This may panic if an overflow occurs.
     #[inline]
     #[track_caller]
-    fn sub_assign(&mut self, rhs: Duration) {
+    fn sub_assign(&mut self, rhs: SignedDuration) {
         self.inner.sub_assign(rhs);
     }
 }
@@ -1391,7 +1410,7 @@ impl SubAssign<StdDuration> for UtcDateTime {
 }
 
 impl Sub for UtcDateTime {
-    type Output = Duration;
+    type Output = SignedDuration;
 
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {

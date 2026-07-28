@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.88.0"
 name = "time"
-version = "0.3.51"
+version = "0.3.54"
 authors = [
     "Jacob Pratt <open-source@jhpratt.dev>",
     "Time contributors",
@@ -166,7 +166,7 @@ default-features = false
 version = "=0.1.9"
 
 [dependencies.time-macros]
-version = "=0.2.30"
+version = "=0.2.32"
 optional = true
 
 [dev-dependencies.num-conv]
@@ -208,7 +208,7 @@ version = "1.0.68"
 version = "2.0.0"
 
 [dev-dependencies.time-macros]
-version = "=0.2.30"
+version = "=0.2.32"
 
 [target."cfg(__ui_tests)".dev-dependencies.trybuild]
 version = "1.0.102"
@@ -239,6 +239,7 @@ get-unwrap = "warn"
 manual-let-else = "warn"
 missing-docs-in-private-items = "warn"
 missing-enforced-import-renames = "warn"
+missing-panics-doc = "warn"
 obfuscated-if-else = "warn"
 print-stdout = "warn"
 semicolon-outside-block = "warn"

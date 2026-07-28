@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 5.18.0 - 2026-07-17
+
+### Added
+- ✨ Add Connection::closed() and is_closed() API.
+
+### Documentation
+- 📝 Document ObjectManager-ancestor deadlock in ObjectServer::at.
+
+### Other
+- 🚨 Replace manual match-and-return with the ? operator.
+
+### Testing
+- ✅ Test registering an interface from a &mut self callback.
+
+## 5.17.0 - 2026-07-07
+
+### Changed
+- ♻️ Move pending method call to separate module.
+
+### Other
+- 🧐 Add concurrent method-call benchmark.
+
+### Performance
+- ⚡️ Route method replies directly by serial.
+
 ## 5.16.0 - 2026-05-27
 
 ### Changed

@@ -14,11 +14,10 @@ use crate::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
 use crate::format_description::{BorrowedFormatItem, FormatDescriptionV3, modifier};
 use crate::internal_macros::{bug, try_likely_ok};
 use crate::parsing::combinator::{
-    ExactlyNDigits, Sign, any_digit, ascii_char, ascii_char_ignore_case, one_or_two_digits, opt,
-    sign,
+    ExactlyNDigits, Sign, any_digit, ascii_char, ascii_char_ignore_case, one_or_two_digits, sign,
 };
 use crate::parsing::{Parsed, ParsedItem, component};
-use crate::{Date, Month, OffsetDateTime, Time, UtcOffset, error};
+use crate::{Date, Month, OffsetDateTime, PrivateMethod, Time, UtcOffset, error};
 
 /// A type that can be parsed.
 #[cfg_attr(docsrs, doc(notable_trait))]
@@ -40,9 +39,13 @@ impl<T> Parsable for T where T: Deref<Target: Parsable> {}
 /// exist in generic bounds.
 mod sealed {
     use super::*;
-    use crate::{PrimitiveDateTime, Timestamp, UtcDateTime};
+    use crate::{PlainDateTime, Timestamp, UtcDateTime};
 
     /// Parse the item using a format description and an input.
+    #[expect(
+        private_interfaces,
+        reason = "not intended to be used by downstream users"
+    )]
     pub trait Sealed {
         /// Parse the item into the provided [`Parsed`] struct.
         ///
@@ -51,16 +54,46 @@ mod sealed {
             &self,
             input: &'a [u8],
             parsed: &mut Parsed,
+            _: PrivateMethod,
         ) -> Result<&'a [u8], error::Parse>;
 
-        /// Parse the item into a new [`Parsed`] struct.
+        /// # **DO NOT USE THIS METHOD**
+        ///
+        /// This method is for internal use only, has never been part of the public API, and will be
+        /// removed in a future release. If you are relying on the existence of this method, your
+        /// code will be broken in the future. The removal of this method will not be considered a
+        /// breaking change due to the internal nature and the fact that it was never documented as
+        /// part of the public API.
+        ///
+        /// You should use the `parse` method on the target type instead. For example, to parse a
+        /// [`Date`], use [`Date::parse`].
+        #[deprecated(
+            since = "0.3.53",
+            note = "use the `parse` method on the target type; this method has never been part of \
+                    the public API and will be removed in a future release"
+        )]
+        #[doc(hidden)]
+        fn parse(&self, input: &[u8]) -> Result<Parsed, error::Parse> {
+            self.parse_internal(input, None, PrivateMethod)
+        }
+
+        /// Parse the items into a [`Parsed`] struct, using the provided defaults for any components
+        /// that are not present in the input.
         ///
         /// This method can only be used to parse a complete value of a type. If any characters
         /// remain after parsing, an error will be returned.
         #[inline]
-        fn parse(&self, input: &[u8]) -> Result<Parsed, error::Parse> {
-            let mut parsed = Parsed::new();
-            if self.parse_into(input, &mut parsed)?.is_empty() {
+        fn parse_internal(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<Parsed, error::Parse> {
+            let mut parsed = defaults.unwrap_or_default();
+            if self
+                .parse_into(input, &mut parsed, PrivateMethod)?
+                .is_empty()
+            {
                 Ok(parsed)
             } else {
                 Err(error::Parse::ParseFromDescription(
@@ -71,108 +104,183 @@ mod sealed {
 
         /// Parse a [`Date`] from the format description.
         #[inline]
-        fn parse_date(&self, input: &[u8]) -> Result<Date, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+        fn parse_date(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<Date, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
 
         /// Parse a [`Time`] from the format description.
         #[inline]
-        fn parse_time(&self, input: &[u8]) -> Result<Time, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+        fn parse_time(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<Time, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
 
         /// Parse a [`UtcOffset`] from the format description.
         #[inline]
-        fn parse_offset(&self, input: &[u8]) -> Result<UtcOffset, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
-        }
-
-        /// Parse a [`PrimitiveDateTime`] from the format description.
-        #[inline]
-        fn parse_primitive_date_time(
+        fn parse_offset(
             &self,
             input: &[u8],
-        ) -> Result<PrimitiveDateTime, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<UtcOffset, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
+        }
+
+        /// Parse a [`PlainDateTime`] from the format description.
+        #[inline]
+        fn parse_plain_date_time(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<PlainDateTime, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
 
         /// Parse a [`UtcDateTime`] from the format description.
         #[inline]
-        fn parse_utc_date_time(&self, input: &[u8]) -> Result<UtcDateTime, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+        fn parse_utc_date_time(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<UtcDateTime, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
 
         /// Parse a [`OffsetDateTime`] from the format description.
         #[inline]
-        fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+        fn parse_offset_date_time(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<OffsetDateTime, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
 
         /// Parse a [`Timestamp`] from the format description.
         #[inline]
-        fn parse_timestamp(&self, input: &[u8]) -> Result<Timestamp, error::Parse> {
-            Ok(self.parse(input)?.try_into()?)
+        fn parse_timestamp(
+            &self,
+            input: &[u8],
+            defaults: Option<Parsed>,
+            _: PrivateMethod,
+        ) -> Result<Timestamp, error::Parse> {
+            Ok(self
+                .parse_internal(input, defaults, PrivateMethod)?
+                .try_into()?)
         }
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for FormatDescriptionV3<'_> {
     #[inline]
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         Ok(parsed.parse_v3_inner(input, &self.inner)?)
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for BorrowedFormatItem<'_> {
     #[inline]
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         Ok(parsed.parse_item(input, self)?)
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for [BorrowedFormatItem<'_>] {
     #[inline]
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         Ok(parsed.parse_items(input, self)?)
     }
 }
 
 #[cfg(feature = "alloc")]
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for OwnedFormatItem {
     #[inline]
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         Ok(parsed.parse_item(input, self)?)
     }
 }
 
 #[cfg(feature = "alloc")]
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for [OwnedFormatItem] {
     #[inline]
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         Ok(parsed.parse_items(input, self)?)
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl<T> sealed::Sealed for T
 where
     T: Deref<Target: sealed::Sealed>,
@@ -182,23 +290,30 @@ where
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
-        self.deref().parse_into(input, parsed)
+        self.deref().parse_into(input, parsed, PrivateMethod)
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for Rfc2822 {
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
-        use crate::parsing::combinator::rfc::rfc2822::{cfws, fws, zone_literal};
+        use crate::parsing::combinator::rfc::rfc2822::{
+            cfws, fws, opt_cfws, opt_cfws_colon_opt_cfws, zone_literal,
+        };
 
-        let colon = ascii_char::<b':'>;
         let comma = ascii_char::<b','>;
 
-        let input = opt(cfws)(input).into_inner();
+        let input = opt_cfws(input).into_inner();
         let weekday = component::parse_weekday_short(
             input,
             modifier::WeekdayShort {
@@ -211,7 +326,7 @@ impl sealed::Sealed for Rfc2822 {
                     .ok_or(InvalidComponent("weekday"))
             );
             let input = try_likely_ok!(comma(input).ok_or(InvalidLiteral)).into_inner();
-            opt(cfws)(input).into_inner()
+            opt_cfws(input).into_inner()
         } else {
             input
         };
@@ -232,54 +347,49 @@ impl sealed::Sealed for Rfc2822 {
             .ok_or(InvalidComponent("month"))
         );
         let input = try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner();
-        let input = match ExactlyNDigits::<4>::parse(input) {
-            Some(item) => {
-                let input = try_likely_ok!(
-                    item.flat_map(|year| if year >= 1900 { Some(year) } else { None })
-                        .and_then(|item| {
-                            item.consume_value(|value| parsed.set_year(value.cast_signed().widen()))
-                        })
-                        .ok_or(InvalidComponent("year"))
-                );
-                try_likely_ok!(fws(input).ok_or(InvalidLiteral)).into_inner()
+        let input = if let Some(ParsedItem(input, year_val)) = ExactlyNDigits::<4>::parse(input) {
+            if year_val < 1900 {
+                return Err(error::Parse::ParseFromDescription(InvalidComponent("year")));
             }
-            None => {
-                let input = try_likely_ok!(
-                    ExactlyNDigits::<2>::parse(input)
-                        .and_then(|item| {
-                            item.map(|year| year.widen::<u32>())
-                                .map(|year| if year < 50 { year + 2000 } else { year + 1900 })
-                                .map(|year| year.cast_signed())
-                                .consume_value(|value| parsed.set_year(value))
-                        })
-                        .ok_or(InvalidComponent("year"))
-                );
-                try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner()
-            }
+            try_likely_ok!(
+                parsed
+                    .set_year(year_val.cast_signed().widen())
+                    .ok_or(InvalidComponent("year"))
+            );
+            try_likely_ok!(fws(input).ok_or(InvalidLiteral)).into_inner()
+        } else {
+            crate::hint::cold_path();
+            let ParsedItem(input, year) = try_likely_ok!(
+                ExactlyNDigits::<2>::parse(input)
+                    .map(|item| {
+                        item.map(|year| year.widen::<u32>())
+                            .map(|year| if year < 50 { year + 2000 } else { year + 1900 })
+                    })
+                    .ok_or(InvalidComponent("year"))
+            );
+            try_likely_ok!(
+                parsed
+                    .set_year(year.cast_signed())
+                    .ok_or(InvalidComponent("year"))
+            );
+            try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner()
         };
 
-        let input = try_likely_ok!(
-            ExactlyNDigits::<2>::parse(input)
-                .and_then(|item| item.consume_value(|value| parsed.set_hour_24(value)))
-                .ok_or(InvalidComponent("hour"))
-        );
-        let input = opt(cfws)(input).into_inner();
-        let input = try_likely_ok!(colon(input).ok_or(InvalidLiteral)).into_inner();
-        let input = opt(cfws)(input).into_inner();
-        let input = try_likely_ok!(
-            ExactlyNDigits::<2>::parse(input)
-                .and_then(|item| item.consume_value(|value| parsed.set_minute(value)))
-                .ok_or(InvalidComponent("minute"))
-        );
+        let ParsedItem(input, hour) =
+            try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("hour")));
+        try_likely_ok!(parsed.set_hour_24(hour).ok_or(InvalidComponent("hour")));
+        let input =
+            try_likely_ok!(opt_cfws_colon_opt_cfws(input).ok_or(InvalidLiteral)).into_inner();
+        let ParsedItem(input, minute) =
+            try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("minute")));
+        try_likely_ok!(parsed.set_minute(minute).ok_or(InvalidComponent("minute")));
 
-        let input = if let Some(input) = colon(opt(cfws)(input).into_inner()) {
-            let input = input.into_inner(); // discard the colon
-            let input = opt(cfws)(input).into_inner();
-            let input = try_likely_ok!(
-                ExactlyNDigits::<2>::parse(input)
-                    .and_then(|item| item.consume_value(|value| parsed.set_second(value)))
-                    .ok_or(InvalidComponent("second"))
-            );
+        let input = if let Some(input) =
+            opt_cfws_colon_opt_cfws(input).map(|item| item.into_inner())
+        {
+            let ParsedItem(input, second) =
+                try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("second")));
+            try_likely_ok!(parsed.set_second(second).ok_or(InvalidComponent("second")));
             try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner()
         } else {
             try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner()
@@ -329,18 +439,39 @@ impl sealed::Sealed for Rfc2822 {
                 .ok_or(InvalidComponent("offset minute"))
         );
 
-        let input = opt(cfws)(input).into_inner();
+        let input = opt_cfws(input).into_inner();
 
         Ok(input)
     }
 
-    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
-        use crate::parsing::combinator::rfc::rfc2822::{cfws, fws, zone_literal};
+    fn parse_offset_date_time(
+        &self,
+        input: &[u8],
+        defaults: Option<Parsed>,
+        _: PrivateMethod,
+    ) -> Result<OffsetDateTime, error::Parse> {
+        use crate::parsing::combinator::rfc::rfc2822::{
+            cfws, fws, opt_cfws, opt_cfws_colon_opt_cfws, zone_literal,
+        };
 
-        let colon = ascii_char::<b':'>;
+        if let Some(mut defaults) = defaults {
+            crate::hint::cold_path();
+            return self
+                .parse_into(input, &mut defaults, PrivateMethod)
+                .and_then(|remaining| {
+                    if remaining.is_empty() {
+                        defaults.try_into().map_err(error::Parse::TryFromParsed)
+                    } else {
+                        Err(error::Parse::ParseFromDescription(
+                            error::ParseFromDescription::UnexpectedTrailingCharacters,
+                        ))
+                    }
+                });
+        }
+
         let comma = ascii_char::<b','>;
 
-        let input = opt(cfws)(input).into_inner();
+        let input = opt_cfws(input).into_inner();
         let weekday = component::parse_weekday_short(
             input,
             modifier::WeekdayShort {
@@ -350,7 +481,7 @@ impl sealed::Sealed for Rfc2822 {
         let input = if let Some(item) = weekday {
             let input = item.discard_value();
             let input = try_likely_ok!(comma(input).ok_or(InvalidLiteral)).into_inner();
-            opt(cfws)(input).into_inner()
+            opt_cfws(input).into_inner()
         } else {
             input
         };
@@ -367,16 +498,16 @@ impl sealed::Sealed for Rfc2822 {
             .ok_or(InvalidComponent("month"))
         );
         let input = try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner();
-        let (input, year) = match ExactlyNDigits::<4>::parse(input) {
-            Some(item) => {
-                let ParsedItem(input, year) = try_likely_ok!(
-                    item.flat_map(|year| if year >= 1900 { Some(year) } else { None })
-                        .ok_or(InvalidComponent("year"))
-                );
+        let (input, year) =
+            if let Some(ParsedItem(input, year_val)) = ExactlyNDigits::<4>::parse(input) {
+                if year_val < 1900 {
+                    return Err(error::Parse::ParseFromDescription(InvalidComponent("year")));
+                }
+
                 let input = try_likely_ok!(fws(input).ok_or(InvalidLiteral)).into_inner();
-                (input, year)
-            }
-            None => {
+                (input, year_val)
+            } else {
+                crate::hint::cold_path();
                 let ParsedItem(input, year) = try_likely_ok!(
                     ExactlyNDigits::<2>::parse(input)
                         .map(|item| {
@@ -387,20 +518,18 @@ impl sealed::Sealed for Rfc2822 {
                 );
                 let input = try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner();
                 (input, year)
-            }
-        };
+            };
 
         let ParsedItem(input, hour) =
             try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("hour")));
-        let input = opt(cfws)(input).into_inner();
-        let input = try_likely_ok!(colon(input).ok_or(InvalidLiteral)).into_inner();
-        let input = opt(cfws)(input).into_inner();
+        let input =
+            try_likely_ok!(opt_cfws_colon_opt_cfws(input).ok_or(InvalidLiteral)).into_inner();
         let ParsedItem(input, minute) =
             try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("minute")));
 
-        let (input, mut second) = if let Some(input) = colon(opt(cfws)(input).into_inner()) {
-            let input = input.into_inner(); // discard the colon
-            let input = opt(cfws)(input).into_inner();
+        let (input, mut second) = if let Some(input) =
+            opt_cfws_colon_opt_cfws(input).map(|item| item.into_inner())
+        {
             let ParsedItem(input, second) =
                 try_likely_ok!(ExactlyNDigits::<2>::parse(input).ok_or(InvalidComponent("second")));
             let input = try_likely_ok!(cfws(input).ok_or(InvalidLiteral)).into_inner();
@@ -415,6 +544,7 @@ impl sealed::Sealed for Rfc2822 {
         let sign = sign(input);
         let (input, offset_hour, offset_minute) = match sign {
             None => {
+                crate::hint::cold_path();
                 let ParsedItem(input, offset_hour) =
                     zone_literal(input).ok_or(InvalidComponent("offset hour"))?;
                 (input, offset_hour, 0)
@@ -437,7 +567,7 @@ impl sealed::Sealed for Rfc2822 {
             }
         };
 
-        let input = opt(cfws)(input).into_inner();
+        let input = opt_cfws(input).into_inner();
 
         if !input.is_empty() {
             return Err(error::Parse::ParseFromDescription(
@@ -478,11 +608,16 @@ impl sealed::Sealed for Rfc2822 {
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl sealed::Sealed for Rfc3339 {
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         let dash = ascii_char::<b'-'>;
         let colon = ascii_char::<b':'>;
@@ -610,7 +745,27 @@ impl sealed::Sealed for Rfc3339 {
         Ok(input)
     }
 
-    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
+    fn parse_offset_date_time(
+        &self,
+        input: &[u8],
+        defaults: Option<Parsed>,
+        _: PrivateMethod,
+    ) -> Result<OffsetDateTime, error::Parse> {
+        if let Some(mut defaults) = defaults {
+            crate::hint::cold_path();
+            return self
+                .parse_into(input, &mut defaults, PrivateMethod)
+                .and_then(|remaining| {
+                    if remaining.is_empty() {
+                        defaults.try_into().map_err(error::Parse::TryFromParsed)
+                    } else {
+                        Err(error::Parse::ParseFromDescription(
+                            error::ParseFromDescription::UnexpectedTrailingCharacters,
+                        ))
+                    }
+                });
+        }
+
         let dash = ascii_char::<b'-'>;
         let colon = ascii_char::<b':'>;
 
@@ -732,12 +887,17 @@ impl sealed::Sealed for Rfc3339 {
     }
 }
 
+#[expect(
+    private_interfaces,
+    reason = "not intended to be used by downstream users"
+)]
 impl<const CONFIG: EncodedConfig> sealed::Sealed for Iso8601<CONFIG> {
     #[inline]
     fn parse_into<'a>(
         &self,
         mut input: &'a [u8],
         parsed: &mut Parsed,
+        _: PrivateMethod,
     ) -> Result<&'a [u8], error::Parse> {
         use crate::parsing::combinator::rfc::iso8601::ExtendedKind;
 

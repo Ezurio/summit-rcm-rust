@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use rstest::rstest;
-use time::{Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday};
+use time::{Date, Month, OffsetDateTime, PlainDateTime, SignedDuration, Time, UtcOffset, Weekday};
 
 #[rstest]
 #[case(7, PhantomData::<Weekday>)]
@@ -9,9 +9,9 @@ use time::{Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOf
 #[case(1, PhantomData::<Time>)]
 #[case(1, PhantomData::<Date>)]
 #[case(1, PhantomData::<UtcOffset>)]
-#[case(1, PhantomData::<PrimitiveDateTime>)]
+#[case(1, PhantomData::<PlainDateTime>)]
 #[case(1, PhantomData::<OffsetDateTime>)]
-#[case(1, PhantomData::<Duration>)]
+#[case(1, PhantomData::<SignedDuration>)]
 fn support08<T>(#[case] iterations: usize, #[case] _type: PhantomData<T>)
 where
     rand08::distributions::Standard: rand08::distributions::Distribution<T>,
@@ -32,9 +32,9 @@ where
 #[case(1, PhantomData::<Time>)]
 #[case(1, PhantomData::<Date>)]
 #[case(1, PhantomData::<UtcOffset>)]
-#[case(1, PhantomData::<PrimitiveDateTime>)]
+#[case(1, PhantomData::<PlainDateTime>)]
 #[case(1, PhantomData::<OffsetDateTime>)]
-#[case(1, PhantomData::<Duration>)]
+#[case(1, PhantomData::<SignedDuration>)]
 fn support09<T>(#[case] iterations: usize, #[case] _type: PhantomData<T>)
 where
     rand09::distr::StandardUniform: rand09::distr::Distribution<T>,
@@ -55,9 +55,9 @@ where
 #[case(1, PhantomData::<Time>)]
 #[case(1, PhantomData::<Date>)]
 #[case(1, PhantomData::<UtcOffset>)]
-#[case(1, PhantomData::<PrimitiveDateTime>)]
+#[case(1, PhantomData::<PlainDateTime>)]
 #[case(1, PhantomData::<OffsetDateTime>)]
-#[case(1, PhantomData::<Duration>)]
+#[case(1, PhantomData::<SignedDuration>)]
 fn support010<T>(#[case] iterations: usize, #[case] _type: PhantomData<T>)
 where
     rand010::distr::StandardUniform: rand010::distr::Distribution<T>,

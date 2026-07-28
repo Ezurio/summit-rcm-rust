@@ -216,7 +216,7 @@ systemd-journal-logger = "2.2.2"
 tracing        = "0.1.44"
 anyhow         = "1"
 futures-util   = { version = "0.3", default-features = false }
-zbus           = { version = "5.16.0", default-features = false }
+zbus           = { version = "5.18.0", default-features = false }
 base64         = "0.22"
 time           = "0.3"
 rustix         = "1"
@@ -234,10 +234,10 @@ tower-sessions = "0.15.0"
 hyper          = "1"
 http-body-util = "0.1"
 hyper-util     = "0.1"
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tokio-udev = "0.10.0"
 serial2-tokio  = "0.1"
-ping           = "0.8"
+ping           = "0.9"
 ureq           = { version = "~3.3", default-features = false }
 rustix-openpty = "0.2"
 bindgen        = "0.72"

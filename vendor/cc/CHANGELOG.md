@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0](https://github.com/rust-lang/cc-rs/compare/cc-v1.3.0...cc-v1.4.0) - 2026-07-24
+
+### Added
+
+- support trim paths with clang-cl.exe ([#1799](https://github.com/rust-lang/cc-rs/pull/1799))
+
+## [1.3.0](https://github.com/rust-lang/cc-rs/compare/cc-v1.2.67...cc-v1.3.0) - 2026-07-18
+
+### Added
+
+- inherit path remap rules from cargo trim-paths ([#1794](https://github.com/rust-lang/cc-rs/pull/1794))
+
+## [1.2.67](https://github.com/rust-lang/cc-rs/compare/cc-v1.2.66...cc-v1.2.67) - 2026-07-11
+
+### Other
+
+- Fix clippy warning ([#1788](https://github.com/rust-lang/cc-rs/pull/1788))
+- Regenerate target info ([#1785](https://github.com/rust-lang/cc-rs/pull/1785))
+- Add support for `aarch64-unknown-linux-pauthtest` target ([#1713](https://github.com/rust-lang/cc-rs/pull/1713))
+- Fix nightly compilation error ([#1783](https://github.com/rust-lang/cc-rs/pull/1783))
+
+## [1.2.66](https://github.com/rust-lang/cc-rs/compare/cc-v1.2.65...cc-v1.2.66) - 2026-07-05
+
+### Other
+
+- Fix target parsing for aarch64-unknown-linux-pauthtest ([#1779](https://github.com/rust-lang/cc-rs/pull/1779))
+- Support new QNX targets ([#1775](https://github.com/rust-lang/cc-rs/pull/1775))
+- Add kache to the supported compiler wrappers ([#1770](https://github.com/rust-lang/cc-rs/pull/1770))
+
 ## [1.2.65](https://github.com/rust-lang/cc-rs/compare/cc-v1.2.64...cc-v1.2.65) - 2026-06-19
 
 ### Other

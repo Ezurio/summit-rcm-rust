@@ -5,7 +5,7 @@ use rstest::rstest;
 use time::Weekday::*;
 use time::ext::{NumericalDuration, NumericalStdDuration};
 use time::macros::{date, datetime, time};
-use time::{Date, Duration, Month, PrimitiveDateTime, Weekday, util};
+use time::{Date, Month, PlainDateTime, SignedDuration, Weekday, util};
 
 #[rstest]
 #[case(date!(2020-02-03), "2020-02-03")]
@@ -913,17 +913,13 @@ fn from_julian_day(#[case] julian_day: i32, #[case] expected: impl Into<Option<D
 #[case(date!(1970-01-01), datetime!(1970-01-01 0:00))]
 #[case(date!(2023-06-15), datetime!(2023-06-15 0:00))]
 #[case(date!(2000-01-01), datetime!(2000-01-01 0:00))]
-fn midnight(#[case] date: Date, #[case] expected: PrimitiveDateTime) {
+fn midnight(#[case] date: Date, #[case] expected: PlainDateTime) {
     assert_eq!(date.midnight(), expected);
 }
 
 #[rstest]
 #[case(date!(1970-01-01), time!(0:00), datetime!(1970-01-01 0:00))]
-fn with_time(
-    #[case] date: Date,
-    #[case] time_value: time::Time,
-    #[case] expected: PrimitiveDateTime,
-) {
+fn with_time(#[case] date: Date, #[case] time_value: time::Time, #[case] expected: PlainDateTime) {
     assert_eq!(date.with_time(time_value), expected);
 }
 
@@ -934,7 +930,7 @@ fn with_hms(
     #[case] hour: u8,
     #[case] minute: u8,
     #[case] second: u8,
-    #[case] expected: impl Into<Option<PrimitiveDateTime>>,
+    #[case] expected: impl Into<Option<PlainDateTime>>,
 ) {
     let result = date!(1970-01-01).with_hms(hour, minute, second);
 
@@ -953,7 +949,7 @@ fn with_hms_milli(
     #[case] minute: u8,
     #[case] second: u8,
     #[case] millisecond: u16,
-    #[case] expected: impl Into<Option<PrimitiveDateTime>>,
+    #[case] expected: impl Into<Option<PlainDateTime>>,
 ) {
     let result = date!(1970-01-01).with_hms_milli(hour, minute, second, millisecond);
 
@@ -972,7 +968,7 @@ fn with_hms_micro(
     #[case] minute: u8,
     #[case] second: u8,
     #[case] microsecond: u32,
-    #[case] expected: impl Into<Option<PrimitiveDateTime>>,
+    #[case] expected: impl Into<Option<PlainDateTime>>,
 ) {
     let result = date!(1970-01-01).with_hms_micro(hour, minute, second, microsecond);
 
@@ -991,7 +987,7 @@ fn with_hms_nano(
     #[case] minute: u8,
     #[case] second: u8,
     #[case] nanosecond: u32,
-    #[case] expected: impl Into<Option<PrimitiveDateTime>>,
+    #[case] expected: impl Into<Option<PlainDateTime>>,
 ) {
     let result = date!(1970-01-01).with_hms_nano(hour, minute, second, nanosecond);
 
@@ -1005,7 +1001,7 @@ fn with_hms_nano(
 #[rstest]
 #[case(date!(2019-01-01), 5.days(), date!(2019-01-06))]
 #[case(date!(2019-12-31), 1.days(), date!(2020-01-01))]
-fn add(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+fn add(#[case] date: Date, #[case] duration: SignedDuration, #[case] expected: Date) {
     assert_eq!(date + duration, expected);
 }
 
@@ -1018,7 +1014,7 @@ fn add_std(#[case] date: Date, #[case] duration: StdDuration, #[case] expected: 
 
 #[rstest]
 #[case(date!(2019-12-31), 1.days(), date!(2020-01-01))]
-fn add_assign(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+fn add_assign(#[case] date: Date, #[case] duration: SignedDuration, #[case] expected: Date) {
     let mut date = date;
     date += duration;
     assert_eq!(date, expected);
@@ -1035,7 +1031,7 @@ fn add_assign_std(#[case] date: Date, #[case] duration: StdDuration, #[case] exp
 #[rstest]
 #[case(date!(2019-01-06), 5.days(), date!(2019-01-01))]
 #[case(date!(2020-01-01), 1.days(), date!(2019-12-31))]
-fn sub(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+fn sub(#[case] date: Date, #[case] duration: SignedDuration, #[case] expected: Date) {
     assert_eq!(date - duration, expected);
 }
 
@@ -1048,7 +1044,7 @@ fn sub_std(#[case] date: Date, #[case] duration: StdDuration, #[case] expected: 
 
 #[rstest]
 #[case(date!(2020-01-01), 1.days(), date!(2019-12-31))]
-fn sub_assign(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+fn sub_assign(#[case] date: Date, #[case] duration: SignedDuration, #[case] expected: Date) {
     let mut date = date;
     date -= duration;
     assert_eq!(date, expected);
@@ -1065,7 +1061,7 @@ fn sub_assign_std(#[case] date: Date, #[case] duration: StdDuration, #[case] exp
 #[rstest]
 #[case(date!(2019-01-06), date!(2019-01-01), 5.days())]
 #[case(date!(2020-01-01), date!(2019-12-31), 1.days())]
-fn sub_self(#[case] a: Date, #[case] b: Date, #[case] expected: Duration) {
+fn sub_self(#[case] a: Date, #[case] b: Date, #[case] expected: SignedDuration) {
     assert_eq!(a - b, expected);
 }
 
@@ -1094,46 +1090,46 @@ fn regression_check() {
 }
 
 #[rstest]
-#[case(Date::MIN, Duration::new(86_399, 999_999_999), Date::MIN)]
-#[case(Date::MIN, Duration::new(-86_399, -999_999_999), Date::MIN)]
-#[case(date!(2021-10-25), Duration::new(86_399, 999_999_999), date!(2021-10-25))]
-#[case(date!(2021-10-25), Duration::new(-86_399, -999_999_999), date!(2021-10-25))]
-#[case(Date::MAX, Duration::new(86_399, 999_999_999), Date::MAX)]
-#[case(Date::MAX, Duration::new(-86_399, -999_999_999), Date::MAX)]
-#[case(Date::MIN, Duration::DAY, Date::MIN.next_day())]
-#[case(Date::MIN, -Duration::DAY, None)]
-#[case(date!(2021-10-25), Duration::DAY, date!(2021-10-26))]
-#[case(date!(2021-10-25), -Duration::DAY, date!(2021-10-24))]
-#[case(Date::MAX, Duration::DAY, None)]
-#[case(Date::MAX, -Duration::DAY, Date::MAX.previous_day())]
-#[case(Date::MIN, Duration::MIN, None)]
-#[case(Date::MAX, Duration::MAX, None)]
+#[case(Date::MIN, SignedDuration::new(86_399, 999_999_999), Date::MIN)]
+#[case(Date::MIN, SignedDuration::new(-86_399, -999_999_999), Date::MIN)]
+#[case(date!(2021-10-25), SignedDuration::new(86_399, 999_999_999), date!(2021-10-25))]
+#[case(date!(2021-10-25), SignedDuration::new(-86_399, -999_999_999), date!(2021-10-25))]
+#[case(Date::MAX, SignedDuration::new(86_399, 999_999_999), Date::MAX)]
+#[case(Date::MAX, SignedDuration::new(-86_399, -999_999_999), Date::MAX)]
+#[case(Date::MIN, SignedDuration::DAY, Date::MIN.next_day())]
+#[case(Date::MIN, -SignedDuration::DAY, None)]
+#[case(date!(2021-10-25), SignedDuration::DAY, date!(2021-10-26))]
+#[case(date!(2021-10-25), -SignedDuration::DAY, date!(2021-10-24))]
+#[case(Date::MAX, SignedDuration::DAY, None)]
+#[case(Date::MAX, -SignedDuration::DAY, Date::MAX.previous_day())]
+#[case(Date::MIN, SignedDuration::MIN, None)]
+#[case(Date::MAX, SignedDuration::MAX, None)]
 fn checked_add_duration(
     #[case] date: Date,
-    #[case] duration: Duration,
+    #[case] duration: SignedDuration,
     #[case] expected: impl Into<Option<Date>>,
 ) {
     assert_eq!(date.checked_add(duration), expected.into());
 }
 
 #[rstest]
-#[case(Date::MIN, Duration::new(86_399, 999_999_999), Date::MIN)]
-#[case(Date::MIN, Duration::new(-86_399, -999_999_999), Date::MIN)]
-#[case(date!(2021-10-25), Duration::new(86_399, 999_999_999), date!(2021-10-25))]
-#[case(date!(2021-10-25), Duration::new(-86_399, -999_999_999), date!(2021-10-25))]
-#[case(Date::MAX, Duration::new(86_399, 999_999_999), Date::MAX)]
-#[case(Date::MAX, Duration::new(-86_399, -999_999_999), Date::MAX)]
-#[case(Date::MIN, Duration::DAY, None)]
-#[case(Date::MIN, -Duration::DAY, Date::MIN.next_day())]
-#[case(date!(2021-10-25), Duration::DAY, date!(2021-10-24))]
-#[case(date!(2021-10-25), -Duration::DAY, date!(2021-10-26))]
-#[case(Date::MAX, Duration::DAY, Date::MAX.previous_day())]
-#[case(Date::MAX, -Duration::DAY, None)]
-#[case(Date::MIN, Duration::MAX, None)]
-#[case(Date::MAX, Duration::MIN, None)]
+#[case(Date::MIN, SignedDuration::new(86_399, 999_999_999), Date::MIN)]
+#[case(Date::MIN, SignedDuration::new(-86_399, -999_999_999), Date::MIN)]
+#[case(date!(2021-10-25), SignedDuration::new(86_399, 999_999_999), date!(2021-10-25))]
+#[case(date!(2021-10-25), SignedDuration::new(-86_399, -999_999_999), date!(2021-10-25))]
+#[case(Date::MAX, SignedDuration::new(86_399, 999_999_999), Date::MAX)]
+#[case(Date::MAX, SignedDuration::new(-86_399, -999_999_999), Date::MAX)]
+#[case(Date::MIN, SignedDuration::DAY, None)]
+#[case(Date::MIN, -SignedDuration::DAY, Date::MIN.next_day())]
+#[case(date!(2021-10-25), SignedDuration::DAY, date!(2021-10-24))]
+#[case(date!(2021-10-25), -SignedDuration::DAY, date!(2021-10-26))]
+#[case(Date::MAX, SignedDuration::DAY, Date::MAX.previous_day())]
+#[case(Date::MAX, -SignedDuration::DAY, None)]
+#[case(Date::MIN, SignedDuration::MAX, None)]
+#[case(Date::MAX, SignedDuration::MIN, None)]
 fn checked_sub_duration(
     #[case] date: Date,
-    #[case] duration: Duration,
+    #[case] duration: SignedDuration,
     #[case] expected: impl Into<Option<Date>>,
 ) {
     assert_eq!(date.checked_sub(duration), expected.into());
@@ -1144,9 +1140,13 @@ fn checked_sub_duration(
 #[case(date!(2021-11-05), (-2).days(), date!(2021-11-03))]
 #[case(Date::MIN, (-10).days(), Date::MIN)]
 #[case(Date::MAX, 10.days(), Date::MAX)]
-#[case(Date::MIN, Duration::ZERO, Date::MIN)]
-#[case(Date::MAX, Duration::ZERO, Date::MAX)]
-fn saturating_add_duration(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+#[case(Date::MIN, SignedDuration::ZERO, Date::MIN)]
+#[case(Date::MAX, SignedDuration::ZERO, Date::MAX)]
+fn saturating_add_duration(
+    #[case] date: Date,
+    #[case] duration: SignedDuration,
+    #[case] expected: Date,
+) {
     assert_eq!(date.saturating_add(duration), expected);
 }
 
@@ -1155,9 +1155,13 @@ fn saturating_add_duration(#[case] date: Date, #[case] duration: Duration, #[cas
 #[case(date!(2021-11-05), (-2).days(), date!(2021-11-07))]
 #[case(Date::MIN, 10.days(), Date::MIN)]
 #[case(Date::MAX, (-10).days(), Date::MAX)]
-#[case(Date::MIN, Duration::ZERO, Date::MIN)]
-#[case(Date::MAX, Duration::ZERO, Date::MAX)]
-fn saturating_sub_duration(#[case] date: Date, #[case] duration: Duration, #[case] expected: Date) {
+#[case(Date::MIN, SignedDuration::ZERO, Date::MIN)]
+#[case(Date::MAX, SignedDuration::ZERO, Date::MAX)]
+fn saturating_sub_duration(
+    #[case] date: Date,
+    #[case] duration: SignedDuration,
+    #[case] expected: Date,
+) {
     assert_eq!(date.saturating_sub(duration), expected);
 }
 

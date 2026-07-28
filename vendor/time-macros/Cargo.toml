@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.88.0"
 name = "time-macros"
-version = "0.2.30"
+version = "0.2.32"
 authors = [
     "Jacob Pratt <open-source@jhpratt.dev>",
     "Time contributors",
@@ -71,6 +71,7 @@ get-unwrap = "warn"
 manual-let-else = "warn"
 missing-docs-in-private-items = "warn"
 missing-enforced-import-renames = "warn"
+missing-panics-doc = "warn"
 obfuscated-if-else = "warn"
 print-stdout = "warn"
 semicolon-outside-block = "warn"

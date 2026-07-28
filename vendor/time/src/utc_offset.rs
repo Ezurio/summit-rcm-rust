@@ -15,13 +15,15 @@ use powerfmt::smart_display::{FormatterOptions, Metadata, SmartDisplay};
 
 #[cfg(feature = "local-offset")]
 use crate::OffsetDateTime;
+#[cfg(any(feature = "formatting", feature = "parsing"))]
+use crate::PrivateMethod;
 use crate::error;
 #[cfg(feature = "formatting")]
 use crate::formatting::Formattable;
 use crate::internal_macros::ensure_ranged;
 use crate::num_fmt::{str_from_raw_parts, two_digits_zero_padded};
 #[cfg(feature = "parsing")]
-use crate::parsing::Parsable;
+use crate::parsing::{Parsable, Parsed};
 #[cfg(feature = "local-offset")]
 use crate::sys::local_offset_at;
 use crate::unit::*;
@@ -369,7 +371,7 @@ impl UtcOffset {
     /// assert_eq!(offset!(-1:02:03).whole_seconds(), -3723);
     /// ```
     // This may be useful for anyone manually implementing arithmetic, as it
-    // would let them construct a `Duration` directly.
+    // would let them construct a `SignedDuration` directly.
     #[inline]
     pub const fn whole_seconds(self) -> i32 {
         self.hours.get() as i32 * Second::per_t::<i32>(Hour)
@@ -473,7 +475,7 @@ impl UtcOffset {
         output: &mut (impl io::Write + ?Sized),
         format: &(impl Formattable + ?Sized),
     ) -> Result<usize, error::Format> {
-        format.format_into(output, &self, &mut Default::default())
+        format.format_into(output, &self, &mut Default::default(), PrivateMethod)
     }
 
     /// Format the `UtcOffset` using the provided [format description](crate::format_description).
@@ -488,7 +490,7 @@ impl UtcOffset {
     /// ```
     #[inline]
     pub fn format(self, format: &(impl Formattable + ?Sized)) -> Result<String, error::Format> {
-        format.format(&self, &mut Default::default())
+        format.format(&self, &mut Default::default(), PrivateMethod)
     }
 }
 
@@ -509,27 +511,45 @@ impl UtcOffset {
         input: &str,
         description: &(impl Parsable + ?Sized),
     ) -> Result<Self, error::Parse> {
-        description.parse_offset(input.as_bytes())
+        description.parse_offset(input.as_bytes(), None, PrivateMethod)
+    }
+
+    /// Parse a `UtcOffset` from the input using the provided [format
+    /// description](crate::format_description) and default values.
+    ///
+    /// ```rust
+    /// # use time::UtcOffset;
+    /// # use time::parsing::Parsed;
+    /// # use time_macros::{offset, format_description};
+    /// let format = format_description!("[offset_hour sign:mandatory]");
+    /// let defaults = Parsed::new()
+    ///     .with_offset_minute_signed(30)
+    ///     .expect("30 is a valid offset minute");
+    /// assert_eq!(
+    ///     UtcOffset::parse_with_defaults(b"+05", &format, defaults)?,
+    ///     offset!(+5:30)
+    /// );
+    /// # Ok::<_, time::Error>(())
+    /// ```
+    #[inline]
+    pub fn parse_with_defaults(
+        input: &[u8],
+        description: &(impl Parsable + ?Sized),
+        defaults: Parsed,
+    ) -> Result<Self, error::Parse> {
+        description.parse_offset(input, Some(defaults), PrivateMethod)
     }
 }
-
-mod private {
-    /// Metadata for `UtcOffset`.
-    #[non_exhaustive]
-    #[derive(Debug, Clone, Copy)]
-    pub struct UtcOffsetMetadata;
-}
-use private::UtcOffsetMetadata;
 
 // This no longer needs special handling, as the format is fixed and doesn't require anything
 // advanced. Trait impls can't be deprecated and the info is still useful for other types
 // implementing `SmartDisplay`, so leave it as-is for now.
 impl SmartDisplay for UtcOffset {
-    type Metadata = UtcOffsetMetadata;
+    type Metadata = ();
 
     #[inline]
     fn metadata(&self, _: FormatterOptions) -> Metadata<'_, Self> {
-        Metadata::new(9, self, UtcOffsetMetadata)
+        Metadata::new(9, self, ())
     }
 
     #[inline]
