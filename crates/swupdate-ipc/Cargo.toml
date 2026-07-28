@@ -1,19 +1,21 @@
 [package]
 name = "swupdate-ipc"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "Pure-Rust client for the SWUpdate IPC and progress protocols"
-authors = ["Ezurio LLC"]
-license = "Ezurio-Clause"
+authors.workspace = true
+license = "LicenseRef-Ezurio-Clause"
+
+[lints]
+workspace = true
 
 [features]
 # Async (tokio) client API. The blocking (std) API is always available.
-async = ["dep:tokio", "dep:futures-util"]
+async = ["dep:tokio"]
 
 [dependencies]
 thiserror = "2"
-tokio = { version = "1", features = ["net", "io-util", "time"], optional = true }
-futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+tokio = { workspace = true, features = ["fs", "net", "io-util", "time"], optional = true }
 
 [lib]
 crate-type = ["rlib"]

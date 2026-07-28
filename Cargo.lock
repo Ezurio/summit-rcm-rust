@@ -1845,7 +1845,6 @@ dependencies = [
 name = "swupdate-ipc"
 version = "0.1.0"
 dependencies = [
- "futures-util",
  "thiserror",
  "tokio",
 ]

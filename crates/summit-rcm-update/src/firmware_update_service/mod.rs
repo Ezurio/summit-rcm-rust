@@ -5,9 +5,10 @@
 #![cfg(any(feature = "api-v2", feature = "api-legacy", feature = "at-interface"))]
 //! Service for managing firmware updates via fw_update and the SWUpdate client API.
 
+mod ipc;
+mod pipe;
 mod progress;
-mod update_pipe;
-mod update_ipc;
+mod stream;
 mod update_url;
 
 use anyhow::{anyhow, Result};
@@ -75,7 +76,7 @@ struct State {
     pub image: String,
     pub percent_complete: u32,
     pub update_in_progress: bool,
-    pub progress_task: Option<tokio::task::AbortHandle>,
+    pub progress_task: Option<tokio::task::JoinHandle<Result<(), ()>>>,
     stream_mode: Option<StreamMode>,
 }
 
@@ -190,8 +191,8 @@ impl FirmwareUpdateService {
 
         let start_result = match stream_mode {
             StreamMode::Url  => update_url::start(image_mode, inactive_side.as_deref(), url).await,
-            StreamMode::Pipe => update_pipe::start(image_mode, inactive_side.as_deref()).await,
-            StreamMode::Ipc  => update_ipc::start(image_mode, inactive_side.as_deref()).await,
+            StreamMode::Pipe => pipe::start(image_mode, inactive_side.as_deref()).await,
+            StreamMode::Ipc  => ipc::start(image_mode, inactive_side.as_deref()).await,
         };
 
         if let Err(error) = start_result {
@@ -199,10 +200,10 @@ impl FirmwareUpdateService {
             return Err(error);
         }
 
-        let abort_handle = tokio::task::spawn(progress::run_progress_listener()).abort_handle();
+        let progress_task = tokio::task::spawn(progress::run_progress_tracker());
         let mut state = STATE.write().unwrap();
         state.update_in_progress = true;
-        state.progress_task = Some(abort_handle);
+        state.progress_task = Some(progress_task);
         state.status = SummitRcmUpdateStatus::Updating;
         state.stream_mode = Some(stream_mode);
         Ok(())
@@ -224,9 +225,8 @@ impl FirmwareUpdateService {
         };
         if let Some(h) = handle { h.abort(); }
         match mode {
-            Some(StreamMode::Url)  => update_url::kill(),
-            Some(StreamMode::Pipe) => update_pipe::clear(),
-            Some(StreamMode::Ipc)  => update_ipc::close(),
+            Some(StreamMode::Url) => update_url::kill(),
+            Some(StreamMode::Pipe) | Some(StreamMode::Ipc) => stream::close(),
             None => {}
         }
     }
@@ -234,8 +234,7 @@ impl FirmwareUpdateService {
     pub(crate) async fn handle_update_stream(data: Bytes) -> Result<(), UpdateStreamError> {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
-            Some(StreamMode::Pipe) => update_pipe::handle_stream(data).await,
-            Some(StreamMode::Ipc) => update_ipc::handle_stream(data).await,
+            Some(StreamMode::Pipe) | Some(StreamMode::Ipc) => stream::handle_stream(data).await,
             Some(StreamMode::Url) | None => Err(UpdateStreamError::NoUpdateInProgress),
         }
     }
@@ -243,13 +242,30 @@ impl FirmwareUpdateService {
     pub(crate) async fn finish_update_stream() -> Result<(), UpdateStreamError> {
         let mode = STATE.read().unwrap().stream_mode;
         match mode {
-            Some(StreamMode::Pipe) => update_pipe::finish_stream().await,
-            Some(StreamMode::Ipc) => update_ipc::finish().await.map_err(|e| {
-                log::error!("SWUpdate IPC finish failed: {}", e);
+            // A pipe-mode write failure here is not surfaced as a stream error;
+            // the shared progress tracker is the source of truth for the
+            // install's terminal result.
+            Some(StreamMode::Pipe) => {
+                let _ = stream::finish().await;
+            }
+            Some(StreamMode::Ipc) => stream::finish().await.map_err(|_| {
+                log::error!("SWUpdate IPC finish failed");
                 UpdateStreamError::Internal
-            }),
-            Some(StreamMode::Url)  => Ok(()),
-            None => Err(UpdateStreamError::NoUpdateInProgress),
+            })?,
+            Some(StreamMode::Url) => return Ok(()),
+            None => return Err(UpdateStreamError::NoUpdateInProgress),
+        }
+
+        // Both Ipc and Pipe have finished streaming; wait for the one shared
+        // progress/completion tracker to reach its terminal verdict so the
+        // HTTP response reflects the actual install result.
+        let handle = STATE.write().unwrap().progress_task.take();
+        match handle {
+            Some(handle) => match handle.await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(())) | Err(_) => Err(UpdateStreamError::Internal),
+            },
+            None => Ok(()),
         }
     }
 }

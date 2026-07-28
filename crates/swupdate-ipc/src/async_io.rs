@@ -13,16 +13,16 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures_util::Stream;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::time::{sleep, timeout};
 
 use crate::error::{Error, Result};
 use crate::proto::{
-    IPC_MAGIC, IpcMessage, MsgType, ProgressConnectAck, ProgressMsg, SwupdateRequest, write_c_string,
+    IPC_MAGIC, IpcMessage, MsgType, ProgressConnectAck, ProgressMsg, SwupdateRequest,
 };
 use crate::socket::{ctrl_socket_path, progress_socket_path};
+use crate::{InstallRequest, InstallStatus};
 
 const PROGRESS_ACK_TIMEOUT: Duration = Duration::from_secs(5);
 const PROGRESS_RECONNECT_DELAY: Duration = Duration::from_millis(500);
@@ -71,9 +71,8 @@ impl InstallConn {
         Ok(())
     }
 
-    /// Flushes and closes the connection.
+    /// Closes the connection.
     pub async fn end(mut self) -> Result<()> {
-        self.stream.flush().await?;
         self.stream.shutdown().await?;
         Ok(())
     }
@@ -83,7 +82,7 @@ impl InstallConn {
         self.stream
     }
 
-    /// Streams an entire async source into SWUpdate, then flushes and closes
+    /// Streams an entire async source into SWUpdate, then closes
     /// the connection.
     ///
     /// The transfer runs through a single [`tokio::io::copy`] loop, so the
@@ -94,18 +93,24 @@ impl InstallConn {
     where
         R: tokio::io::AsyncRead + Unpin,
     {
-        tokio::io::copy(&mut src, &mut self.stream).await?;
+        let _ = tokio::io::copy(&mut src, &mut self.stream).await?;
         self.end().await
     }
 }
 
 impl AsyncWrite for InstallConn {
-    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
         Pin::new(&mut self.stream).poll_write(cx, buf)
     }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.stream).poll_flush(cx)
     }
+
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.stream).poll_shutdown(cx)
     }
@@ -115,11 +120,23 @@ impl AsyncWrite for InstallConn {
 /// connection is ready to receive the image stream.
 pub async fn inst_start_ext(req: &SwupdateRequest) -> Result<InstallConn> {
     let mut stream = connect_ctrl().await?;
-    let mut msg = IpcMessage::new(MsgType::ReqInstall);
-    msg.data.instmsg.req = *req;
+    let mut msg = IpcMessage::new(MsgType::REQ_INSTALL);
+    msg.set_install_request(*req);
     write_message(&mut stream, &msg).await?;
     let reply = read_message(&mut stream).await?;
-    if reply.type_ != MsgType::Ack as i32 {
+    if !reply.has_type(MsgType::ACK) {
+        return Err(Error::Nack);
+    }
+    Ok(InstallConn { stream })
+}
+
+/// Starts an install from native Rust parameters.
+pub async fn inst_start_request(request: &InstallRequest) -> Result<InstallConn> {
+    let message = request.encode()?;
+    let mut stream = connect_ctrl().await?;
+    write_message(&mut stream, &message).await?;
+    let reply = read_message(&mut stream).await?;
+    if !reply.has_type(MsgType::ACK) {
         return Err(Error::Nack);
     }
     Ok(InstallConn { stream })
@@ -133,7 +150,7 @@ pub async fn inst_start() -> Result<InstallConn> {
 /// Queries the current installer status.
 pub async fn get_status() -> Result<IpcMessage> {
     let mut stream = connect_ctrl().await?;
-    let request = IpcMessage::new(MsgType::GetStatus);
+    let request = IpcMessage::new(MsgType::GET_STATUS);
     write_message(&mut stream, &request).await?;
     read_message(&mut stream).await
 }
@@ -142,7 +159,7 @@ pub async fn get_status() -> Result<IpcMessage> {
 /// the timeout elapses.
 pub async fn get_status_timeout(duration: Duration) -> Result<Option<IpcMessage>> {
     let mut stream = connect_ctrl().await?;
-    let request = IpcMessage::new(MsgType::GetStatus);
+    let request = IpcMessage::new(MsgType::GET_STATUS);
     write_message(&mut stream, &request).await?;
     match timeout(duration, read_message(&mut stream)).await {
         Ok(result) => result.map(Some),
@@ -150,12 +167,24 @@ pub async fn get_status_timeout(duration: Duration) -> Result<Option<IpcMessage>
     }
 }
 
+/// Queries the installer status with a receive timeout and decodes the current
+/// and last-result recovery states.
+pub async fn get_status_values_timeout(
+    duration: Duration,
+) -> Result<Option<(Option<crate::RecoveryStatus>, Option<crate::RecoveryStatus>)>> {
+    let Some(msg) = get_status_timeout(duration).await? else {
+        return Ok(None);
+    };
+
+    Ok(Some(msg.install_statuses()))
+}
+
 /// Waits for a terminal SWUpdate install result within `timeout`, using the
 /// control status socket.
 ///
-/// Returns `Ok(())` on success once SWUpdate is no longer in an active install
-/// state and `last_result=Success`, `Err(Error::InstallFailed)` on failure,
-/// and `Err(Error::Timeout)` if the deadline elapses.
+/// Returns `Ok(())` once SWUpdate has reported success, `Err(Error::InstallFailed)`
+/// on terminal failure, and
+/// `Err(Error::Timeout)` if the deadline elapses.
 pub async fn await_install_result(timeout: Duration) -> Result<()> {
     use crate::RecoveryStatus;
 
@@ -167,55 +196,60 @@ pub async fn await_install_result(timeout: Duration) -> Result<()> {
             return Err(Error::Timeout);
         }
 
-        let poll_timeout = deadline.saturating_duration_since(now).min(STATUS_POLL_INTERVAL);
-
-        let msg = match get_status_timeout(poll_timeout).await? {
-            Some(msg) => msg,
-            None => {
+        let msg = match get_status_timeout(STATUS_POLL_INTERVAL).await {
+            Ok(Some(msg)) => msg,
+            Ok(None) => {
                 sleep(STATUS_POLL_INTERVAL).await;
                 continue;
             }
-        };
-
-        // SAFETY: get_status replies always use the `status` union member.
-        let (current_raw, last_result_raw) = unsafe {
-            (msg.data.status.current, msg.data.status.last_result)
-        };
-
-        let current = RecoveryStatus::try_from(current_raw).ok();
-        let last_result = RecoveryStatus::try_from(last_result_raw).ok();
-
-        let active = matches!(
-            current,
-            Some(RecoveryStatus::Start)
-                | Some(RecoveryStatus::Run)
-                | Some(RecoveryStatus::Download)
-                | Some(RecoveryStatus::Progress)
-                | Some(RecoveryStatus::Subprocess)
-        );
-
-        if !active {
-            match last_result {
-                Some(RecoveryStatus::Success) => return Ok(()),
-                Some(RecoveryStatus::Failure) => return Err(Error::InstallFailed),
-                _ => {}
+            Err(Error::Closed) => {
+                sleep(STATUS_POLL_INTERVAL).await;
+                continue;
             }
+            Err(err) => return Err(err),
+        };
+
+        // Both fields are the SAME enum (RECOVERY_STATUS) but carry DIFFERENT
+        // information, and getting this wrong has broken install detection
+        // repeatedly. From SWUpdate's GET_STATUS handler (core/network_thread.c):
+        //
+        //   msg.data.status.current     = instp->status;
+        //   msg.data.status.last_result = instp->last_install;
+        //   if (a notification is queued)
+        //       msg.data.status.current = notification->status;  // OVERWRITTEN
+        //
+        // * `current` is the installer's live progress phase, overwritten by
+        //   whatever notification is drained from the queue. In practice it only
+        //   reports non-terminal phases (START / RUN / DOWNLOAD / SUBPROCESS /
+        //   PROGRESS); it does NOT carry the terminal verdict.
+        // * `last_result` is `instp->last_install`, the authoritative terminal
+        //   result: SUCCESS or FAILURE once terminal, IDLE / PROGRESS while
+        //   still running.
+        //
+        // Rules:
+        // * Failure is terminal: report it when `last_result` is FAILURE.
+        // * Success is only trusted once `current` shows the install is actively
+        //   running (RUN) AND `last_result` is SUCCESS, so a stale result from a
+        //   previous install is never mistaken for this one.
+        let status = InstallStatus::decode(&msg);
+
+        if status.last_result == Some(RecoveryStatus::FAILURE) {
+            return Err(Error::InstallFailed);
         }
 
+        if status.current == Some(RecoveryStatus::RUN)
+            && status.last_result == Some(RecoveryStatus::SUCCESS)
+        {
+            return Ok(());
+        }
     }
 }
 
 /// Runs a post-update action and returns the daemon's reply frame.
 pub async fn postupdate(info: &[u8]) -> Result<IpcMessage> {
     let mut stream = connect_ctrl().await?;
-    let mut msg = IpcMessage::new(MsgType::PostUpdate);
-    unsafe {
-        let len = info.len().min(msg.data.procmsg.buf.len());
-        for (slot, &byte) in msg.data.procmsg.buf.iter_mut().zip(info.iter()).take(len) {
-            *slot = byte as std::ffi::c_char;
-        }
-        msg.data.procmsg.len = len as u32;
-    }
+    let mut msg = IpcMessage::new(MsgType::POST_UPDATE);
+    msg.set_postupdate_info(info);
     write_message(&mut stream, &msg).await?;
     read_message(&mut stream).await
 }
@@ -224,7 +258,7 @@ pub async fn postupdate(info: &[u8]) -> Result<IpcMessage> {
 /// the payload; the reply is written back into `msg`.
 pub async fn send_cmd(msg: &mut IpcMessage) -> Result<()> {
     let mut stream = connect_ctrl().await?;
-    msg.magic = IPC_MAGIC;
+    msg.magic = IPC_MAGIC as i32;
     write_message(&mut stream, msg).await?;
     *msg = read_message(&mut stream).await?;
     Ok(())
@@ -234,13 +268,12 @@ pub async fn send_cmd(msg: &mut IpcMessage) -> Result<()> {
 /// the IV 32 ASCII characters.
 pub async fn set_aes(key: &str, ivt: &str) -> Result<()> {
     if key.len() != 64 || ivt.len() != 32 {
-        return Err(Error::InvalidArgument("AES key must be 64 chars and IV 32 chars"));
+        return Err(Error::InvalidArgument(
+            "AES key must be 64 chars and IV 32 chars",
+        ));
     }
-    let mut msg = IpcMessage::new(MsgType::SetAesKey);
-    unsafe {
-        write_c_string(&mut msg.data.aeskeymsg.key_ascii, key);
-        write_c_string(&mut msg.data.aeskeymsg.ivt_ascii, ivt);
-    }
+    let mut msg = IpcMessage::new(MsgType::SET_AES_KEY);
+    msg.set_aes_key(key, ivt)?;
     send_cmd(&mut msg).await
 }
 
@@ -250,18 +283,8 @@ pub async fn set_version_range(
     max_version: Option<&str>,
     current_version: Option<&str>,
 ) -> Result<()> {
-    let mut msg = IpcMessage::new(MsgType::SetVersionsRange);
-    unsafe {
-        if let Some(v) = min_version {
-            write_c_string(&mut msg.data.versions.minimum_version, v);
-        }
-        if let Some(v) = max_version {
-            write_c_string(&mut msg.data.versions.maximum_version, v);
-        }
-        if let Some(v) = current_version {
-            write_c_string(&mut msg.data.versions.current_version, v);
-        }
-    }
+    let mut msg = IpcMessage::new(MsgType::SET_VERSIONS_RANGE);
+    msg.set_version_range(min_version, max_version, current_version)?;
     send_cmd(&mut msg).await
 }
 
@@ -275,7 +298,7 @@ impl NotifyConn {
     /// Reads the next notification frame, validating its magic number.
     pub async fn receive(&mut self) -> Result<IpcMessage> {
         let msg = read_message(&mut self.stream).await?;
-        if msg.magic != IPC_MAGIC {
+        if msg.magic != IPC_MAGIC as i32 {
             return Err(Error::InvalidMagic(msg.magic));
         }
         Ok(msg)
@@ -285,10 +308,10 @@ impl NotifyConn {
 /// Opens an async notification stream.
 pub async fn notify_connect() -> Result<NotifyConn> {
     let mut stream = connect_ctrl().await?;
-    let request = IpcMessage::new(MsgType::NotifyStream);
+    let request = IpcMessage::new(MsgType::NOTIFY_STREAM);
     write_message(&mut stream, &request).await?;
     let reply = read_message(&mut stream).await?;
-    if reply.type_ != MsgType::Ack as i32 {
+    if !reply.has_type(MsgType::ACK) {
         return Err(Error::UnexpectedType(reply.type_));
     }
     Ok(NotifyConn { stream })
@@ -351,32 +374,71 @@ pub async fn progress_connect(reconnect: bool) -> Result<ProgressConn> {
 }
 
 /// Connects to the progress interface using an explicit socket path.
-pub async fn progress_connect_with_path(path: impl AsRef<Path>, reconnect: bool) -> Result<ProgressConn> {
+pub async fn progress_connect_with_path(
+    path: impl AsRef<Path>,
+    reconnect: bool,
+) -> Result<ProgressConn> {
     progress_connect_path(path.as_ref(), reconnect).await
 }
 
-/// Returns a [`Stream`] of progress frames that reconnects automatically on
-/// disconnect or connect failure when `reconnect` is `true`. When `reconnect`
-/// is `false`, the stream terminates on the first connect error.
+/// Waits for a terminal install verdict on the progress notification socket,
+/// within `timeout`, invoking `on_progress` for every non-terminal frame so the
+/// caller can drive a progress indicator.
 ///
-/// API version compatibility is verified at connect time via the
-/// `progress_connect_ack` handshake; per-frame version checks are not needed.
-pub fn progress_stream(reconnect: bool) -> impl Stream<Item = ProgressMsg> {
-    futures_util::stream::unfold(None::<ProgressConn>, move |mut conn| async move {
+/// This is the progress-socket counterpart of [`await_install_result`], and the
+/// preferred way to observe an install's outcome. The progress socket is a
+/// listen-only broadcast: SWUpdate sends only events that occur AFTER connect
+/// and never replays a stored result (see SWUpdate `core/progress_thread.c`,
+/// `progress_bar_thread`). Every frame therefore belongs to the CURRENT install,
+/// so a stale verdict latched by a previous install can't be misread — none of
+/// the `GET_STATUS` "arming" logic is needed. SWUpdate emits the verdict exactly
+/// once via `swupdate_progress_end()` as a frame whose `status` is SUCCESS or
+/// FAILURE.
+///
+/// If the connection drops before a terminal verdict, it reconnects (via
+/// [`progress_connect`]) and keeps waiting; the socket never replays, so any
+/// terminal event still belongs to the current install.
+///
+/// `on_progress` is synchronous and should stay lightweight and non-blocking
+/// (logging, atomics, channel `try_send`). If you need to `await` per frame,
+/// drive [`progress_connect`] / [`ProgressConn::receive`] directly instead.
+///
+/// Returns `Ok(())` on success, `Err(Error::InstallFailed)` on failure,
+/// `Err(Error::Timeout)` if the deadline elapses, and a connect error (e.g.
+/// `Error::ProgressConnectTimeout`) if the socket cannot be (re)connected within
+/// its retry window.
+pub async fn await_progress_result_with<F>(timeout: Duration, mut on_progress: F) -> Result<()>
+where
+    F: FnMut(&ProgressMsg),
+{
+    let work = async {
+        let mut conn = progress_connect(true).await?;
         loop {
-            if conn.is_none() {
-                match progress_connect(reconnect).await {
-                    Ok(c) => conn = Some(c),
-                    Err(_) => return None,
-                }
-            }
-            match conn.as_mut() {
-                Some(active) => match active.receive().await {
-                    Ok(msg) => return Some((msg, conn)),
-                    Err(_) => conn = None,
+            match conn.receive().await {
+                Ok(msg) => match msg.status().ok() {
+                    Some(crate::RecoveryStatus::SUCCESS) => return Ok(()),
+                    Some(crate::RecoveryStatus::FAILURE) => return Err(Error::InstallFailed),
+                    _ => on_progress(&msg),
                 },
-                None => continue,
+                // Connection dropped before a terminal status: reconnect and keep
+                // waiting. The socket never replays, so any terminal event still
+                // belongs to the current install.
+                Err(_) => conn = progress_connect(true).await?,
             }
         }
-    })
+    };
+
+    match tokio::time::timeout(timeout, work).await {
+        Ok(result) => result,
+        Err(_) => Err(Error::Timeout),
+    }
+}
+
+/// Waits for a terminal install verdict on the progress notification socket,
+/// within `timeout`, discarding intermediate progress frames.
+///
+/// Thin wrapper over [`await_progress_result_with`]; use that variant when you
+/// need progress indication.
+pub async fn await_progress_result(timeout: Duration) -> Result<()> {
+    await_progress_result_with(timeout, |_| {}).await
 }
