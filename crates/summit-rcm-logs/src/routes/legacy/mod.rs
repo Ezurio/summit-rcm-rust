@@ -23,6 +23,7 @@ pub(crate) struct LogDataQuery {
     pub log_type: Option<JournalctlLogType>,
     pub priority: Option<u8>,
     pub days: Option<u32>,
+    pub hours: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -118,13 +119,16 @@ pub(crate) async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegac
         }
         .into();
     }
-    let days = q.days.unwrap_or(1);
-    match LogsService::get_journal_log_data(log_type, priority, days).await {
+    let hours = q.hours.unwrap_or(0);
+    // Default days to 0 when hours is specified so an hours-only request isn't combined with the 1-day default.
+    let days = q.days.unwrap_or(if q.hours.is_some() { 0 } else { 1 });
+    match LogsService::get_journal_log_data(log_type, priority, days, hours).await {
         Ok(log_entries) => LegacyLogDataResponse {
             operation: ok_response(format!(
-                "type: {}; days: {}; Priority: {}",
+                "type: {}; days: {}; hours: {}; Priority: {}",
                 legacy_type_label,
                 days,
+                hours,
                 priority
             )),
             count: Some(log_entries.len()),

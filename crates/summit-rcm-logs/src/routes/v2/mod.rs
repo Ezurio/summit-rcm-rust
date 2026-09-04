@@ -39,6 +39,7 @@ pub(crate) struct ApiDoc;
 pub(crate) struct LogsDataQuery {
     pub priority: Option<u8>,
     pub days: Option<u32>,
+    pub hours: Option<u32>,
     #[serde(rename = "type")]
     #[cfg_attr(feature = "api-docs", schema(value_type = JournalctlLogType))]
     pub log_type: Option<JournalctlLogType>,
@@ -103,6 +104,7 @@ summit_rcm_web::define_zip_download_responses!(
     params(
         ("priority" = Option<u8>, Query, description = "Log priority (0-7)"),
         ("days" = Option<u32>, Query, description = "Number of days"),
+        ("hours" = Option<u32>, Query, description = "Number of hours (additive with days)"),
         ("type" = Option<JournalctlLogType>, Query, description = "Log type"),
     ),
     responses(GetLogsDataResponses)
@@ -112,10 +114,12 @@ pub(crate) async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLog
     if priority > 7 {
         return GetLogsDataResponses::BadRequest;
     }
-    let days = params.days.unwrap_or(1);
+    let hours = params.hours.unwrap_or(0);
+    // Default days to 0 when hours is specified so an hours-only request isn't combined with a 1-day default.
+    let days = params.days.unwrap_or(if params.hours.is_some() { 0 } else { 1 });
     let log_type = params.log_type.unwrap_or(JournalctlLogType::All);
 
-    match LogsService::get_journal_log_data(log_type, priority, days).await {
+    match LogsService::get_journal_log_data(log_type, priority, days, hours).await {
         Ok(v) => v.into(),
         Err(e) => {
             error!("get_logs_data: {}", e);

@@ -12,11 +12,18 @@ use std::str::FromStr;
 use log::error;
 
 async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+    // <hours> is optional, so accept either 3 or 4 comma-separated params.
+    let count = params.parameter_count();
+    if count != 3 && count != 4 {
+        return CommandOutcome::Error;
+    }
     let log_type = JournalctlLogType::from_str(params.trimmed(0)).unwrap_or(JournalctlLogType::All);
     let priority: u8 = params.parse_or::<u8>(1, 6);
-    let days: u32 = params.parse_or::<u32>(2, 1);
+    // Default days to 0 when hours is present so an hours-only request isn't combined with the 1-day default.
+    let days: u32 = params.parse_or::<u32>(2, if count == 4 { 0 } else { 1 });
+    let hours: u32 = if count == 4 { params.parse_or::<u32>(3, 0) } else { 0 };
 
-    match crate::LogsService::get_journal_log_data(log_type, priority, days).await {
+    match crate::LogsService::get_journal_log_data(log_type, priority, days, hours).await {
         Ok(v) => match serde_json::to_string(&v) {
             Ok(payload) => CommandOutcome::WithData(format!("+LOGGET: {}", payload)),
             Err(error) => {
@@ -81,6 +88,6 @@ async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Co
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+logget", "AT+LOGGET=<type>,<priority>,<days>", 3, &[], execute_log_get),
+    summit_rcm_at::commands::command_spec!("at+logget", "AT+LOGGET=<type>,<priority>,<days>[,<hours>]", 0, &[], execute_log_get),
     summit_rcm_at::commands::command_spec!("at+logdebug", "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]", 0, &[], execute_log_debug_level),
 ];
