@@ -47,10 +47,11 @@ impl LogsService {
         UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC)
     }
 
-    fn format_days_since_for_journalctl(days: u32) -> Result<String> {
+    fn format_days_since_for_journalctl(days: u32, hours: u32) -> Result<String> {
         let timestamp = OffsetDateTime::now_utc()
             .to_offset(Self::local_offset())
-            .saturating_sub(Duration::days(i64::from(days)));
+            .saturating_sub(Duration::days(i64::from(days)))
+            .saturating_sub(Duration::hours(i64::from(hours)));
         Ok(timestamp.format(JOURNALCTL_DAYS_SINCE_FORMAT)?)
     }
 
@@ -86,6 +87,7 @@ impl LogsService {
         log_type: JournalctlLogType,
         priority: u8,
         days: u32,
+        hours: u32,
     ) -> Result<Vec<JournalLogEntry>> {
         if priority > 7 {
             anyhow::bail!("Priority must be an int between 0-7");
@@ -96,10 +98,10 @@ impl LogsService {
         if let Some(identifier) = Self::journalctl_identifier(log_type) {
             args.push(format!("--identifier={identifier}"));
         }
-        if days > 0 {
+        if days > 0 || hours > 0 {
             args.push(format!(
                 "--since={}",
-                Self::format_days_since_for_journalctl(days)?
+                Self::format_days_since_for_journalctl(days, hours)?
             ));
         }
 

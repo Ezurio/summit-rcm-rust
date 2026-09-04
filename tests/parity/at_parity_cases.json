@@ -358,7 +358,7 @@
   {
     "id": "at_logget_usage",
     "command": "AT+LOGGET?",
-    "expected_rust_response": "AT+LOGGET=<type>,<priority>,<days>",
+    "expected_rust_response": "AT+LOGGET=<type>,<priority>,<days>[,<hours>]",
     "expected_python_response": "ERROR"
   },
   {
