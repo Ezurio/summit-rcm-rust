@@ -71,11 +71,12 @@ use std::{
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{response::IntoResponse, routing::get, Router};
 use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
+    rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto::Builder as HyperBuilder,
     service::TowerToHyperService,
 };
@@ -113,12 +114,21 @@ fn default_bind_addr() -> String {
 }
 
 fn max_active_web_connections() -> usize {
-    let configured = SystemSettingsManage::get_int("max_web_clients", 8);
+    let configured = SystemSettingsManage::get_int("max_web_clients", 10);
     if configured < 1 {
         1
     } else {
         configured as usize
     }
+}
+
+/// Time a client may spend waiting to transmit an HTTP request head.
+///
+/// This covers both a newly accepted connection and an idle HTTP/1 keep-alive
+/// connection waiting for its next request. Keep the timeout positive: a zero
+/// duration would immediately reject otherwise healthy clients.
+fn web_connection_timeout() -> Duration {
+    Duration::from_secs(SystemSettingsManage::get_int("web_connection_timeout", 5).max(1) as u64)
 }
 
 #[cfg(feature = "swagger-ui")]
@@ -501,9 +511,16 @@ async fn serve_tls_connection(
     let ssl = Ssl::new(acceptor.context())?;
     let mut stream = tokio_openssl::SslStream::new(ssl, stream)?;
 
-    if let Err(error) = Pin::new(&mut stream).accept().await {
-        warn!("TLS handshake failed: {}", error);
-        return Ok(());
+    match tokio::time::timeout(web_connection_timeout(), Pin::new(&mut stream).accept()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            warn!("TLS handshake failed: {}", error);
+            return Ok(());
+        }
+        Err(_) => {
+            warn!("TLS handshake timed out");
+            return Ok(());
+        }
     }
 
     let client_tls_info = {
@@ -534,8 +551,13 @@ async fn serve_tls_connection(
 
     let io = TokioIo::new(stream);
     let service = TowerToHyperService::new(app.layer(Extension(client_tls_info)));
+    let mut hyper = HyperBuilder::new(TokioExecutor::new());
+    hyper
+        .http1()
+        .timer(TokioTimer::new())
+        .header_read_timeout(web_connection_timeout());
 
-    HyperBuilder::new(TokioExecutor::new())
+    hyper
         .serve_connection_with_upgrades(io, service)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
