@@ -127,8 +127,10 @@ enum Version {
     Nightly,
 }
 
+/// The reason why a given rust target is not supported.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum InvalidRustTarget {
+    /// The rust target is not supported by bindgen (is too old).
     TooEarly,
 }
 
@@ -187,6 +189,7 @@ macro_rules! define_rust_editions {
     }
 }
 
+/// This error is returned when a rust edition is unknown.
 #[derive(Debug)]
 pub struct InvalidRustEdition(String);
 
@@ -327,16 +330,8 @@ define_rust_targets! {
     Stable_1_71(71) => { c_unwind_abi: #106075 },
     Stable_1_68(68) => { abi_efiapi: #105795 },
     Stable_1_64(64) => { core_ffi_c: #94503 },
-    Stable_1_51(51) => {
-        raw_ref_macros: #80886,
-        min_const_generics: #74878,
-    },
     Stable_1_59(59) => { const_cstr: #54745 },
-    Stable_1_47(47) => { larger_arrays: #74060 },
-    Stable_1_43(43) => { associated_constants: #68952 },
-    Stable_1_40(40) => { non_exhaustive: #44109 },
-    Stable_1_36(36) => { maybe_uninit: #60445 },
-    Stable_1_33(33) => { repr_packed_n: #57049 },
+    Stable_1_51(51) => {},
 }
 
 /// Latest stable release of Rust that is supported by bindgen
@@ -424,8 +419,25 @@ impl FromStr for RustTarget {
             return Ok(Self::Nightly);
         }
 
-        let Some((major_str, tail)) = input.split_once('.') else {
-            return Err(invalid_input(input, "accepted values are of the form \"1.71\", \"1.71.1\" or \"nightly\"." ) );
+        let (version, pre_release) =
+            if let Some((version, pre_release)) = input.split_once('-') {
+                (version, pre_release)
+            } else {
+                (input, "")
+            };
+
+        const MSG: &str = r#"accepted values are of the form "1.71", "1.71.1" , "1.71.1-beta", "1.71.1-beta.1", "1.71.1-nightly" or "nightly"."#;
+
+        if !(pre_release.is_empty() /* stable */
+            || pre_release == "beta"
+            || pre_release.starts_with("beta.")
+            || pre_release == "nightly")
+        {
+            return Err(invalid_input(input, MSG));
+        }
+
+        let Some((major_str, tail)) = version.split_once('.') else {
+            return Err(invalid_input(input, MSG));
         };
 
         if major_str != "1" {
@@ -435,7 +447,7 @@ impl FromStr for RustTarget {
             ));
         }
 
-        let (minor, patch) = if let Some((minor_str, patch_str)) =
+        let (mut minor, mut patch) = if let Some((minor_str, patch_str)) =
             tail.split_once('.')
         {
             let Ok(minor) = minor_str.parse::<u64>() else {
@@ -451,6 +463,12 @@ impl FromStr for RustTarget {
             };
             (minor, 0)
         };
+
+        if pre_release == "nightly" {
+            // treat nightly as incomplete and therefore as the previous maximaly patched stable
+            minor -= 1;
+            patch = u64::MAX;
+        }
 
         Self::stable(minor, patch).map_err(|err| invalid_input(input, err))
     }
@@ -477,11 +495,11 @@ mod test {
     #[test]
     fn release_versions_for_editions() {
         assert_eq!(
-            "1.33".parse::<RustTarget>().unwrap().latest_edition(),
+            "1.51".parse::<RustTarget>().unwrap().latest_edition(),
             RustEdition::Edition2018
         );
         assert_eq!(
-            "1.56".parse::<RustTarget>().unwrap().latest_edition(),
+            "1.59".parse::<RustTarget>().unwrap().latest_edition(),
             RustEdition::Edition2021
         );
         assert_eq!(
@@ -527,7 +545,9 @@ mod test {
         // Two targets are equivalent if they enable the same set of features
         let expected = RustFeatures::new_with_latest_edition(expected);
         let found = RustFeatures::new_with_latest_edition(
-            input.parse::<RustTarget>().unwrap(),
+            input.parse::<RustTarget>().unwrap_or_else(|_| {
+                panic!("{input} should parse as a valid target")
+            }),
         );
         assert_eq!(
             expected,
@@ -550,6 +570,9 @@ mod test {
         test_target("1.71.1", RustTarget::Stable_1_71);
         test_target("1.72", RustTarget::Stable_1_71);
         test_target("1.73", RustTarget::Stable_1_73);
+        test_target("1.82.0-beta", RustTarget::Stable_1_82);
+        test_target("1.82.0-beta.1", RustTarget::Stable_1_82);
+        test_target("1.83.1-nightly", RustTarget::Stable_1_82);
         test_target("1.18446744073709551615", LATEST_STABLE_RUST);
         test_target("nightly", RustTarget::Nightly);
     }

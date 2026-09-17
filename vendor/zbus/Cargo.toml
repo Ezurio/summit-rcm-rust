@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.87"
 name = "zbus"
-version = "5.18.0"
+version = "5.19.0"
 authors = ["Zeeshan Ali Khan <zeeshanak@gnome.org>"]
 build = false
 autolib = false
@@ -90,7 +90,7 @@ url = ["zvariant/url"]
 uuid = ["zvariant/uuid"]
 vsock = [
     "dep:vsock",
-    "dep:async-io",
+    "async-io",
 ]
 
 [lib]
@@ -230,13 +230,13 @@ features = ["serde"]
 version = "1.0"
 
 [dependencies.zbus_macros]
-version = "5.18.0"
+version = "5.19.0"
 
 [dependencies.zbus_names]
 version = "4.3.4"
 
 [dependencies.zvariant]
-version = "5.13.1"
+version = "5.14.0"
 features = ["enumflags2"]
 
 [dev-dependencies.criterion]

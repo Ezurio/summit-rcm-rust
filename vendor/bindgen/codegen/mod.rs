@@ -21,8 +21,8 @@ use self::struct_layout::StructLayoutTracker;
 use super::BindgenOptions;
 
 use crate::callbacks::{
-    AttributeInfo, DeriveInfo, DiscoveredItem, DiscoveredItemId, FieldInfo,
-    TypeKind as DeriveTypeKind,
+    AttributeInfo, DeriveInfo, DiscoveredItem, DiscoveredItemId,
+    FieldAttributeInfo, FieldInfo, TypeKind as DeriveTypeKind,
 };
 use crate::codegen::error::Error;
 use crate::ir::analysis::{HasVtable, Sizedness};
@@ -199,6 +199,53 @@ fn derives_of_item(
     derivable_traits
 }
 
+/// Appends the contents of the `custom_derives` slice to the `derives` vector,
+/// ignoring duplicates and preserving order.
+fn append_custom_derives<'a>(
+    derives: &mut Vec<&'a str>,
+    custom_derives: &'a [String],
+) {
+    for custom_derive in custom_derives.iter().map(|s| s.as_str()) {
+        if !derives.contains(&custom_derive) {
+            derives.push(custom_derive);
+        }
+    }
+}
+
+/// Collects field attributes from multiple sources (annotations, callbacks, and CLI/Builder patterns).
+fn collect_field_attributes(
+    ctx: &BindgenContext,
+    annotations: &Annotations,
+    type_name: &str,
+    type_kind: DeriveTypeKind,
+    field_name: &str,
+    field_type_name: Option<&str>,
+) -> Vec<String> {
+    let mut all_field_attributes = Vec::new();
+
+    // 1. Get attributes from annotations
+    all_field_attributes.extend(annotations.attributes().iter().cloned());
+
+    // 2. Get custom attributes from callbacks
+    all_field_attributes.extend(ctx.options().all_callbacks(|cb| {
+        cb.field_attributes(&FieldAttributeInfo {
+            type_name,
+            type_kind,
+            field_name,
+            field_type_name,
+        })
+    }));
+
+    // 3. Get attributes from CLI/Builder patterns
+    for (type_pat, field_pat, attr) in &ctx.options().field_attr_patterns {
+        if type_pat.as_ref() == type_name && field_pat.as_ref() == field_name {
+            all_field_attributes.push(attr.to_string());
+        }
+    }
+
+    all_field_attributes
+}
+
 impl From<DerivableTraits> for Vec<&'static str> {
     fn from(derivable_traits: DerivableTraits) -> Vec<&'static str> {
         [
@@ -214,7 +261,7 @@ impl From<DerivableTraits> for Vec<&'static str> {
         ]
         .iter()
         .filter_map(|&(flag, derive)| {
-            Some(derive).filter(|_| derivable_traits.contains(flag))
+            derivable_traits.contains(flag).then_some(derive)
         })
         .collect()
     }
@@ -494,8 +541,7 @@ impl Item {
         if self.is_blocklisted(ctx) || result.seen(self.id()) {
             debug!(
                 "<Item as CodeGenerator>::process_before_codegen: Ignoring hidden or seen: \
-                 self = {:?}",
-                self
+                 self = {self:?}"
             );
             return false;
         }
@@ -581,9 +627,7 @@ impl CodeGenerator for Module {
                 if ctx.need_bindgen_complex_type() {
                     utils::prepend_complex_type(&mut *result);
                 }
-                if ctx.need_opaque_array_type() {
-                    utils::prepend_opaque_array_type(&mut *result);
-                }
+                utils::prepend_opaque_array_types(ctx, &mut *result);
                 if result.saw_objc {
                     utils::prepend_objc_header(ctx, &mut *result);
                 }
@@ -684,13 +728,14 @@ impl CodeGenerator for Var {
         let ty = var_ty.to_rust_ty_or_opaque(ctx, &());
 
         if let Some(val) = self.val() {
-            match *val {
-                VarType::Bool(val) => {
-                    result.push(quote! {
-                        #(#attrs)*
-                        pub const #canonical_ident : #ty = #val ;
-                    });
+            utils::call_discovered_item_callback(ctx, item, || {
+                DiscoveredItem::Constant {
+                    final_name: canonical_name.clone(),
                 }
+            });
+
+            let const_expr = match *val {
+                VarType::Bool(val) => Some(val.to_token_stream()),
                 VarType::Int(val) => {
                     let int_kind = var_ty
                         .into_resolver()
@@ -705,10 +750,7 @@ impl CodeGenerator for Var {
                     } else {
                         helpers::ast_ty::uint_expr(val as _)
                     };
-                    result.push(quote! {
-                        #(#attrs)*
-                        pub const #canonical_ident : #ty = #val ;
-                    });
+                    Some(val)
                 }
                 VarType::String(ref bytes) => {
                     let prefix = ctx.trait_prefix();
@@ -727,7 +769,6 @@ impl CodeGenerator for Var {
                         } else {
                             None
                         };
-
                     if let Some(cstr) = cstr {
                         let cstr_ty = quote! { ::#prefix::ffi::CStr };
                         if rust_features.literal_cstr {
@@ -762,23 +803,40 @@ impl CodeGenerator for Var {
                             pub const #canonical_ident: &#(#lifetime )*#array_ty = #bytes ;
                         });
                     }
+                    None
                 }
-                VarType::Float(f) => {
-                    if let Ok(expr) = helpers::ast_ty::float_expr(ctx, f) {
-                        result.push(quote! {
-                            #(#attrs)*
-                            pub const #canonical_ident : #ty = #expr ;
-                        });
-                    }
+                VarType::Float(f) => helpers::ast_ty::float_expr(f).ok(),
+                VarType::Char(c) => Some(c.to_token_stream()),
+            };
+
+            if let Some(mut val) = const_expr {
+                let var_ty_item =
+                    var_ty.into_resolver().through_type_refs().resolve(ctx);
+
+                let is_alias = var_ty_item
+                    .as_type()
+                    .is_some_and(|ty| matches!(ty.kind(), TypeKind::Alias(..)));
+
+                if is_alias &&
+                    matches!(
+                        var_ty_item.alias_style(ctx),
+                        AliasVariation::NewType | AliasVariation::NewTypeDeref
+                    )
+                {
+                    val = quote! { #ty(#val) };
                 }
-                VarType::Char(c) => {
-                    result.push(quote! {
-                        #(#attrs)*
-                        pub const #canonical_ident : #ty = #c ;
-                    });
-                }
+                result.push(quote! {
+                    #(#attrs)*
+                    pub const #canonical_ident : #ty = #val ;
+                });
             }
         } else {
+            utils::call_discovered_item_callback(ctx, item, || {
+                DiscoveredItem::Variable {
+                    final_name: canonical_name.clone(),
+                }
+            });
+
             let symbol: &str = self.link_name().unwrap_or_else(|| {
                 let link_name =
                     self.mangled_name().unwrap_or_else(|| self.name());
@@ -794,6 +852,20 @@ impl CodeGenerator for Var {
                 }
             });
 
+            let mut block_attributes = quote! {};
+            for attr in &ctx.options().extern_block_attrs {
+                let parsed_attr = proc_macro2::TokenStream::from_str(attr).unwrap_or_else(
+                    |err| {
+                        panic!(
+                            "Error parsing extern static block attribute `{attr}`: {err}"
+                        )
+                    },
+                );
+                block_attributes.extend(quote! {
+                    #parsed_attr
+                });
+            }
+
             let maybe_mut = if self.is_const() {
                 quote! {}
             } else {
@@ -807,6 +879,7 @@ impl CodeGenerator for Var {
                 .then(|| quote!(unsafe));
 
             let tokens = quote!(
+                #block_attributes
                 #safety extern "C" {
                     #(#attrs)*
                     pub static #maybe_mut #canonical_ident: #ty;
@@ -943,13 +1016,6 @@ impl CodeGenerator for Type {
                             layout.size,
                             ctx.target_pointer_size(),
                             );
-                        assert_eq!(
-                            layout.align,
-                            ctx.target_pointer_size(),
-                            "Target platform requires `--no-size_t-is-usize`. The alignment of `{spelling}` ({}) does not match the target pointer size ({})",
-                            layout.align,
-                            ctx.target_pointer_size(),
-                        );
                     }
                     return;
                 }
@@ -970,6 +1036,9 @@ impl CodeGenerator for Type {
                         .with_implicit_template_params(ctx, inner_item)
                 };
 
+                let inner_canon_type =
+                    inner_item.expect_type().canonical_type(ctx);
+
                 {
                     // FIXME(emilio): This is a workaround to avoid generating
                     // incorrect type aliases because of types that we haven't
@@ -981,13 +1050,10 @@ impl CodeGenerator for Type {
                     // with invalid template parameters, and at least this way
                     // they can be replaced, instead of generating plain invalid
                     // code.
-                    let inner_canon_type =
-                        inner_item.expect_type().canonical_type(ctx);
                     if inner_canon_type.is_invalid_type_param() {
                         warn!(
                             "Item contained invalid named type, skipping: \
-                             {:?}, {:?}",
-                            item, inner_item
+                             {item:?}, {inner_item:?}"
                         );
                         return;
                     }
@@ -995,16 +1061,13 @@ impl CodeGenerator for Type {
 
                 let rust_name = ctx.rust_ident(&name);
 
-                ctx.options().for_each_callback(|cb| {
-                    cb.new_item_found(
-                        DiscoveredItemId::new(item.id().as_usize()),
-                        DiscoveredItem::Alias {
-                            alias_name: rust_name.to_string(),
-                            alias_for: DiscoveredItemId::new(
-                                inner_item.id().as_usize(),
-                            ),
-                        },
-                    );
+                utils::call_discovered_item_callback(ctx, item, || {
+                    DiscoveredItem::Alias {
+                        alias_name: rust_name.to_string(),
+                        alias_for: DiscoveredItemId::new(
+                            inner_item.id().as_usize(),
+                        ),
+                    }
                 });
 
                 let mut tokens = if let Some(comment) = item.comment(ctx) {
@@ -1013,15 +1076,8 @@ impl CodeGenerator for Type {
                     quote! {}
                 };
 
-                let alias_style = if ctx.options().type_alias.matches(&name) {
-                    AliasVariation::TypeAlias
-                } else if ctx.options().new_type_alias.matches(&name) {
-                    AliasVariation::NewType
-                } else if ctx.options().new_type_alias_deref.matches(&name) {
-                    AliasVariation::NewTypeDeref
-                } else {
-                    ctx.options().default_alias_style
-                };
+                let alias_style = item.alias_style(ctx);
+                let mut needs_debug_impl = false;
 
                 // We prefer using `pub use` over `pub type` because of:
                 // https://github.com/rust-lang/rust/issues/26264
@@ -1053,6 +1109,13 @@ impl CodeGenerator for Type {
                         let packed = false; // Types can't be packed in Rust.
                         let derivable_traits =
                             derives_of_item(item, ctx, packed);
+                        if !derivable_traits.contains(DerivableTraits::DEBUG) {
+                            needs_debug_impl = ctx.options().derive_debug &&
+                                ctx.options().impl_debug &&
+                                !ctx.no_debug_by_name(item) &&
+                                !item.annotations().disallow_debug() &&
+                                !inner_canon_type.is_void();
+                        }
                         let mut derives: Vec<_> = derivable_traits.into();
                         // The custom derives callback may return a list of derive attributes;
                         // add them to the end of the list.
@@ -1064,9 +1127,10 @@ impl CodeGenerator for Type {
                                 })
                             });
                         // In most cases this will be a no-op, since custom_derives will be empty.
-                        derives
-                            .extend(custom_derives.iter().map(|s| s.as_str()));
-                        attributes.push(attributes::derives(&derives));
+                        append_custom_derives(&mut derives, &custom_derives);
+                        if !derives.is_empty() {
+                            attributes.push(attributes::derives(&derives));
+                        }
 
                         let custom_attributes =
                             ctx.options().all_callbacks(|cb| {
@@ -1098,8 +1162,7 @@ impl CodeGenerator for Type {
                 {
                     warn!(
                         "Item contained invalid template \
-                         parameter: {:?}",
-                        item
+                         parameter: {item:?}"
                     );
                     return;
                 }
@@ -1136,8 +1199,33 @@ impl CodeGenerator for Type {
                             })
                             .unwrap_or(ctx.options().default_visibility);
                         let access_spec = access_specifier(visibility);
+
+                        // Collect field attributes for newtype tuple field
+                        let type_name = item.canonical_name(ctx);
+                        let all_field_attributes = collect_field_attributes(
+                            ctx,
+                            item.annotations(),
+                            &type_name,
+                            DeriveTypeKind::Struct,
+                            "0",
+                            inner_item.expect_type().name(),
+                        );
+
+                        // Build the field with attributes
+                        let mut field_tokens = quote! {};
+                        for attr in &all_field_attributes {
+                            let attr_tokens: proc_macro2::TokenStream =
+                                attr.parse().expect("Invalid field attribute");
+                            field_tokens.append_all(quote! {
+                                #[#attr_tokens]
+                            });
+                        }
+                        field_tokens.append_all(quote! {
+                            #access_spec #inner_rust_type
+                        });
+
                         quote! {
-                            (#access_spec #inner_rust_type) ;
+                            (#field_tokens) ;
                         }
                     }
                 });
@@ -1156,6 +1244,17 @@ impl CodeGenerator for Type {
                             #[inline]
                             fn deref_mut(&mut self) -> &mut Self::Target {
                                 &mut self.0
+                            }
+                        }
+                    });
+                }
+
+                if needs_debug_impl {
+                    let prefix = ctx.trait_prefix();
+                    tokens.append_all(quote! {
+                        impl ::#prefix::fmt::Debug for #rust_name {
+                            fn fmt(&self, f: &mut ::#prefix::fmt::Formatter<'_>) -> ::#prefix::fmt::Result {
+                                f.debug_tuple(stringify!(#rust_name)).field(&self.0).finish()
                             }
                         }
                     });
@@ -1513,8 +1612,20 @@ impl FieldCodegen<'_> for FieldData {
         } else if let Some(item) = field_ty.is_incomplete_array(ctx) {
             // Only FAM if its the last field
             if ctx.options().flexarray_dst && last_field {
+                // Check if parent struct is packed to determine if we need ManuallyDrop
+                let layout = parent_item.expect_type().layout(ctx);
+                let is_packed = parent.is_packed(ctx, layout.as_ref());
                 struct_layout.saw_flexible_array();
-                syn::parse_quote! { FAM }
+
+                // For packed structs, we need to wrap FAM in ManuallyDrop
+                // because Rust requires that DST fields in packed structs
+                // don't need Drop to be run.
+                if is_packed {
+                    let prefix = ctx.trait_prefix();
+                    syn::parse_quote! { ::#prefix::mem::ManuallyDrop<FAM> }
+                } else {
+                    syn::parse_quote! { FAM }
+                }
             } else {
                 result.saw_incomplete_array();
 
@@ -1526,16 +1637,35 @@ impl FieldCodegen<'_> for FieldData {
                     syn::parse_quote! { __IncompleteArrayField<#inner> }
                 }
             }
+        } else if let TypeKind::Comp(ref comp) = field_ty.kind() {
+            // Nested FAM: the field is a struct that itself has a FAM
+            // Only treat as FAM if it's the last field
+            if ctx.options().flexarray_dst &&
+                last_field &&
+                comp.flex_array_member(ctx).is_some()
+            {
+                let layout = parent_item.expect_type().layout(ctx);
+                let is_packed = parent.is_packed(ctx, layout.as_ref());
+                struct_layout.saw_flexible_array();
+
+                // For nested FAMs, we need to parameterize the field type with FAM
+                // For packed structs, wrap in ManuallyDrop
+                if is_packed {
+                    let prefix = ctx.trait_prefix();
+                    syn::parse_quote! { ::#prefix::mem::ManuallyDrop<#ty<FAM>> }
+                } else {
+                    syn::parse_quote! { #ty<FAM> }
+                }
+            } else {
+                ty
+            }
         } else {
             ty
         };
 
         let mut field = quote! {};
-        if ctx.options().generate_comments {
-            if let Some(raw_comment) = self.comment() {
-                let comment = ctx.options().process_comment(raw_comment);
-                field = attributes::doc(&comment);
-            }
+        if let Some(comment) = self.doc_comment(ctx) {
+            field = attributes::doc(&comment);
         }
 
         let field_name = self
@@ -1566,6 +1696,31 @@ impl FieldCodegen<'_> for FieldData {
         );
         let accessor_kind =
             self.annotations().accessor_kind().unwrap_or(accessor_kind);
+
+        // Collect field attributes from multiple sources
+        let type_name = parent_item.canonical_name(ctx);
+        let type_kind = if parent.is_union() {
+            DeriveTypeKind::Union
+        } else {
+            DeriveTypeKind::Struct
+        };
+        let all_field_attributes = collect_field_attributes(
+            ctx,
+            self.annotations(),
+            &type_name,
+            type_kind,
+            field_name,
+            field_ty.name(),
+        );
+
+        // Apply all custom attributes to the field
+        for attr in &all_field_attributes {
+            let attr_tokens: proc_macro2::TokenStream =
+                attr.parse().expect("Invalid field attribute");
+            field.append_all(quote! {
+                #[#attr_tokens]
+            });
+        }
 
         match visibility {
             FieldVisibilityKind::Private => {
@@ -1673,9 +1828,7 @@ impl Bitfield {
         let prefix = ctx.trait_prefix();
 
         ctor_impl.append_all(quote! {
-            __bindgen_bitfield_unit.set(
-                #offset,
-                #width,
+            __bindgen_bitfield_unit.set_const::<#offset, #width>(
                 {
                     let #param_name: #bitfield_int_ty = unsafe {
                         ::#prefix::mem::transmute(#param_name)
@@ -1776,22 +1929,6 @@ impl FieldCodegen<'_> for BitfieldUnit {
             }
         };
 
-        {
-            let align_field_name = format!("_bitfield_align_{}", self.nth());
-            let align_field_ident = ctx.rust_ident(align_field_name);
-            let align_ty = match self.layout().align {
-                n if n >= 8 => quote! { u64 },
-                4 => quote! { u32 },
-                2 => quote! { u16 },
-                _ => quote! { u8  },
-            };
-            let access_spec = access_specifier(visibility_kind);
-            let align_field = quote! {
-                #access_spec #align_field_ident: [#align_ty; 0],
-            };
-            fields.extend(Some(align_field));
-        }
-
         let unit_field_name = format!("_bitfield_{}", self.nth());
         let unit_field_ident = ctx.rust_ident(&unit_field_name);
 
@@ -1811,12 +1948,6 @@ impl FieldCodegen<'_> for BitfieldUnit {
         for (idx, bf) in bfields.iter().enumerate() {
             // Codegen not allowed for anonymous bitfields
             if bf.name().is_none() {
-                continue;
-            }
-
-            if layout.size > RUST_DERIVE_IN_ARRAY_LIMIT &&
-                !ctx.options().rust_features().larger_arrays
-            {
                 continue;
             }
 
@@ -1864,6 +1995,12 @@ impl FieldCodegen<'_> for BitfieldUnit {
 
         let access_spec = access_specifier(unit_visibility);
 
+        if let Some(padding_field) =
+            struct_layout.saw_bitfield_unit(layout, self.offset())
+        {
+            fields.extend(Some(padding_field));
+        }
+
         let field = quote! {
             #access_spec #unit_field_ident : #field_ty ,
         };
@@ -1872,6 +2009,7 @@ impl FieldCodegen<'_> for BitfieldUnit {
         if generate_ctor {
             methods.extend(Some(quote! {
                 #[inline]
+                #[allow(unnecessary_transmutes)]
                 #access_spec fn #ctor_name ( #( #ctor_params ),* ) -> #unit_field_ty {
                     let mut __bindgen_bitfield_unit: #unit_field_ty = Default::default();
                     #ctor_impl
@@ -1879,8 +2017,6 @@ impl FieldCodegen<'_> for BitfieldUnit {
                 }
             }));
         }
-
-        struct_layout.saw_bitfield_unit(layout);
     }
 }
 
@@ -2005,6 +2141,7 @@ impl<'a> FieldCodegen<'a> for Bitfield {
         if parent.is_union() && !struct_layout.is_rust_union() {
             methods.extend(Some(quote! {
                 #[inline]
+                #[allow(unnecessary_transmutes)]
                 #access_spec fn #getter_name(&self) -> #bitfield_ty {
                     unsafe {
                         ::#prefix::mem::transmute(
@@ -2015,6 +2152,7 @@ impl<'a> FieldCodegen<'a> for Bitfield {
                 }
 
                 #[inline]
+                #[allow(unnecessary_transmutes)]
                 #access_spec fn #setter_name(&mut self, val: #bitfield_ty) {
                     unsafe {
                         let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
@@ -2027,65 +2165,13 @@ impl<'a> FieldCodegen<'a> for Bitfield {
                 }
             }));
 
-            if ctx.options().rust_features.raw_ref_macros {
-                methods.extend(Some(quote! {
-                    #[inline]
-                    #access_spec unsafe fn #raw_getter_name(this: *const Self) -> #bitfield_ty {
-                        unsafe {
-                            ::#prefix::mem::transmute(<#unit_field_ty>::raw_get(
-                                (*::#prefix::ptr::addr_of!((*this).#unit_field_ident)).as_ref() as *const _,
-                                #offset,
-                                #width,
-                            ) as #bitfield_int_ty)
-                        }
-                    }
-
-                    #[inline]
-                    #access_spec unsafe fn #raw_setter_name(this: *mut Self, val: #bitfield_ty) {
-                        unsafe {
-                            let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
-                            <#unit_field_ty>::raw_set(
-                                (*::#prefix::ptr::addr_of_mut!((*this).#unit_field_ident)).as_mut() as *mut _,
-                                #offset,
-                                #width,
-                                val as u64,
-                            )
-                        }
-                    }
-                }));
-            }
-        } else {
             methods.extend(Some(quote! {
                 #[inline]
-                #access_spec fn #getter_name(&self) -> #bitfield_ty {
-                    unsafe {
-                        ::#prefix::mem::transmute(
-                            self.#unit_field_ident.get(#offset, #width)
-                                as #bitfield_int_ty
-                        )
-                    }
-                }
-
-                #[inline]
-                #access_spec fn #setter_name(&mut self, val: #bitfield_ty) {
-                    unsafe {
-                        let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
-                        self.#unit_field_ident.set(
-                            #offset,
-                            #width,
-                            val as u64
-                        )
-                    }
-                }
-            }));
-
-            if ctx.options().rust_features.raw_ref_macros {
-                methods.extend(Some(quote! {
-                #[inline]
+                #[allow(unnecessary_transmutes)]
                 #access_spec unsafe fn #raw_getter_name(this: *const Self) -> #bitfield_ty {
                     unsafe {
                         ::#prefix::mem::transmute(<#unit_field_ty>::raw_get(
-                            ::#prefix::ptr::addr_of!((*this).#unit_field_ident),
+                            (*::#prefix::ptr::addr_of!((*this).#unit_field_ident)).as_ref() as *const _,
                             #offset,
                             #width,
                         ) as #bitfield_int_ty)
@@ -2093,11 +2179,12 @@ impl<'a> FieldCodegen<'a> for Bitfield {
                 }
 
                 #[inline]
+                #[allow(unnecessary_transmutes)]
                 #access_spec unsafe fn #raw_setter_name(this: *mut Self, val: #bitfield_ty) {
                     unsafe {
                         let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
                         <#unit_field_ty>::raw_set(
-                            ::#prefix::ptr::addr_of_mut!((*this).#unit_field_ident),
+                            (*::#prefix::ptr::addr_of_mut!((*this).#unit_field_ident)).as_mut() as *mut _,
                             #offset,
                             #width,
                             val as u64,
@@ -2105,7 +2192,54 @@ impl<'a> FieldCodegen<'a> for Bitfield {
                     }
                 }
             }));
-            }
+        } else {
+            methods.extend(Some(quote! {
+                #[inline]
+                #[allow(unnecessary_transmutes)]
+                #access_spec fn #getter_name(&self) -> #bitfield_ty {
+                    unsafe {
+                        ::#prefix::mem::transmute(
+                            self.#unit_field_ident.get_const::<#offset, #width>()
+                                as #bitfield_int_ty
+                        )
+                    }
+                }
+
+                #[inline]
+                #[allow(unnecessary_transmutes)]
+                #access_spec fn #setter_name(&mut self, val: #bitfield_ty) {
+                    unsafe {
+                        let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
+                        self.#unit_field_ident.set_const::<#offset, #width>(
+                            val as u64
+                        )
+                    }
+                }
+            }));
+
+            methods.extend(Some(quote! {
+                #[inline]
+                #[allow(unnecessary_transmutes)]
+                #access_spec unsafe fn #raw_getter_name(this: *const Self) -> #bitfield_ty {
+                    unsafe {
+                        ::#prefix::mem::transmute(<#unit_field_ty>::raw_get_const::<#offset, #width>(
+                            ::#prefix::ptr::addr_of!((*this).#unit_field_ident),
+                        ) as #bitfield_int_ty)
+                    }
+                }
+
+                #[inline]
+                #[allow(unnecessary_transmutes)]
+                #access_spec unsafe fn #raw_setter_name(this: *mut Self, val: #bitfield_ty) {
+                    unsafe {
+                        let val: #bitfield_int_ty = ::#prefix::mem::transmute(val);
+                        <#unit_field_ty>::raw_set_const::<#offset, #width>(
+                            ::#prefix::ptr::addr_of_mut!((*this).#unit_field_ident),
+                            val as u64,
+                        )
+                    }
+                }
+            }));
         }
     }
 }
@@ -2292,14 +2426,13 @@ impl CodeGenerator for CompInfo {
 
             if has_address {
                 let layout = Layout::new(1, 1);
-                let ty = helpers::blob(ctx, Layout::new(1, 1), false);
                 struct_layout.saw_field_with_layout(
                     "_address",
                     layout,
                     /* offset = */ Some(0),
                 );
                 fields.push(quote! {
-                    pub _address: #ty,
+                    pub _address: u8,
                 });
             }
         }
@@ -2308,7 +2441,6 @@ impl CodeGenerator for CompInfo {
             match layout {
                 Some(l) => {
                     explicit_align = Some(l.align);
-
                     let ty = helpers::blob(ctx, l, false);
                     fields.push(quote! {
                         pub _bindgen_opaque_blob: #ty ,
@@ -2345,7 +2477,7 @@ impl CodeGenerator for CompInfo {
                 if !struct_layout.is_rust_union() {
                     let ty = helpers::blob(ctx, layout, false);
                     fields.push(quote! {
-                        pub bindgen_union_field: #ty ,
+                        pub bindgen_union_field: #ty,
                     });
                 }
             }
@@ -2423,7 +2555,6 @@ impl CodeGenerator for CompInfo {
                 self.already_packed(ctx).unwrap_or(false))
         {
             let n = layout.map_or(1, |l| l.align);
-            assert!(ctx.options().rust_features().repr_packed_n || n == 1);
             let packed_repr = if n == 1 {
                 "packed".to_string()
             } else {
@@ -2434,10 +2565,33 @@ impl CodeGenerator for CompInfo {
             attributes.push(attributes::repr("C"));
         }
 
-        if true {
-            if let Some(explicit) = explicit_align {
-                // Ensure that the struct has the correct alignment even in
-                // presence of alignas.
+        // Ensure that the struct has the correct alignment even in presence of alignas and co.
+        if let Some(explicit) = explicit_align {
+            // If we need explicit alignment and can do it, we prefer to insert a dummy field at
+            // the beginning of the struct. This avoids hitting
+            // https://github.com/rust-lang/rust-bindgen/issues/2179
+            // Do it for bitfields only for now for backwards compat.
+            //
+            // (Note that, if the target's primitive type alignment is *not* sufficiently
+            // aligned, as in the case of u64 on a 32-bit system, we should not insert the dummy
+            // field, hence checking that `explicit` is less-than-or-equal-to the target primitive
+            // type's alignemnt.)
+            let target_primitive_align = Layout::for_size(ctx, explicit).align;
+            if self.has_bitfields() &&
+                explicit <= 8 &&
+                target_primitive_align >= explicit
+            {
+                let align_ty = match explicit {
+                    8 => quote! { u64 },
+                    4 => quote! { u32 },
+                    2 => quote! { u16 },
+                    _ => quote! { u8  },
+                };
+                let align_field = quote! {
+                    pub _bindgen_align: [#align_ty; 0],
+                };
+                fields.insert(0, align_field);
+            } else {
                 let explicit = helpers::ast_ty::int_expr(explicit as i64);
                 attributes.push(quote! {
                     #[repr(align(#explicit))]
@@ -2445,7 +2599,17 @@ impl CodeGenerator for CompInfo {
             }
         }
 
-        let derivable_traits = derives_of_item(item, ctx, packed);
+        let derivable_traits = if self.is_forward_declaration() {
+            // The only trait we can derive for forward declared types is `Debug`,
+            // since we don't know anything about the layout or type.
+            let mut derivable_traits = DerivableTraits::empty();
+            if !item.annotations().disallow_debug() {
+                derivable_traits |= DerivableTraits::DEBUG;
+            }
+            derivable_traits
+        } else {
+            derives_of_item(item, ctx, packed)
+        };
         if !derivable_traits.contains(DerivableTraits::DEBUG) {
             needs_debug_impl = ctx.options().derive_debug &&
                 ctx.options().impl_debug &&
@@ -2480,28 +2644,23 @@ impl CodeGenerator for CompInfo {
 
         let is_rust_union = is_union && struct_layout.is_rust_union();
 
-        let discovered_id = DiscoveredItemId::new(item.id().as_usize());
-        ctx.options().for_each_callback(|cb| {
-            let discovered_item = match self.kind() {
-                CompKind::Struct => DiscoveredItem::Struct {
-                    original_name: item
-                        .kind()
-                        .expect_type()
-                        .name()
-                        .map(String::from),
-                    final_name: canonical_ident.to_string(),
-                },
-                CompKind::Union => DiscoveredItem::Union {
-                    original_name: item
-                        .kind()
-                        .expect_type()
-                        .name()
-                        .map(String::from),
-                    final_name: canonical_ident.to_string(),
-                },
-            };
-
-            cb.new_item_found(discovered_id, discovered_item);
+        utils::call_discovered_item_callback(ctx, item, || match self.kind() {
+            CompKind::Struct => DiscoveredItem::Struct {
+                original_name: item
+                    .kind()
+                    .expect_type()
+                    .name()
+                    .map(String::from),
+                final_name: canonical_ident.to_string(),
+            },
+            CompKind::Union => DiscoveredItem::Union {
+                original_name: item
+                    .kind()
+                    .expect_type()
+                    .name()
+                    .map(String::from),
+                final_name: canonical_ident.to_string(),
+            },
         });
 
         // The custom derives callback may return a list of derive attributes;
@@ -2517,7 +2676,7 @@ impl CodeGenerator for CompInfo {
             })
         });
         // In most cases this will be a no-op, since custom_derives will be empty.
-        derives.extend(custom_derives.iter().map(|s| s.as_str()));
+        append_custom_derives(&mut derives, &custom_derives);
 
         if !derives.is_empty() {
             attributes.push(attributes::derives(&derives));
@@ -2699,6 +2858,7 @@ impl CodeGenerator for CompInfo {
             }
 
             let mut method_names = Default::default();
+            let discovered_id = DiscoveredItemId::new(item.id().as_usize());
             if ctx.options().codegen_config.methods() {
                 for method in self.methods() {
                     assert_ne!(method.kind(), MethodKind::Constructor);
@@ -2773,21 +2933,11 @@ impl CodeGenerator for CompInfo {
 
         if needs_default_impl {
             let prefix = ctx.trait_prefix();
-            let body = if ctx.options().rust_features().maybe_uninit {
-                quote! {
-                    let mut s = ::#prefix::mem::MaybeUninit::<Self>::uninit();
-                    unsafe {
-                        ::#prefix::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-                        s.assume_init()
-                    }
-                }
-            } else {
-                quote! {
-                    unsafe {
-                        let mut s: Self = ::#prefix::mem::uninitialized();
-                        ::#prefix::ptr::write_bytes(&mut s, 0, 1);
-                        s
-                    }
+            let body = quote! {
+                let mut s = ::#prefix::mem::MaybeUninit::<Self>::uninit();
+                unsafe {
+                    ::#prefix::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+                    s.assume_init()
                 }
             };
             // Note we use `ptr::write_bytes()` instead of `mem::zeroed()` because the latter does
@@ -3020,7 +3170,6 @@ impl Method {
 
         // First of all, output the actual function.
         let function_item = ctx.resolve_item(self.signature());
-        let id = DiscoveredItemId::new(function_item.id().as_usize());
         if !function_item.process_before_codegen(ctx, result) {
             return;
         }
@@ -3067,14 +3216,11 @@ impl Method {
 
         method_names.insert(name.clone());
 
-        ctx.options().for_each_callback(|cb| {
-            cb.new_item_found(
-                id,
-                DiscoveredItem::Method {
-                    parent: parent_id,
-                    final_name: name.clone(),
-                },
-            );
+        utils::call_discovered_item_callback(ctx, function_item, || {
+            DiscoveredItem::Method {
+                parent: parent_id,
+                final_name: name.clone(),
+            }
         });
 
         let mut function_name = function_item.canonical_name(ctx);
@@ -3112,24 +3258,11 @@ impl Method {
         // variable called `__bindgen_tmp` we're going to create.
         if self.is_constructor() {
             let prefix = ctx.trait_prefix();
-            let tmp_variable_decl = if ctx
-                .options()
-                .rust_features()
-                .maybe_uninit
-            {
-                exprs[0] = quote! {
-                    __bindgen_tmp.as_mut_ptr()
-                };
-                quote! {
-                    let mut __bindgen_tmp = ::#prefix::mem::MaybeUninit::uninit()
-                }
-            } else {
-                exprs[0] = quote! {
-                    &mut __bindgen_tmp
-                };
-                quote! {
-                    let mut __bindgen_tmp = ::#prefix::mem::uninitialized()
-                }
+            exprs[0] = quote! {
+                __bindgen_tmp.as_mut_ptr()
+            };
+            let tmp_variable_decl = quote! {
+                let mut __bindgen_tmp = ::#prefix::mem::MaybeUninit::uninit()
             };
             stmts.push(tmp_variable_decl);
         } else if !self.is_static() {
@@ -3146,14 +3279,8 @@ impl Method {
         stmts.push(call);
 
         if self.is_constructor() {
-            stmts.push(if ctx.options().rust_features().maybe_uninit {
-                quote! {
+            stmts.push(quote! {
                     __bindgen_tmp.assume_init()
-                }
-            } else {
-                quote! {
-                    __bindgen_tmp
-                }
             });
         }
 
@@ -3623,6 +3750,9 @@ impl EnumBuilder {
                 quote! {
                     // todo: Probably some attributes, e.g. `cfg` should apply to the `mod`.
                     pub mod #module_name {
+                        #[allow(unused_imports)]
+                        use super::*;
+
                         #( #attrs )*
                         pub type #enum_ident = #enum_repr;
 
@@ -3749,7 +3879,7 @@ impl CodeGenerator for Enum {
                 })
             });
             // In most cases this will be a no-op, since custom_derives will be empty.
-            derives.extend(custom_derives.iter().map(|s| s.as_str()));
+            append_custom_derives(&mut derives, &custom_derives);
 
             attrs.extend(
                 item.annotations()
@@ -3804,13 +3934,10 @@ impl CodeGenerator for Enum {
         let repr = repr.to_rust_ty_or_opaque(ctx, item);
         let has_typedef = ctx.is_enum_typedef_combo(item.id());
 
-        ctx.options().for_each_callback(|cb| {
-            cb.new_item_found(
-                DiscoveredItemId::new(item.id().as_usize()),
-                DiscoveredItem::Enum {
-                    final_name: name.to_string(),
-                },
-            );
+        utils::call_discovered_item_callback(ctx, item, || {
+            DiscoveredItem::Enum {
+                final_name: name.clone(),
+            }
         });
 
         let mut builder = EnumBuilder::new(
@@ -3862,14 +3989,11 @@ impl CodeGenerator for Enum {
                 continue;
             }
 
-            let mut variant_doc = quote! {};
-            if ctx.options().generate_comments {
-                if let Some(raw_comment) = variant.comment() {
-                    let processed_comment =
-                        ctx.options().process_comment(raw_comment);
-                    variant_doc = attributes::doc(&processed_comment);
-                }
-            }
+            let variant_doc = if let Some(comment) = variant.doc_comment(ctx) {
+                attributes::doc(&comment)
+            } else {
+                quote! {}
+            };
 
             match seen_values.entry(variant.val()) {
                 Entry::Occupied(ref entry) => {
@@ -4061,9 +4185,10 @@ impl FromStr for AliasVariation {
 }
 
 /// Enum for how non-`Copy` `union`s should be translated.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum NonCopyUnionStyle {
     /// Wrap members in a type generated by `bindgen`.
+    #[default]
     BindgenWrapper,
     /// Wrap members in [`::core::mem::ManuallyDrop`].
     ///
@@ -4080,12 +4205,6 @@ impl fmt::Display for NonCopyUnionStyle {
         };
 
         s.fmt(f)
-    }
-}
-
-impl Default for NonCopyUnionStyle {
-    fn default() -> Self {
-        Self::BindgenWrapper
     }
 }
 
@@ -4445,6 +4564,12 @@ impl TryToRustTy for Type {
                 if inner_ty.canonical_type(ctx).is_function() || is_objc_pointer
                 {
                     Ok(ty)
+                } else if ctx.options().generate_cxx_nonnull_references &&
+                    matches!(self.kind(), TypeKind::Reference(_))
+                {
+                    // It's UB to pass null values in place of C++ references
+                    let prefix = ctx.trait_prefix();
+                    Ok(syn::parse_quote! { ::#prefix::ptr::NonNull<#ty> })
                 } else {
                     Ok(ty.to_ptr(is_const))
                 }
@@ -4595,7 +4720,6 @@ impl CodeGenerator for Function {
     ) -> Self::Return {
         debug!("<Function as CodeGenerator>::codegen: item = {item:?}");
         debug_assert!(item.is_enabled_for_codegen(ctx));
-        let id = DiscoveredItemId::new(item.id().as_usize());
 
         let is_internal = matches!(self.linkage(), Linkage::Internal);
 
@@ -4712,13 +4836,10 @@ impl CodeGenerator for Function {
         if times_seen > 0 {
             write!(&mut canonical_name, "{times_seen}").unwrap();
         }
-        ctx.options().for_each_callback(|cb| {
-            cb.new_item_found(
-                id,
-                DiscoveredItem::Function {
-                    final_name: canonical_name.to_string(),
-                },
-            );
+        utils::call_discovered_item_callback(ctx, item, || {
+            DiscoveredItem::Function {
+                final_name: canonical_name.clone(),
+            }
         });
 
         let link_name_attr = self.link_name().or_else(|| {
@@ -4737,13 +4858,19 @@ impl CodeGenerator for Function {
             }
         }
 
-        // Unfortunately this can't piggyback on the `attributes` list because
-        // the #[link(wasm_import_module)] needs to happen before the `extern
-        // "C"` block. It doesn't get picked up properly otherwise
-        let wasm_link_attribute =
-            ctx.options().wasm_import_module_name.as_ref().map(|name| {
-                quote! { #[link(wasm_import_module = #name)] }
+        let mut block_attributes = quote! {};
+        for attr in &ctx.options().extern_block_attrs {
+            let parsed_attr = proc_macro2::TokenStream::from_str(attr).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "Error parsing extern fn block attribute `{attr}`: {err}"
+                    )
+                },
+            );
+            block_attributes.extend(quote! {
+                #parsed_attr
             });
+        }
 
         let should_wrap = is_internal &&
             ctx.options().wrap_static_fns &&
@@ -4797,7 +4924,7 @@ impl CodeGenerator for Function {
             .then(|| quote!(unsafe));
 
         let tokens = quote! {
-            #wasm_link_attribute
+            #block_attributes
             #safety extern #abi {
                 #(#attributes)*
                 pub fn #ident ( #( #args ),* ) #ret;
@@ -5259,6 +5386,7 @@ pub(crate) mod utils {
     use super::helpers::BITFIELD_UNIT;
     use super::serialize::CSerialize;
     use super::{error, CodegenError, CodegenResult, ToRustTyOrOpaque};
+    use crate::callbacks::DiscoveredItemId;
     use crate::ir::context::BindgenContext;
     use crate::ir::context::TypeId;
     use crate::ir::function::{Abi, ClangAbi, FunctionSig};
@@ -5395,12 +5523,7 @@ pub(crate) mod utils {
             return;
         }
 
-        let bitfield_unit_src = if ctx.options().rust_features().raw_ref_macros
-        {
-            include_str!("./bitfield_unit_raw_ref_macros.rs")
-        } else {
-            include_str!("./bitfield_unit.rs")
-        };
+        let bitfield_unit_src = include_str!("./bitfield_unit.rs");
         let bitfield_unit_src = if true {
             Cow::Borrowed(bitfield_unit_src)
         } else {
@@ -5465,14 +5588,6 @@ pub(crate) mod utils {
     ) {
         let prefix = ctx.trait_prefix();
 
-        // If the target supports `const fn`, declare eligible functions
-        // as `const fn` else just `fn`.
-        let const_fn = if true {
-            quote! { const fn }
-        } else {
-            quote! { fn }
-        };
-
         // TODO(emilio): The fmt::Debug impl could be way nicer with
         // std::intrinsics::type_name, but...
         let union_field_decl = quote! {
@@ -5480,23 +5595,22 @@ pub(crate) mod utils {
             pub struct __BindgenUnionField<T>(::#prefix::marker::PhantomData<T>);
         };
 
-        let transmute =
-            ctx.wrap_unsafe_ops(quote!(::#prefix::mem::transmute(self)));
+        let transmute = quote!(unsafe { ::#prefix::mem::transmute(self) });
 
         let union_field_impl = quote! {
             impl<T> __BindgenUnionField<T> {
                 #[inline]
-                pub #const_fn new() -> Self {
+                pub const fn new() -> Self {
                     __BindgenUnionField(::#prefix::marker::PhantomData)
                 }
 
                 #[inline]
-                pub unsafe fn as_ref(&self) -> &T {
+                pub const unsafe fn as_ref(&self) -> &T {
                     #transmute
                 }
 
                 #[inline]
-                pub unsafe fn as_mut(&mut self) -> &mut T {
+                pub const unsafe fn as_mut(&mut self) -> &mut T {
                     #transmute
                 }
             }
@@ -5678,23 +5792,37 @@ pub(crate) mod utils {
         result.extend(old_items);
     }
 
-    pub(crate) fn prepend_opaque_array_type(
+    pub(crate) fn prepend_opaque_array_types(
+        ctx: &BindgenContext,
         result: &mut Vec<proc_macro2::TokenStream>,
     ) {
-        let ty = quote! {
-            /// If Bindgen could only determine the size and alignment of a
-            /// type, it is represented like this.
-            #[derive(PartialEq, Copy, Clone, Debug, Hash)]
-            #[repr(C)]
-            pub struct __BindgenOpaqueArray<T: Copy, const N: usize>(pub [T; N]);
-            impl<T: Copy + Default, const N: usize> Default for __BindgenOpaqueArray<T, N> {
-                fn default() -> Self {
-                    Self([<T as Default>::default(); N])
+        let mut tys = vec![];
+        // If Bindgen could only determine the size and alignment of a type, it is represented like
+        // this.
+        for align in ctx.opaque_array_types_needed() {
+            let ident = if align == 1 {
+                format_ident!("__BindgenOpaqueArray")
+            } else {
+                format_ident!("__BindgenOpaqueArray{align}")
+            };
+            let repr = if align <= 1 {
+                quote! { #[repr(C)] }
+            } else {
+                let explicit = super::helpers::ast_ty::int_expr(align as i64);
+                quote! { #[repr(C, align(#explicit))] }
+            };
+            tys.push(quote! {
+                #[derive(PartialEq, Eq, Copy, Clone, Debug, Hash)]
+                #repr
+                pub struct #ident<T>(pub T);
+                impl<T: Copy + Default, const N: usize> Default for #ident<[T; N]> {
+                    fn default() -> Self {
+                        Self([<T as Default>::default(); N])
+                    }
                 }
-            }
-        };
-
-        result.insert(0, ty);
+            });
+        }
+        result.splice(0..0, tys);
     }
 
     pub(crate) fn build_path(
@@ -5933,7 +6061,7 @@ pub(crate) mod utils {
         let mangled_name = mangled_name.as_bytes();
 
         let (mangling_prefix, expect_suffix) = match call_conv {
-            Some(ClangAbi::Known(Abi::C)) |
+            Some(ClangAbi::Known(Abi::C | Abi::CUnwind)) |
             // None is the case for global variables
             None => {
                 (b'_', false)
@@ -5987,5 +6115,29 @@ pub(crate) mod utils {
         }
 
         true
+    }
+
+    pub(super) fn call_discovered_item_callback(
+        ctx: &BindgenContext,
+        item: &Item,
+        discovered_item_creator: impl Fn() -> crate::callbacks::DiscoveredItem,
+    ) {
+        let source_location = item.location().map(|clang_location| {
+            let (file, line, col, byte_offset) = clang_location.location();
+            let file_name = file.name();
+            crate::callbacks::SourceLocation {
+                line,
+                col,
+                byte_offset,
+                file_name,
+            }
+        });
+        ctx.options().for_each_callback(|cb| {
+            cb.new_item_found(
+                DiscoveredItemId::new(item.id().as_usize()),
+                discovered_item_creator(),
+                source_location.as_ref(),
+            );
+        });
     }
 }

@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.71"
 name = "async-trait"
-version = "0.1.91"
+version = "0.1.92"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 build = false
 exclude = ["build.rs"]

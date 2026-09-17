@@ -42,6 +42,8 @@ fn to_offset_panic(#[case] udt: UtcDateTime, #[case] offset: UtcOffset) {
 #[case(utc_datetime!(2000-01-01 0:00), offset!(-1), 1999)]
 #[case(UtcDateTime::MAX, offset!(+1), None)]
 #[case(UtcDateTime::MIN, offset!(-1), None)]
+#[case(UtcDateTime::MAX, offset!(+0:00:01), None)]
+#[case(UtcDateTime::MIN, offset!(-0:00:01), None)]
 fn checked_to_offset(
     #[case] udt: UtcDateTime,
     #[case] offset: UtcOffset,
@@ -64,6 +66,7 @@ fn from_unix_timestamp(#[case] timestamp: i64, #[case] expected: UtcDateTime) {
 #[case(0, UtcDateTime::UNIX_EPOCH)]
 #[case(1_546_300_800_000_000_000, utc_datetime!(2019-01-01 0:00))]
 #[case(i128::MAX, None)]
+#[case((1i128 << 64) * 1_000_000_000, None)]
 fn from_unix_timestamp_nanos(
     #[case] timestamp: i128,
     #[case] expected: impl Into<Option<UtcDateTime>>,

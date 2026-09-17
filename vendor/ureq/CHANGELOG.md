@@ -1,5 +1,29 @@
 # Unreleased
 
+# 3.4.2
+
+  * Bump ureq-proto to 0.6.3 (fixes network-path references in redirects)
+  * Bypass pooling for request connection settings incompatible with the Agent #1201
+  * Try the next resolved address on unreachable/unavailable connect errors #1195
+
+# 3.4.1
+
+  * Bump ureq-proto to 0.6.2 (fixes to parsing and headers) #1199
+  * Do not pool connections with unconsumed buffered input #1198
+  * Fix timeout budgets restarting and applying to later phases #1194
+  * Complete TLS handshake during connect so timeout_connect covers it #1193
+  * Speed up read_json for responses with a known, small body size #1191
+
+# 3.4.0
+
+  * Seal RequestExt (technically breaking) #1189
+  * Send canonical Basic authentication scheme to CONNECT proxies #1185
+  * Establish target TLS through HTTPS CONNECT proxies #1183
+  * Update rustls-platform-verifier to 0.7.0 #1174
+  * Fix pooled connections never aging out according to max_idle_age #1172
+  * Strip brackets from IPv6-literal hosts before TLS SNI/ServerName #1171
+  * RequestExt::middleware_config for conf inside middleware #1169
+
 # 3.3.0
 
   * Bump MSRV 1.71 -> 1.85, edition 2024 #1167

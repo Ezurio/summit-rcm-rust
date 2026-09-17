@@ -217,7 +217,7 @@ tracing        = "0.1.44"
 anyhow         = "1"
 futures-util   = { version = "0.3", default-features = false }
 zbus           = { version = "5.18.0", default-features = false }
-base64         = "0.22"
+base64         = "0.23"
 time           = "0.3"
 rustix         = "1"
 openssl        = "0.10"
@@ -238,9 +238,9 @@ tokio-tungstenite = "0.30"
 tokio-udev = "0.10.0"
 serial2-tokio  = "0.1"
 ping           = "0.9"
-ureq           = { version = "~3.3", default-features = false }
+ureq           = { version = "~3.4", default-features = false }
 rustix-openpty = "0.2"
-bindgen        = "0.72"
+bindgen        = "0.73"
 neli           = { version = "0.7.4", default-features = false }
 thiserror      = "2"
 

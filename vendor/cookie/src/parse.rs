@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::error::Error;
-use std::convert::{From, TryFrom};
+use std::convert::From;
 use std::str::Utf8Error;
 use std::fmt;
 
@@ -9,17 +9,30 @@ use std::ascii::AsciiExt;
 
 #[cfg(feature = "percent-encode")]
 use percent_encoding::percent_decode;
+use time::{parsing::Parsable, macros::format_description};
 use time::{PrimitiveDateTime, Duration, OffsetDateTime};
-use time::{parsing::Parsable, macros::format_description, format_description::FormatItem};
 
 use crate::{Cookie, SameSite, CookieStr};
 
 // The three formats spec'd in http://tools.ietf.org/html/rfc2616#section-3.3.1.
 // Additional ones as encountered in the real world.
-pub static FMT1: &[FormatItem<'_>] = format_description!("[weekday repr:short], [day] [month repr:short] [year padding:none] [hour]:[minute]:[second] GMT");
-pub static FMT2: &[FormatItem<'_>] = format_description!("[weekday], [day]-[month repr:short]-[year repr:last_two] [hour]:[minute]:[second] GMT");
-pub static FMT3: &[FormatItem<'_>] = format_description!("[weekday repr:short] [month repr:short] [day padding:space] [hour]:[minute]:[second] [year padding:none]");
-pub static FMT4: &[FormatItem<'_>] = format_description!("[weekday repr:short], [day]-[month repr:short]-[year padding:none] [hour]:[minute]:[second] GMT");
+#[allow(deprecated)]
+pub type FormatItem<'a> = time::format_description::FormatItem<'a>;
+
+pub static FMT1: &[FormatItem<'_>] = &[
+    FormatItem::Optional(&FormatItem::Compound(format_description!("[weekday repr:short], "))),
+    FormatItem::Compound(format_description!("[day] [month repr:short] [year padding:none] [hour]:[minute]:[second] GMT")),
+];
+
+pub static FMT3: &[FormatItem<'_>] = &[
+    FormatItem::Optional(&FormatItem::Compound(format_description!("[weekday repr:short] "))),
+    FormatItem::Compound(format_description!("[month repr:short] [day padding:space] [hour]:[minute]:[second] [year padding:none]")),
+];
+
+pub static FMT4: &[FormatItem<'_>] = &[
+    FormatItem::Optional(&FormatItem::Compound(format_description!("[weekday repr:short], "))),
+    FormatItem::Compound(format_description!("[day]-[month repr:short]-[year padding:none] [hour]:[minute]:[second] GMT")),
+];
 
 /// Enum corresponding to a parsing error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -191,10 +204,9 @@ fn parse_inner<'c>(s: &str, decode: bool) -> Result<Cookie<'c>, ParseError> {
             ("partitioned", _) => cookie.partitioned = Some(true),
             ("expires", Some(v)) => {
                 let tm = parse_date(v, &FMT1)
-                    .or_else(|_| parse_date(v, &FMT2))
+                    .or_else(|_| parse_fmt2(v))
                     .or_else(|_| parse_date(v, &FMT3))
                     .or_else(|_| parse_date(v, &FMT4));
-                    // .or_else(|_| parse_date(v, &FMT5));
 
                 if let Ok(time) = tm {
                     cookie.expires = Some(time.into())
@@ -221,20 +233,43 @@ pub(crate) fn parse_cookie<'c, S>(cow: S, decode: bool) -> Result<Cookie<'c>, Pa
     Ok(cookie)
 }
 
-pub(crate) fn parse_date(s: &str, format: &impl Parsable) -> Result<OffsetDateTime, time::Error> {
-    // Parse. Handle "abbreviated" dates like Chromium. See cookie#162.
-    let mut date = format.parse(s.as_bytes())?;
-    if let Some(y) = date.year().or_else(|| date.year_last_two().map(|v| v as i32)) {
-        let offset = match y {
-            0..=68 => 2000,
-            69..=99 => 1900,
-            _ => 0,
-        };
+// `time` versions before 0.3.35 cannot publicly parse a `repr:last_two` year
+// into a `PrimitiveDateTime`. FMT2 therefore parses a full, unpadded year,
+// while this function preserves the original unsigned two-digit syntax.
+fn parse_fmt2(string: &str) -> Result<OffsetDateTime, time::Error> {
+    static FMT2: &[FormatItem<'_>] = &[
+        FormatItem::Optional(&FormatItem::Compound(format_description!("[weekday], "))),
+        FormatItem::Compound(format_description!("[day]-[month repr:short]-[year padding:none] [hour]:[minute]:[second] GMT")),
+    ];
+    const TRAILING_LEN: usize = "00:00:00 GMT".len();
 
-        date.set_year(y + offset);
+    let invalid_year = time::error::ParseFromDescription::InvalidComponent("year");
+    let bytes = string.as_bytes();
+    let year_end = string.len().checked_sub(TRAILING_LEN).ok_or(invalid_year)?;
+    let year_start = year_end.checked_sub(4).ok_or(invalid_year)?;
+    let year = bytes.get(year_start..year_end).ok_or(invalid_year)?;
+
+    if !matches!(year, [b'-', y1, y2, b' '] if y1.is_ascii_digit() && y2.is_ascii_digit()) {
+        return Err(invalid_year.into());
     }
 
-    Ok(PrimitiveDateTime::try_from(date)?.assume_utc())
+    // Reject `--YY`, which the full-year format interprets as year -YY.
+    if bytes.get(year_start.checked_sub(1).ok_or(invalid_year)?) == Some(&b'-') {
+        return Err(invalid_year.into());
+    }
+
+    parse_date(string, &FMT2)
+}
+
+pub(crate) fn parse_date(s: &str, format: &impl Parsable) -> Result<OffsetDateTime, time::Error> {
+    let datetime = PrimitiveDateTime::parse(s, format)?;
+    let datetime = match datetime.year() {
+        y @ 0..=69 => datetime.replace_year(y + 2000)?,
+        y @ 70..=99 => datetime.replace_year(y + 1900)?,
+        _ => datetime,
+    };
+
+    Ok(datetime.assume_utc())
 }
 
 #[cfg(test)]
@@ -429,37 +464,50 @@ mod tests {
 
     #[test]
     fn parse_abbreviated_years() {
-        let cookie_str = "foo=bar; expires=Thu, 10-Sep-20 20:00:00 GMT";
-        let cookie = Cookie::parse(cookie_str).unwrap();
-        assert_eq!(cookie.expires_datetime().unwrap().year(), 2020);
+        let tests = [
+            ("foo=bar; expires=Thu, 10-Sep-20 20:00:00 GMT", 2020),
+            ("foo=bar; expires=Thu, 10-Sep-68 20:00:00 GMT", 2068),
+            ("foo=bar; expires=Thu, 10-Sep-69 20:00:00 GMT", 2069),
+            ("foo=bar; expires=Thu, 10-Sep-99 20:00:00 GMT", 1999),
+            ("foo=bar; expires=Thu, 10-Sep-2069 20:00:00 GMT", 2069),
+            ("foo=bar; expires=Thu, 10-Sep-0 20:00:00 GMT", 2000),
+            ("foo=bar; expires=Thu, 10-Sep-00 20:00:00 GMT", 2000),
+            ("foo=bar; expires=Thu, 10-Sep-70 20:00:00 GMT", 1970),
+        ];
 
-        let cookie_str = "foo=bar; expires=Thu, 10-Sep-68 20:00:00 GMT";
-        let cookie = Cookie::parse(cookie_str).unwrap();
-        assert_eq!(cookie.expires_datetime().unwrap().year(), 2068);
+        for (cookie_str, expected_year) in tests {
+            let cookie = Cookie::parse(cookie_str).expect("valid cookie string");
+            let expiry = cookie.expires_datetime().expect("cookie has expiration");
+            assert_eq!(expiry.year(), expected_year);
+        }
+    }
 
-        let cookie_str = "foo=bar; expires=Thu, 10-Sep-69 20:00:00 GMT";
-        let cookie = Cookie::parse(cookie_str).unwrap();
-        assert_eq!(cookie.expires_datetime().unwrap().year(), 1969);
-
-        let cookie_str = "foo=bar; expires=Thu, 10-Sep-99 20:00:00 GMT";
-        let cookie = Cookie::parse(cookie_str).unwrap();
-        assert_eq!(cookie.expires_datetime().unwrap().year(), 1999);
-
-        let cookie_str = "foo=bar; expires=Thu, 10-Sep-2069 20:00:00 GMT";
-        let cookie = Cookie::parse(cookie_str).unwrap();
-        assert_eq!(cookie.expires_datetime().unwrap().year(), 2069);
+    #[test]
+    fn long_weekday_requires_two_digit_year() {
+        for year in &["0", "000", "1994", "+94", "-94"] {
+            let input = format!("foo=bar; expires=Sunday, 06-Nov-{} 08:49:37 GMT", year);
+            let cookie = Cookie::parse(input).expect("valid cookie string");
+            assert!(cookie.expires_datetime().is_none());
+        }
     }
 
     #[test]
     fn parse_variant_date_fmts() {
-        let cookie_str = "foo=bar; expires=Sun, 06 Nov 1994 08:49:37 GMT";
-        Cookie::parse(cookie_str).unwrap().expires_datetime().unwrap();
+        let expected = time::macros::datetime!(1994-11-06 8:49:37 UTC);
+        let strings = [
+            "foo=bar; expires=Sun, 06 Nov 1994 08:49:37 GMT",
+            "foo=bar; expires=06 Nov 1994 08:49:37 GMT",
+            "foo=bar; expires=Sunday, 06-Nov-94 08:49:37 GMT",
+            "foo=bar; expires=06-Nov-94 08:49:37 GMT",
+            "foo=bar; expires=Sun Nov  6 08:49:37 1994",
+            "foo=bar; expires=Nov  6 08:49:37 1994",
+            "foo=bar; expires=06-Nov-1994 08:49:37 GMT",
+        ];
 
-        let cookie_str = "foo=bar; expires=Sunday, 06-Nov-94 08:49:37 GMT";
-        Cookie::parse(cookie_str).unwrap().expires_datetime().unwrap();
-
-        let cookie_str = "foo=bar; expires=Sun Nov  6 08:49:37 1994";
-        Cookie::parse(cookie_str).unwrap().expires_datetime().unwrap();
+        for cookie_str in strings {
+            let cookie = Cookie::parse(cookie_str).unwrap();
+            assert_eq!(cookie.expires_datetime(), Some(expected));
+        }
     }
 
     #[test]

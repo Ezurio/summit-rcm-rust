@@ -179,32 +179,16 @@ impl CannotDerive<'_> {
                 return CanDerive::No;
             }
 
-            let layout_can_derive =
-                ty.layout(self.ctx).map_or(CanDerive::Yes, |l| {
-                    l.opaque().array_size_within_derive_limit()
-                });
-
-            match layout_can_derive {
-                CanDerive::Yes => {
-                    trace!(
-                        "    we can trivially derive {} for the layout",
-                        self.derive_trait
-                    );
-                }
-                _ => {
-                    trace!(
-                        "    we cannot derive {} for the layout",
-                        self.derive_trait
-                    );
-                }
-            }
-            return layout_can_derive;
+            trace!(
+                "    we can trivially derive {} for the layout",
+                self.derive_trait
+            );
+            return CanDerive::Yes;
         }
 
         match *ty.kind() {
             // Handle the simple cases. These can derive traits without further
             // information.
-            TypeKind::Void |
             TypeKind::NullPtr |
             TypeKind::Int(..) |
             TypeKind::Complex(..) |
@@ -228,6 +212,7 @@ impl CannotDerive<'_> {
             TypeKind::Function(ref sig) => {
                 self.derive_trait.can_derive_fnptr(sig)
             }
+            TypeKind::Void => CanDerive::No,
 
             // Complex cases need more information
             TypeKind::Array(t, len) => {
@@ -338,25 +323,11 @@ impl CannotDerive<'_> {
                             return CanDerive::No;
                         }
 
-                        let layout_can_derive =
-                            ty.layout(self.ctx).map_or(CanDerive::Yes, |l| {
-                                l.opaque().array_size_within_derive_limit()
-                            });
-                        match layout_can_derive {
-                            CanDerive::Yes => {
-                                trace!(
-                                    "    union layout can trivially derive {}",
-                                    self.derive_trait
-                                );
-                            }
-                            _ => {
-                                trace!(
-                                    "    union layout cannot derive {}",
-                                    self.derive_trait
-                                );
-                            }
-                        }
-                        return layout_can_derive;
+                        trace!(
+                            "    union layout can trivially derive {}",
+                            self.derive_trait
+                        );
+                        return CanDerive::Yes;
                     }
                 }
 
@@ -489,12 +460,8 @@ impl DeriveTrait {
         }
     }
 
-    fn can_derive_large_array(self, ctx: &BindgenContext) -> bool {
-        if ctx.options().rust_features().larger_arrays {
-            !matches!(self, DeriveTrait::Default)
-        } else {
-            matches!(self, DeriveTrait::Copy)
-        }
+    fn can_derive_large_array(self, _: &BindgenContext) -> bool {
+        !matches!(self, DeriveTrait::Default)
     }
 
     fn can_derive_union(self) -> bool {
@@ -510,7 +477,7 @@ impl DeriveTrait {
     }
 
     fn can_derive_compound_forward_decl(self) -> bool {
-        matches!(self, DeriveTrait::Copy | DeriveTrait::Debug)
+        matches!(self, DeriveTrait::Debug)
     }
 
     fn can_derive_incomplete_array(self) -> bool {
@@ -567,7 +534,6 @@ impl DeriveTrait {
             // === Default ===
             (
                 DeriveTrait::Default,
-                TypeKind::Void |
                 TypeKind::NullPtr |
                 TypeKind::Enum(..) |
                 TypeKind::Reference(..) |
