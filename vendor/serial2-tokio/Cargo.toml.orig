@@ -1,6 +1,6 @@
 [package]
 name = "serial2-tokio"
-version = "0.1.24"
+version = "0.1.25"
 description = "cross platform serial ports for tokio based on the serial2 crate"
 repository = "https://github.com/de-vri-es/serial2-tokio-rs"
 documentation = "https://docs.rs/serial2-tokio"
@@ -31,7 +31,7 @@ serde = ["serial2/serde"]
 doc = ["tokio/io-util", "serial2/doc"]
 
 [dependencies]
-serial2 = "0.2.37"
+serial2 = "0.2.38"
 tokio = { version = "1.38.2", default-features = false, features = ["net"] }
 
 [target.'cfg(unix)'.dependencies]

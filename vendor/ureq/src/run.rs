@@ -144,7 +144,7 @@ fn call_run(
     timings: &mut CallTimings,
 ) -> Result<CallResult, Error> {
     let uri = call.uri().clone();
-    debug!("{} {:?}", call.method(), &DebugUri(call.uri()));
+    debug!("{} {:?}", call.method(), DebugUri(call.uri()));
 
     if config.https_only() && uri.scheme() != Some(&Scheme::HTTPS) {
         return Err(Error::RequireHttpsOnly(uri.to_string()));
@@ -396,11 +396,13 @@ fn connect(
         request_level,
         now: timings.now(),
         timeout: timings.next_timeout(Timeout::Connect),
-        current_time: timings.current_time().clone(),
+        current_time: timings.current_time(),
         run_connector: agent.run_connector.clone(),
     };
 
-    let connection = agent.pool.connect(&details, config.max_idle_age().into())?;
+    let use_pool = config.can_share_pool_with(&agent.config);
+    let max_idle_age = config.max_idle_age().into();
+    let connection = agent.pool.connect(&details, max_idle_age, use_pool)?;
 
     if details.needs_tls() && !connection.is_tls() {
         return Err(Error::TlsRequired);

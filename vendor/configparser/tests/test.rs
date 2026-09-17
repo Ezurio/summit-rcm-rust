@@ -384,6 +384,7 @@ empty_option=
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_cascade_defaults() -> Result<(), Box<dyn Error>> {
     use configparser::ini::IniDefault;
 
@@ -951,7 +952,7 @@ fn serde_multiline_roundtrip() -> Result<(), Box<dyn Error>> {
 fn serde_case_sensitive_roundtrip() -> Result<(), Box<dyn Error>> {
     // 1. Load in case-sensitive mode
     let mut orig = Ini::new_cs();
-    let map1 = orig.load("tests/test.ini")?;
+    orig.load("tests/test.ini")?;
     // 2. Check that mixed-case keys work, lowercase doesn't
     let v1 = orig.get("default", "defaultvalues").unwrap();
     assert!(orig.get("default", "DefaultValues").is_none());
@@ -970,5 +971,81 @@ fn serde_case_sensitive_roundtrip() -> Result<(), Box<dyn Error>> {
     assert_eq!(v2, v1);
     assert!(deser_cs.get("default", "DefaultValues").is_none());
 
+    Ok(())
+}
+
+#[test]
+fn multibyte_delimiter_does_not_panic() -> Result<(), Box<dyn Error>> {
+    use configparser::ini::IniDefault;
+
+    // A multi-byte delimiter must not split on a non-char boundary.
+    let mut defaults = IniDefault::default();
+    defaults.delimiters = vec!['\u{00a7}']; // section sign, 2 bytes in UTF-8
+
+    let mut config = Ini::new_from_defaults(defaults);
+    config.read(String::from("[s]\nkey\u{00a7}value\n"))?;
+
+    assert_eq!(config.get("s", "key"), Some(String::from("value")));
+    Ok(())
+}
+
+#[test]
+fn default_ini_parses_like_new() -> Result<(), Box<dyn Error>> {
+    let mut config = Ini::default();
+    config.read(String::from("[S]\nKey = value ; note"))?;
+    assert_eq!(config.get("s", "key"), Some(String::from("value")));
+    Ok(())
+}
+
+#[test]
+fn load_defaults_applies_every_field() {
+    use configparser::ini::IniDefault;
+
+    let mut defaults = IniDefault::default();
+    defaults.multiline = true;
+    defaults.enable_inline_comments = false;
+    defaults.cascade_defaults = true;
+
+    let mut config = Ini::new();
+    config.load_defaults(defaults.clone());
+    assert_eq!(config.defaults(), defaults);
+}
+
+#[test]
+fn multiline_continuation_rules() -> Result<(), Box<dyn Error>> {
+    let mut config = Ini::new();
+    config.set_multiline(true);
+    config.read(String::from(
+        "[a]
+    key = line one
+        line two
+    next = value
+
+[b]
+    other = value",
+    ))?;
+
+    assert_eq!(
+        config.get("a", "key"),
+        Some(String::from("line one\nline two"))
+    );
+    assert_eq!(config.get("a", "next"), Some(String::from("value")));
+    assert_eq!(config.get("b", "other"), Some(String::from("value")));
+    Ok(())
+}
+
+#[test]
+fn bool_getters_reject_unknown_values() -> Result<(), Box<dyn Error>> {
+    use configparser::ini::IniDefault;
+    use std::collections::HashMap;
+
+    let mut defaults = IniDefault::default();
+    defaults.boolean_values = HashMap::from([(true, vec![String::from("aye")])]);
+
+    let mut config = Ini::new_from_defaults(defaults);
+    config.read(String::from("[s]\nyes = AYE\nno = nay"))?;
+    assert_eq!(config.getboolcoerce("s", "yes")?, Some(true));
+    assert!(config.getboolcoerce("s", "no").is_err());
+    assert!(config.getbool("s", "yes").is_err());
     Ok(())
 }

@@ -1,5 +1,6 @@
 use http::{StatusCode, Version, header};
 
+use crate::Error;
 use crate::client::test::scenario::Scenario;
 use crate::ext::HeaderIterExt;
 
@@ -48,6 +49,32 @@ fn receive_complete_response() {
             .has(header::CONTENT_TYPE, "text/plain")
     );
 
+    assert!(call.can_proceed());
+}
+
+#[test]
+fn partial_redirect_with_empty_header_value() {
+    // Broken servers may omit the final \r\n of a redirect. With
+    // allow_partial_redirect we accept the redirect from the partial
+    // headers. An empty header value before Location must not hide it.
+    let input: &[u8] = b"\
+        HTTP/1.1 302 Found\r\n\
+        X-Empty:\r\n\
+        Location: https://q.test/other\r\n";
+
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let (input_used, maybe_response) = call.try_response(input, true).unwrap();
+    assert_eq!(input_used, input.len());
+
+    let response = maybe_response.expect("partial redirect detected");
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers().get(header::LOCATION).unwrap(),
+        "https://q.test/other"
+    );
+    assert!(response.headers().iter().has(header::CONNECTION, "close"));
     assert!(call.can_proceed());
 }
 
@@ -299,4 +326,69 @@ fn multiple_103_before_final_response() {
 
     let response = maybe_response.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+// Content-Length handling follows RFC 9110 §8.6 / RFC 9112 §6.3 the way
+// libcurl does: repeated header lines and comma separated lists are fine as
+// long as every value is the same number, differing values are an error, and
+// a value must be plain digits.
+
+#[test]
+fn duplicate_identical_content_length_is_accepted() {
+    let input: &[u8] = b"\
+        HTTP/1.1 200 OK\r\n\
+        Content-Length: 42\r\n\
+        Content-Length: 042\r\n\
+        \r\n";
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let (input_used, maybe_response) = call.try_response(input, false).unwrap();
+    assert_eq!(input_used, input.len());
+    assert!(maybe_response.is_some());
+    assert!(call.can_proceed());
+}
+
+#[test]
+fn duplicate_differing_content_length_is_rejected() {
+    let input: &[u8] = b"\
+        HTTP/1.1 200 OK\r\n\
+        Content-Length: 42\r\n\
+        Content-Length: 43\r\n\
+        \r\n";
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let err = call.try_response(input, false).unwrap_err();
+    assert_eq!(err, Error::TooManyContentLengthHeaders);
+}
+
+#[test]
+fn content_length_list_with_differing_values_is_rejected() {
+    let input: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 42, 43\r\n\r\n";
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let err = call.try_response(input, false).unwrap_err();
+    assert_eq!(err, Error::TooManyContentLengthHeaders);
+}
+
+#[test]
+fn content_length_with_sign_is_rejected() {
+    let input: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: +42\r\n\r\n";
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let err = call.try_response(input, false).unwrap_err();
+    assert_eq!(err, Error::BadContentLengthHeader);
+}
+
+#[test]
+fn empty_content_length_is_rejected() {
+    let input: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length:\r\n\r\n";
+    let scenario = Scenario::builder().get("https://q.test").build();
+    let mut call = scenario.to_recv_response();
+
+    let err = call.try_response(input, false).unwrap_err();
+    assert_eq!(err, Error::BadContentLengthHeader);
 }

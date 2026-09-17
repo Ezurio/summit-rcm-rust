@@ -11,13 +11,19 @@
 
 [package]
 edition = "2018"
+rust-version = "1.56"
 name = "cookie"
-version = "0.18.1"
+version = "0.18.2"
 authors = [
     "Sergio Benitez <sb@sergio.bz>",
     "Alex Crichton <alex@alexcrichton.com>",
 ]
 build = "build.rs"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = """
 HTTP cookie parsing and cookie jar management. Supports signed and private
 (encrypted, authenticated) jars.
@@ -29,6 +35,35 @@ repository = "https://github.com/SergioBenitez/cookie-rs"
 
 [package.metadata.docs.rs]
 all-features = true
+
+[features]
+key-expansion = [
+    "sha2",
+    "hkdf",
+]
+percent-encode = ["percent-encoding"]
+private = [
+    "aes-gcm",
+    "base64",
+    "rand",
+    "subtle",
+]
+secure = [
+    "private",
+    "signed",
+    "key-expansion",
+]
+signed = [
+    "hmac",
+    "sha2",
+    "base64",
+    "rand",
+    "subtle",
+]
+
+[lib]
+name = "cookie"
+path = "src/lib.rs"
 
 [dependencies.aes-gcm]
 version = "0.10.0"
@@ -63,7 +98,7 @@ version = "2.3"
 optional = true
 
 [dependencies.time]
-version = "0.3"
+version = "0.3.9"
 features = [
     "std",
     "parsing",
@@ -74,28 +109,3 @@ default-features = false
 
 [build-dependencies.version_check]
 version = "0.9.4"
-
-[features]
-key-expansion = [
-    "sha2",
-    "hkdf",
-]
-percent-encode = ["percent-encoding"]
-private = [
-    "aes-gcm",
-    "base64",
-    "rand",
-    "subtle",
-]
-secure = [
-    "private",
-    "signed",
-    "key-expansion",
-]
-signed = [
-    "hmac",
-    "sha2",
-    "base64",
-    "rand",
-    "subtle",
-]

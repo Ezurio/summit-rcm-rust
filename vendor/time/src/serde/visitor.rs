@@ -15,6 +15,7 @@ use super::{
 use crate::error::ComponentRange;
 #[cfg(feature = "parsing")]
 use crate::format_description::well_known::*;
+use crate::internal_macros::try_likely_ok;
 use crate::{
     Date, Month, OffsetDateTime, PlainDateTime, SignedDuration, Time, Timestamp, UtcDateTime,
     UtcOffset, Weekday,
@@ -66,6 +67,17 @@ impl<'a> de::Visitor<'a> for Visitor<SignedDuration> {
     where
         E: de::Error,
     {
+        const NANOS_PER_DIGIT: [i32; 8] = [
+            100_000_000,
+            10_000_000,
+            1_000_000,
+            100_000,
+            10_000,
+            1_000,
+            100,
+            10,
+        ];
+
         let (seconds, nanoseconds) = value.split_once('.').ok_or_else(|| {
             de::Error::invalid_value(de::Unexpected::Str(value), &"a decimal point")
         })?;
@@ -73,9 +85,28 @@ impl<'a> de::Visitor<'a> for Visitor<SignedDuration> {
         let seconds = seconds
             .parse()
             .map_err(|_| de::Error::invalid_value(de::Unexpected::Str(seconds), &"seconds"))?;
-        let mut nanoseconds = nanoseconds.parse().map_err(|_| {
-            de::Error::invalid_value(de::Unexpected::Str(nanoseconds), &"nanoseconds")
-        })?;
+
+        // All characters must be ASCII digits.
+        if nanoseconds.is_empty() || !nanoseconds.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(de::Error::invalid_value(
+                de::Unexpected::Str(nanoseconds),
+                &"nanoseconds",
+            ));
+        }
+
+        let nanos_len = nanoseconds.len();
+        let truncated = if nanos_len > 9 {
+            &nanoseconds[..9]
+        } else {
+            nanoseconds
+        };
+        // Safety: The input is not empty, is entirely ASCII digits, and is at most 9 characters
+        // long.
+        let mut nanoseconds: i32 = unsafe { truncated.parse().unwrap_unchecked() };
+
+        if nanos_len < 9 {
+            nanoseconds *= NANOS_PER_DIGIT[nanos_len - 1];
+        }
 
         if seconds < 0
             // make sure sign does not disappear when seconds == 0
@@ -94,7 +125,7 @@ impl<'a> de::Visitor<'a> for Visitor<SignedDuration> {
     {
         let seconds = item!(seq, "seconds")?;
         let nanoseconds = item!(seq, "nanoseconds")?;
-        Ok(SignedDuration::new(seconds, nanoseconds))
+        Ok(SignedDuration::new_ranged(seconds, nanoseconds))
     }
 }
 
@@ -180,7 +211,7 @@ impl<'a> de::Visitor<'a> for Visitor<UtcDateTime> {
 
     #[inline]
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a `PlainDateTime`")
+        formatter.write_str("a `UtcDateTime`")
     }
 
     #[cfg(feature = "parsing")]
@@ -268,12 +299,12 @@ impl<'a> de::Visitor<'a> for Visitor<UtcOffset> {
         let mut minutes = 0;
         let mut seconds = 0;
 
-        if let Ok(Some(min)) = seq.next_element() {
+        if let Some(min) = try_likely_ok!(seq.next_element()) {
             minutes = min;
-            if let Ok(Some(sec)) = seq.next_element() {
+            if let Some(sec) = try_likely_ok!(seq.next_element()) {
                 seconds = sec;
             }
-        };
+        }
 
         UtcOffset::from_hms(hours, minutes, seconds).map_err(ComponentRange::into_de_error)
     }

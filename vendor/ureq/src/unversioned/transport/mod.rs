@@ -51,7 +51,7 @@ pub use connect::ConnectProxyConnector;
 #[cfg(feature = "_test")]
 mod test;
 #[cfg(feature = "_test")]
-pub use test::{set_handler, set_handler_cb};
+pub use test::{set_handler, set_handler_cb, set_handler_raw};
 
 #[cfg(feature = "socks-proxy")]
 mod socks;
@@ -304,7 +304,8 @@ pub trait Transport: Debug + Send + Sync + 'static {
     /// for connection pooling to work.
     fn is_open(&mut self) -> bool;
 
-    /// Whether the transport is TLS.
+    /// Whether the transport has established TLS to the endpoint in the current
+    /// connection context.
     ///
     /// Defaults to `false`, override in TLS transports.
     fn is_tls(&self) -> bool {

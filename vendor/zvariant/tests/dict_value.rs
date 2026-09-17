@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "gvariant", allow(deprecated))]
+
 use std::collections::{BTreeMap, HashMap};
 
 use endi::NATIVE_ENDIAN;
@@ -113,6 +115,32 @@ fn dict_value() {
         assert_eq!(map.len(), 0);
     }
     let ctxt = Context::new_dbus(NATIVE_ENDIAN, 0);
+
+    // Dict<u32, u8>
+    let mut map: HashMap<u32, u8> = HashMap::new();
+    map.insert(1, 2);
+    let encoded = to_bytes(ctxt, &map).unwrap();
+    assert_eq!(
+        encoded.bytes(),
+        [
+            0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02
+        ]
+    );
+    let decoded: HashMap<u32, u8> = encoded.deserialize().unwrap().0;
+    assert_eq!(decoded, map);
+
+    // GVariant format now
+    #[cfg(feature = "gvariant")]
+    {
+        let ctxt = Context::new_gvariant(NATIVE_ENDIAN, 0);
+        let encoded = to_bytes(ctxt, &map).unwrap();
+        assert_eq!(
+            encoded.bytes(),
+            [0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00]
+        );
+        let map: HashMap<u32, u8> = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, map);
+    }
 
     // Now a hand-crafted Dict Value but with a Value as value
     let mut dict = Dict::new(<&str>::SIGNATURE, Value::SIGNATURE);

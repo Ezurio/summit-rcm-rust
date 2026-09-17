@@ -5,7 +5,7 @@ use super::helpers;
 use crate::ir::comp::CompInfo;
 use crate::ir::context::BindgenContext;
 use crate::ir::layout::Layout;
-use crate::ir::ty::{Type, TypeKind};
+use crate::ir::ty::Type;
 use crate::FieldVisibilityKind;
 use proc_macro2::{Ident, Span};
 use std::cmp;
@@ -45,23 +45,6 @@ pub(crate) fn align_to(size: usize, align: usize) -> usize {
     size + align - rem
 }
 
-/// Returns the lower power of two byte count that can hold at most n bits.
-pub(crate) fn bytes_from_bits_pow2(mut n: usize) -> usize {
-    if n == 0 {
-        return 0;
-    }
-
-    if n <= 8 {
-        return 1;
-    }
-
-    if !n.is_power_of_two() {
-        n = n.next_power_of_two();
-    }
-
-    n / 8
-}
-
 #[test]
 fn test_align_to() {
     assert_eq!(align_to(1, 1), 1);
@@ -69,20 +52,6 @@ fn test_align_to() {
     assert_eq!(align_to(1, 4), 4);
     assert_eq!(align_to(5, 1), 5);
     assert_eq!(align_to(17, 4), 20);
-}
-
-#[test]
-fn test_bytes_from_bits_pow2() {
-    assert_eq!(bytes_from_bits_pow2(0), 0);
-    for i in 1..9 {
-        assert_eq!(bytes_from_bits_pow2(i), 1);
-    }
-    for i in 9..17 {
-        assert_eq!(bytes_from_bits_pow2(i), 2);
-    }
-    for i in 17..33 {
-        assert_eq!(bytes_from_bits_pow2(i), 4);
-    }
 }
 
 impl<'a> StructLayoutTracker<'a> {
@@ -139,61 +108,33 @@ impl<'a> StructLayoutTracker<'a> {
     pub(crate) fn saw_base(&mut self, base_ty: &Type) {
         debug!("saw base for {}", self.name);
         if let Some(layout) = base_ty.layout(self.ctx) {
-            self.align_to_latest_field(layout);
-
             self.latest_offset += self.padding_bytes(layout) + layout.size;
             self.latest_field_layout = Some(layout);
             self.max_field_align = cmp::max(self.max_field_align, layout.align);
         }
     }
 
-    pub(crate) fn saw_bitfield_unit(&mut self, layout: Layout) {
-        debug!("saw bitfield unit for {}: {layout:?}", self.name);
-
-        self.align_to_latest_field(layout);
-
-        self.latest_offset += layout.size;
-
+    /// Returns a padding field if necessary for a given bitfield unit _before_ adding that unit.
+    pub(crate) fn saw_bitfield_unit(
+        &mut self,
+        layout: Layout,
+        offset: Option<usize>,
+    ) -> Option<proc_macro2::TokenStream> {
         debug!(
-            "Offset: <bitfield>: {} -> {}",
-            self.latest_offset - layout.size,
-            self.latest_offset
+            "saw bitfield unit for {}: {layout:?} at {offset:?}",
+            self.name
         );
-
-        self.latest_field_layout = Some(layout);
-        self.last_field_was_bitfield = true;
-        self.max_field_align = cmp::max(self.max_field_align, layout.align);
+        self.pad_to_offset(layout, offset, /* is_bitfield = */ true)
     }
 
-    /// Returns a padding field if necessary for a given new field _before_
-    /// adding that field.
+    /// Returns a padding field if necessary for a given new field _before_ adding that field.
     pub(crate) fn saw_field(
         &mut self,
         field_name: &str,
         field_ty: &Type,
         field_offset: Option<usize>,
     ) -> Option<proc_macro2::TokenStream> {
-        let mut field_layout = field_ty.layout(self.ctx)?;
-
-        if let TypeKind::Array(inner, len) =
-            *field_ty.canonical_type(self.ctx).kind()
-        {
-            // FIXME(emilio): As an _ultra_ hack, we correct the layout returned
-            // by arrays of structs that have a bigger alignment than what we
-            // can support.
-            //
-            // This means that the structs in the array are super-unsafe to
-            // access, since they won't be properly aligned, but there's not too
-            // much we can do about it.
-            if let Some(layout) = self.ctx.resolve_type(inner).layout(self.ctx)
-            {
-                if layout.align > MAX_GUARANTEED_ALIGN {
-                    field_layout.size =
-                        align_to(layout.size, layout.align) * len;
-                    field_layout.align = MAX_GUARANTEED_ALIGN;
-                }
-            }
-        }
+        let field_layout = field_ty.layout(self.ctx)?;
         self.saw_field_with_layout(field_name, field_layout, field_offset)
     }
 
@@ -203,7 +144,22 @@ impl<'a> StructLayoutTracker<'a> {
         field_layout: Layout,
         field_offset: Option<usize>,
     ) -> Option<proc_macro2::TokenStream> {
-        let will_merge_with_bitfield = self.align_to_latest_field(field_layout);
+        debug!("saw_field_with_layout({field_name}, offset = {field_offset:?}, layout = {field_layout:?}");
+        self.pad_to_offset(
+            field_layout,
+            field_offset,
+            /* is_bitfield = */ false,
+        )
+    }
+
+    fn pad_to_offset(
+        &mut self,
+        field_layout: Layout,
+        field_offset: Option<usize>,
+        is_bitfield: bool,
+    ) -> Option<proc_macro2::TokenStream> {
+        let will_merge_with_bitfield =
+            !is_bitfield && self.will_merge_with_bitfield(field_layout);
 
         let is_union = self.comp.is_union();
         let padding_bytes = match field_offset {
@@ -231,15 +187,16 @@ impl<'a> StructLayoutTracker<'a> {
 
         self.latest_offset += padding_bytes;
 
-        let padding_layout = if self.is_packed || is_union {
+        // Bitfield units are always byte-aligned, so packed(N) can't move them into place like it
+        // does for regular fields.
+        let padding_layout = if (self.is_packed && !is_bitfield) || is_union {
             None
         } else {
             let force_padding = self.ctx.options().force_explicit_padding;
 
             // Otherwise the padding is useless.
-            let need_padding = force_padding ||
-                padding_bytes >= field_layout.align ||
-                field_layout.align > MAX_GUARANTEED_ALIGN;
+            let need_padding =
+                force_padding || padding_bytes >= field_layout.align;
 
             debug!(
                 "Offset: <padding>: {} -> {}",
@@ -248,17 +205,12 @@ impl<'a> StructLayoutTracker<'a> {
             );
 
             debug!(
-                "align field {field_name} to {}/{} with {padding_bytes} padding bytes {field_layout:?}",
+                "align field to {}/{} with {padding_bytes} padding bytes {field_layout:?}",
                 self.latest_offset,
                 field_offset.unwrap_or(0) / 8,
             );
 
-            let padding_align = if force_padding {
-                1
-            } else {
-                cmp::min(field_layout.align, MAX_GUARANTEED_ALIGN)
-            };
-
+            let padding_align = 1;
             if need_padding && padding_bytes != 0 {
                 Some(Layout::new(padding_bytes, padding_align))
             } else {
@@ -275,10 +227,10 @@ impl<'a> StructLayoutTracker<'a> {
         self.latest_field_layout = Some(field_layout);
         self.max_field_align =
             cmp::max(self.max_field_align, field_layout.align);
-        self.last_field_was_bitfield = false;
+        self.last_field_was_bitfield = is_bitfield;
 
         debug!(
-            "Offset: {field_name}: {} -> {}",
+            "Offset: {} -> {}",
             self.latest_offset - field_layout.size,
             self.latest_offset
         );
@@ -341,8 +293,6 @@ impl<'a> StructLayoutTracker<'a> {
             return None;
         }
 
-        let repr_align = true;
-
         // We always pad to get to the correct size if the struct is one of
         // those we can't align properly.
         //
@@ -351,8 +301,7 @@ impl<'a> StructLayoutTracker<'a> {
         // other fields.
         if padding_bytes >= layout.align ||
             (self.last_field_was_bitfield &&
-                padding_bytes >= self.latest_field_layout.unwrap().align) ||
-            (!repr_align && layout.align > MAX_GUARANTEED_ALIGN)
+                padding_bytes >= self.latest_field_layout.unwrap().align)
         {
             let layout = if self.is_packed {
                 Layout::new(padding_bytes, 1)
@@ -374,13 +323,11 @@ impl<'a> StructLayoutTracker<'a> {
     }
 
     pub(crate) fn requires_explicit_align(&self, layout: Layout) -> bool {
-        let repr_align = true;
-
         // Always force explicit repr(align) for stuff more than 16-byte aligned
         // to work-around https://github.com/rust-lang/rust/issues/54341.
         //
         // Worst-case this just generates redundant alignment attributes.
-        if repr_align && self.max_field_align >= 16 {
+        if self.max_field_align >= 16 {
             return true;
         }
 
@@ -388,9 +335,7 @@ impl<'a> StructLayoutTracker<'a> {
             return false;
         }
 
-        // We can only generate up-to a 8-bytes of alignment unless we support
-        // repr(align).
-        repr_align || layout.align <= MAX_GUARANTEED_ALIGN
+        true
     }
 
     fn padding_bytes(&self, layout: Layout) -> usize {
@@ -417,12 +362,9 @@ impl<'a> StructLayoutTracker<'a> {
         }
     }
 
-    /// Returns whether the new field is known to merge with a bitfield.
-    ///
-    /// This is just to avoid doing the same check also in `pad_field`.
-    fn align_to_latest_field(&mut self, new_field_layout: Layout) -> bool {
-        if self.is_packed {
-            // Skip to align fields when packed.
+    /// Returns whether the new field is known to merge with a previous bitfield.
+    fn will_merge_with_bitfield(&self, new_field_layout: Layout) -> bool {
+        if !self.last_field_was_bitfield {
             return false;
         }
 
@@ -430,29 +372,13 @@ impl<'a> StructLayoutTracker<'a> {
             return false;
         };
 
-        // If it was, we may or may not need to align, depending on what the
-        // current field alignment and the bitfield size and alignment are.
-        debug!(
-            "align_to_bitfield? {}: {layout:?} {new_field_layout:?}",
-            self.last_field_was_bitfield,
-        );
+        debug!("will_merge_with_bitfield: {layout:?} {new_field_layout:?}");
 
         // Avoid divide-by-zero errors if align is 0.
         let align = cmp::max(1, layout.align);
 
-        if self.last_field_was_bitfield &&
-            new_field_layout.align <= layout.size % align &&
+        // FIXME(emilio): I think this may not catch everything?
+        new_field_layout.align <= layout.size % align &&
             new_field_layout.size <= layout.size % align
-        {
-            // The new field will be coalesced into some of the remaining bits.
-            //
-            // FIXME(emilio): I think this may not catch everything?
-            debug!("Will merge with bitfield");
-            return true;
-        }
-
-        // Else, just align the obvious way.
-        self.latest_offset += self.padding_bytes(layout);
-        false
     }
 }

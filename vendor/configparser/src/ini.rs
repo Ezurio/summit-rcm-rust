@@ -11,6 +11,7 @@ use std::collections::HashMap as Map;
 #[cfg(feature = "tokio")]
 use tokio::fs as async_fs;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::fmt::Write;
@@ -24,7 +25,7 @@ use std::path::Path;
 ///
 ///let mut config = Ini::new();
 ///```
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct Ini {
     map: Map<String, Map<String, Option<String>>>,
@@ -37,6 +38,12 @@ pub struct Ini {
     multiline: bool,
     enable_inline_comments: bool,
     cascade_defaults: bool,
+}
+
+impl Default for Ini {
+    fn default() -> Self {
+        Ini::new()
+    }
 }
 
 #[cfg(all(feature = "serde", not(feature = "indexmap")))]
@@ -197,25 +204,20 @@ impl Default for IniDefault {
             inline_comment_symbols: None,
             delimiters: vec!['=', ':'],
             multiline: false,
-            boolean_values: [
+            boolean_values: HashMap::from([
                 (
                     true,
                     ["true", "yes", "t", "y", "on", "1"]
-                        .iter()
-                        .map(|&s| s.to_owned())
-                        .collect(),
+                        .map(String::from)
+                        .into(),
                 ),
                 (
                     false,
                     ["false", "no", "f", "n", "off", "0"]
-                        .iter()
-                        .map(|&s| s.to_owned())
-                        .collect(),
+                        .map(String::from)
+                        .into(),
                 ),
-            ]
-            .iter()
-            .cloned()
-            .collect(),
+            ]),
             case_sensitive: false,
             enable_inline_comments: true, // retain compatibility with previous versions
             cascade_defaults: false,      // retain backwards compatibility
@@ -317,6 +319,10 @@ impl WriteOptions {
 const LINE_ENDING: &str = "\r\n";
 #[cfg(not(windows))]
 const LINE_ENDING: &str = "\n";
+
+fn read_error(path: &Path, why: impl std::fmt::Display) -> String {
+    format!("couldn't read {}: {}", path.display(), why)
+}
 
 impl Ini {
     ///Creates a new `Map` of `Map<String, Map<String, Option<String>>>` type for the struct.
@@ -428,6 +434,9 @@ impl Ini {
         self.delimiters = defaults.delimiters;
         self.boolean_values = defaults.boolean_values;
         self.case_sensitive = defaults.case_sensitive;
+        self.multiline = defaults.multiline;
+        self.enable_inline_comments = defaults.enable_inline_comments;
+        self.cascade_defaults = defaults.cascade_defaults;
     }
 
     ///Sets the default section header to the defined string (the default is `default`).
@@ -476,7 +485,8 @@ impl Ini {
         self.inline_comment_symbols = symlist.map(|val| val.to_vec());
     }
 
-    ///Sets multiline string support.
+    ///Sets multiline string support. A line continues the previous key's value when it is
+    ///indented deeper than that key's line; a section header ends the value.
     ///It must be set before `load()` or `read()` is called in order to take effect.
     ///## Example
     ///```rust
@@ -541,26 +551,19 @@ impl Ini {
         &mut self,
         path: T,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        self.map = match self.parse(match fs::read_to_string(&path) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(s) => s,
-        }) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(map) => map,
-        };
+        self.map = self.parse_file(path.as_ref())?;
         Ok(self.map.clone())
+    }
+
+    fn parse_file(&self, path: &Path) -> Result<Map<String, Map<String, Option<String>>>, String> {
+        let input = fs::read_to_string(path).map_err(|why| read_error(path, why))?;
+        self.parse(input).map_err(|why| read_error(path, why))
+    }
+
+    fn append(&mut self, loaded: Map<String, Map<String, Option<String>>>) {
+        for (section, section_map) in loaded {
+            self.map.entry(section).or_default().extend(section_map);
+        }
     }
 
     /// Loads configuration data from any stream implementing `std::io::Read`, parses it, and applies it to the internal map.
@@ -623,33 +626,8 @@ impl Ini {
         &mut self,
         path: T,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        let loaded = match self.parse(match fs::read_to_string(&path) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(s) => s,
-        }) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(map) => map,
-        };
-
-        for (section, section_map) in loaded.iter() {
-            self.map
-                .entry(section.clone())
-                .or_default()
-                .extend(section_map.clone());
-        }
-
+        let loaded = self.parse_file(path.as_ref())?;
+        self.append(loaded);
         Ok(self.map.clone())
     }
 
@@ -711,14 +689,7 @@ impl Ini {
         input: String,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
         let loaded = self.parse(input)?;
-
-        for (section, section_map) in loaded.iter() {
-            self.map
-                .entry(section.clone())
-                .or_default()
-                .extend(section_map.clone());
-        }
-
+        self.append(loaded);
         Ok(self.map.clone())
     }
 
@@ -819,12 +790,21 @@ impl Ini {
             indent: usize,
         ) {
             let delimiter = if space_around_delimiters { " = " } else { "=" };
+            let empty_delimiter = delimiter.trim_end();
+            // Precompute the multiline indentation once rather than rebuilding
+            // it for every continuation line. Stays empty (no allocation) when
+            // multiline output is disabled.
+            let indent_str = if multiline {
+                " ".repeat(indent)
+            } else {
+                String::new()
+            };
             for (key, val) in outmap.iter() {
                 out.push_str(key);
 
                 if let Some(value) = val {
                     if value.is_empty() {
-                        out.push_str(delimiter.trim_end());
+                        out.push_str(empty_delimiter);
                     } else {
                         out.push_str(delimiter);
                     }
@@ -837,7 +817,7 @@ impl Ini {
                         for line in lines {
                             out.push_str(LINE_ENDING);
                             if !line.is_empty() {
-                                out.push_str(" ".repeat(indent).as_ref());
+                                out.push_str(&indent_str);
                                 out.push_str(line);
                             }
                         }
@@ -892,125 +872,88 @@ impl Ini {
             .unwrap_or_else(|| self.comment_symbols.as_ref());
         let mut map: Map<String, Map<String, Option<String>>> = Map::new();
         let mut section = self.default_section.clone();
+        // only the default section is created lazily
+        let mut section_exists = false;
+        // a line continues `current_key` only if indented deeper than the line that set it
         let mut current_key: Option<String> = None;
-
-        let caser = |val: &str| {
-            if self.case_sensitive {
-                val.to_owned()
-            } else {
-                val.to_lowercase()
-            }
-        };
-
-        // Track blank lines to preserve them in multiline values.
+        let mut current_indent = 0usize;
         let mut blank_lines = 0usize;
 
-        for (num, raw_line) in input.lines().enumerate() {
+        for (num, raw_line) in (1..).zip(input.lines()) {
             let line = raw_line.trim();
 
-            // If the line is _just_ a comment, skip it entirely.
-            let line = match line.find(|c: char| self.comment_symbols.contains(&c)) {
-                Some(0) => continue,
-                Some(_) | None => line,
-            };
+            if line.starts_with(|c: char| self.comment_symbols.contains(&c)) {
+                continue;
+            }
 
-            let line = line.trim();
-
-            // Skip empty lines, but keep track of them for multiline values.
             if line.is_empty() {
                 blank_lines += 1;
                 continue;
             }
 
-            let line = if self.enable_inline_comments {
+            let trimmed = if self.enable_inline_comments {
                 match line.find(|c: char| inline_comment_symbols.contains(&c)) {
-                    Some(idx) => &line[..idx],
+                    Some(idx) => line[..idx].trim(),
                     None => line,
                 }
             } else {
                 line
             };
 
-            let trimmed = line.trim();
-
-            match (trimmed.find('['), trimmed.rfind(']')) {
-                (Some(0), Some(end)) => {
-                    section = caser(trimmed[1..end].trim());
-
-                    map.entry(section.clone()).or_default();
-
-                    continue;
-                }
-                (Some(0), None) => {
-                    return Err(format!(
+            if trimmed.starts_with('[') {
+                let end = trimmed.rfind(']').ok_or_else(|| {
+                    format!(
                         "line {}: Found opening bracket for section name but no closing bracket",
                         num
-                    ));
-                }
-                _ => {}
+                    )
+                })?;
+                section = self.casefold(trimmed[1..end].trim()).into_owned();
+                map.entry(section.clone()).or_default();
+                section_exists = true;
+                current_key = None;
+                blank_lines = 0;
+                continue;
             }
 
-            if raw_line.starts_with(char::is_whitespace) && self.multiline {
-                let key = match current_key.as_ref() {
-                    Some(x) => x,
-                    None => {
-                        return Err(format!(
-                            "line {}: Started with indentation but there is no current entry",
-                            num,
-                        ));
-                    }
-                };
+            if !section_exists {
+                map.entry(section.clone()).or_default();
+                section_exists = true;
+            }
+            let valmap = map.get_mut(&section).unwrap();
 
-                let valmap = map.entry(section.clone()).or_default();
+            let indent = raw_line.len() - raw_line.trim_start().len();
+            let continued = current_key
+                .as_deref()
+                .filter(|_| self.multiline && indent > current_indent);
 
+            if let Some(key) = continued {
                 let val = valmap
-                    .entry(key.clone())
-                    .or_insert_with(|| Some(String::new()));
-
-                match val {
-                    Some(s) => {
-                        for _ in 0..blank_lines {
-                            s.push_str(LINE_ENDING);
-                        }
-                        s.push_str(LINE_ENDING);
-                        s.push_str(trimmed);
-                    }
-                    None => {
-                        let mut s = String::with_capacity(
-                            (blank_lines + 1) * LINE_ENDING.len() + trimmed.len(),
-                        );
-                        for _ in 0..blank_lines {
-                            s.push_str(LINE_ENDING);
-                        }
-                        s.push_str(LINE_ENDING);
-                        s.push_str(trimmed);
-                        *val = Some(s);
-                    }
+                    .get_mut(key)
+                    .expect("multiline key missing from its section");
+                let s = val.get_or_insert_with(String::new);
+                for _ in 0..=blank_lines {
+                    s.push_str(LINE_ENDING);
                 }
+                s.push_str(trimmed);
             } else {
-                let valmap = map.entry(section.clone()).or_default();
-
-                match trimmed.find(&self.delimiters[..]) {
-                    Some(delimiter) => {
-                        let key = caser(trimmed[..delimiter].trim());
-
+                let (key, value) = match trimmed.find(&self.delimiters[..]) {
+                    Some(idx) => {
+                        let key = trimmed[..idx].trim();
                         if key.is_empty() {
-                            return Err(format!("line {}:{}: Key cannot be empty", num, delimiter));
-                        } else {
-                            current_key = Some(key.clone());
-
-                            let value = trimmed[delimiter + 1..].trim().to_owned();
-
-                            valmap.insert(key, Some(value));
+                            return Err(format!("line {}:{}: Key cannot be empty", num, idx));
                         }
+                        // delimiter may be multi-byte
+                        let delimiter_len = trimmed[idx..].chars().next().map_or(1, char::len_utf8);
+                        (key, Some(trimmed[idx + delimiter_len..].trim().to_owned()))
                     }
-                    None => {
-                        let key = caser(trimmed);
-                        current_key = Some(key.clone());
-
-                        valmap.insert(key, None);
-                    }
+                    None => (trimmed, None),
+                };
+                let key = self.casefold(key).into_owned();
+                if self.multiline {
+                    current_key = Some(key.clone());
+                    current_indent = indent;
                 }
+                valmap.insert(key, value);
             }
 
             blank_lines = 0;
@@ -1019,13 +962,17 @@ impl Ini {
         Ok(map)
     }
 
-    ///Private function that cases things automatically depending on the set variable.
-    fn autocase(&self, section: &str, key: &str) -> (String, String) {
-        if self.case_sensitive {
-            (section.to_owned(), key.to_owned())
+    ///Lowercases `val` unless case-sensitive. Borrows already-lowercase ASCII input.
+    fn casefold<'a>(&self, val: &'a str) -> Cow<'a, str> {
+        if self.case_sensitive || val.bytes().all(|b| b.is_ascii() && !b.is_ascii_uppercase()) {
+            Cow::Borrowed(val)
         } else {
-            (section.to_lowercase(), key.to_lowercase())
+            Cow::Owned(val.to_lowercase())
         }
+    }
+
+    fn autocase<'a>(&self, section: &'a str, key: &'a str) -> (Cow<'a, str>, Cow<'a, str>) {
+        (self.casefold(section), self.casefold(key))
     }
 
     ///Returns a clone of the stored value from the key stored in the defined section.
@@ -1044,16 +991,14 @@ impl Ini {
     ///Returns `Some(value)` of type `String` if value is found or else returns `None`.
     pub fn get(&self, section: &str, key: &str) -> Option<String> {
         let (section, key) = self.autocase(section, key);
-        let val = match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => val.clone(),
-                None => None,
-            },
-            None => None,
-        };
+        let val = self
+            .map
+            .get(&*section)
+            .and_then(|secmap| secmap.get(&*key))
+            .and_then(Clone::clone);
 
         if val.is_none() && self.cascade_defaults {
-            return self.map.get(&self.default_section)?.get(&key)?.clone();
+            return self.map.get(&self.default_section)?.get(&*key)?.clone();
         }
 
         val
@@ -1074,28 +1019,11 @@ impl Ini {
     ///If the parsing fails, it returns an `Err(string)`.
     pub fn getbool(&self, section: &str, key: &str) -> Result<Option<bool>, String> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => match val {
-                    Some(inner) => match inner.to_lowercase().parse::<bool>() {
-                        Err(why) => Err(why.to_string()),
-                        Ok(boolean) => Ok(Some(boolean)),
-                    },
-                    None => {
-                        if self.cascade_defaults && section != self.default_section {
-                            return self.getbool(&self.default_section, &key);
-                        }
-                        Ok(None)
-                    }
-                },
-                None => {
-                    if self.cascade_defaults && section != self.default_section {
-                        return self.getbool(&self.default_section, &key);
-                    }
-                    Ok(None)
-                }
-            },
-            None => {
+        match self.map.get(&*section).and_then(|secmap| secmap.get(&*key)) {
+            Some(Some(inner)) if inner.eq_ignore_ascii_case("true") => Ok(Some(true)),
+            Some(Some(inner)) if inner.eq_ignore_ascii_case("false") => Ok(Some(false)),
+            Some(Some(_)) => Err("provided string was not `true` or `false`".to_owned()),
+            _ => {
                 if self.cascade_defaults && section != self.default_section {
                     return self.getbool(&self.default_section, &key);
                 }
@@ -1120,49 +1048,26 @@ impl Ini {
     ///If the parsing fails, it returns an `Err(string)`.
     pub fn getboolcoerce(&self, section: &str, key: &str) -> Result<Option<bool>, String> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => match val {
-                    Some(inner) => {
-                        let boolval = &inner.to_lowercase()[..];
-                        if self
-                            .boolean_values
-                            .get(&true)
-                            .unwrap()
-                            .iter()
-                            .any(|elem| elem == boolval)
-                        {
-                            Ok(Some(true))
-                        } else if self
-                            .boolean_values
-                            .get(&false)
-                            .unwrap()
-                            .iter()
-                            .any(|elem| elem == boolval)
-                        {
-                            Ok(Some(false))
-                        } else {
-                            Err(format!(
-                                "Unable to parse value into bool at {}:{}",
-                                section, key
-                            ))
-                        }
-                    }
-                    None => {
-                        if self.cascade_defaults && section != self.default_section {
-                            return self.getboolcoerce(&self.default_section, &key);
-                        }
-                        Ok(None)
-                    }
-                },
-                None => {
-                    if self.cascade_defaults && section != self.default_section {
-                        return self.getboolcoerce(&self.default_section, &key);
-                    }
-                    Ok(None)
+        match self.map.get(&*section).and_then(|secmap| secmap.get(&*key)) {
+            Some(Some(inner)) => {
+                let boolval = inner.to_lowercase();
+                let matches = |truth: bool| {
+                    self.boolean_values
+                        .get(&truth)
+                        .is_some_and(|values| values.contains(&boolval))
+                };
+                if matches(true) {
+                    Ok(Some(true))
+                } else if matches(false) {
+                    Ok(Some(false))
+                } else {
+                    Err(format!(
+                        "Unable to parse value into bool at {}:{}",
+                        section, key
+                    ))
                 }
-            },
-            None => {
+            }
+            _ => {
                 if self.cascade_defaults && section != self.default_section {
                     return self.getboolcoerce(&self.default_section, &key);
                 }
@@ -1185,28 +1090,12 @@ impl Ini {
     ///If the parsing fails, it returns an `Err(string)`.
     pub fn getint(&self, section: &str, key: &str) -> Result<Option<i64>, String> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => match val {
-                    Some(inner) => match inner.parse::<i64>() {
-                        Err(why) => Err(why.to_string()),
-                        Ok(int) => Ok(Some(int)),
-                    },
-                    None => {
-                        if self.cascade_defaults && section != self.default_section {
-                            return self.getint(&self.default_section, &key);
-                        }
-                        Ok(None)
-                    }
-                },
-                None => {
-                    if self.cascade_defaults && section != self.default_section {
-                        return self.getint(&self.default_section, &key);
-                    }
-                    Ok(None)
-                }
+        match self.map.get(&*section).and_then(|secmap| secmap.get(&*key)) {
+            Some(Some(inner)) => match inner.parse::<i64>() {
+                Err(why) => Err(why.to_string()),
+                Ok(int) => Ok(Some(int)),
             },
-            None => {
+            _ => {
                 if self.cascade_defaults && section != self.default_section {
                     return self.getint(&self.default_section, &key);
                 }
@@ -1229,28 +1118,12 @@ impl Ini {
     ///If the parsing fails, it returns an `Err(string)`.
     pub fn getuint(&self, section: &str, key: &str) -> Result<Option<u64>, String> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => match val {
-                    Some(inner) => match inner.parse::<u64>() {
-                        Err(why) => Err(why.to_string()),
-                        Ok(uint) => Ok(Some(uint)),
-                    },
-                    None => {
-                        if self.cascade_defaults && section != self.default_section {
-                            return self.getuint(&self.default_section, &key);
-                        }
-                        Ok(None)
-                    }
-                },
-                None => {
-                    if self.cascade_defaults && section != self.default_section {
-                        return self.getuint(&self.default_section, &key);
-                    }
-                    Ok(None)
-                }
+        match self.map.get(&*section).and_then(|secmap| secmap.get(&*key)) {
+            Some(Some(inner)) => match inner.parse::<u64>() {
+                Err(why) => Err(why.to_string()),
+                Ok(uint) => Ok(Some(uint)),
             },
-            None => {
+            _ => {
                 if self.cascade_defaults && section != self.default_section {
                     return self.getuint(&self.default_section, &key);
                 }
@@ -1273,28 +1146,12 @@ impl Ini {
     ///If the parsing fails, it returns an `Err(string)`.
     pub fn getfloat(&self, section: &str, key: &str) -> Result<Option<f64>, String> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get(&section) {
-            Some(secmap) => match secmap.get(&key) {
-                Some(val) => match val {
-                    Some(inner) => match inner.parse::<f64>() {
-                        Err(why) => Err(why.to_string()),
-                        Ok(float) => Ok(Some(float)),
-                    },
-                    None => {
-                        if self.cascade_defaults && section != self.default_section {
-                            return self.getfloat(&self.default_section, &key);
-                        }
-                        Ok(None)
-                    }
-                },
-                None => {
-                    if self.cascade_defaults && section != self.default_section {
-                        return self.getfloat(&self.default_section, &key);
-                    }
-                    Ok(None)
-                }
+        match self.map.get(&*section).and_then(|secmap| secmap.get(&*key)) {
+            Some(Some(inner)) => match inner.parse::<f64>() {
+                Err(why) => Err(why.to_string()),
+                Ok(float) => Ok(Some(float)),
             },
-            None => {
+            _ => {
                 if self.cascade_defaults && section != self.default_section {
                     return self.getfloat(&self.default_section, &key);
                 }
@@ -1385,12 +1242,12 @@ impl Ini {
         value: Option<String>,
     ) -> Option<Option<String>> {
         let (section, key) = self.autocase(section, key);
-        match self.map.get_mut(&section) {
-            Some(secmap) => secmap.insert(key, value),
+        match self.map.get_mut(&*section) {
+            Some(secmap) => secmap.insert(key.into_owned(), value),
             None => {
                 let mut valmap: Map<String, Option<String>> = Map::new();
-                valmap.insert(key, value);
-                self.map.insert(section, valmap);
+                valmap.insert(key.into_owned(), value);
+                self.map.insert(section.into_owned(), valmap);
                 None
             }
         }
@@ -1418,8 +1275,7 @@ impl Ini {
         key: &str,
         value: Option<&str>,
     ) -> Option<Option<String>> {
-        let (section, key) = self.autocase(section, key);
-        self.set(&section, &key, value.map(String::from))
+        self.set(section, key, value.map(String::from))
     }
 
     ///Clears the map, removing all sections and properties from the hashmap. It keeps the allocated memory for reuse.
@@ -1453,18 +1309,14 @@ impl Ini {
     ///```
     ///Returns `Some(section_map)` if the section exists or else, `None`.
     pub fn remove_section(&mut self, section: &str) -> Option<Map<String, Option<String>>> {
-        let section = if self.case_sensitive {
-            section.to_owned()
-        } else {
-            section.to_lowercase()
-        };
+        let section = self.casefold(section);
         #[cfg(not(feature = "indexmap"))]
         {
-            self.map.remove(&section)
+            self.map.remove(&*section)
         }
         #[cfg(feature = "indexmap")]
         {
-            self.map.swap_remove(&section)
+            self.map.swap_remove(&*section)
         }
     }
 
@@ -1487,11 +1339,11 @@ impl Ini {
         let (section, key) = self.autocase(section, key);
         #[cfg(not(feature = "indexmap"))]
         {
-            self.map.get_mut(&section)?.remove(&key)
+            self.map.get_mut(&*section)?.remove(&*key)
         }
         #[cfg(feature = "indexmap")]
         {
-            self.map.get_mut(&section)?.swap_remove(&key)
+            self.map.get_mut(&*section)?.swap_remove(&*key)
         }
     }
 }
@@ -1509,26 +1361,18 @@ impl Ini {
         &mut self,
         path: T,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        self.map = match self.parse(match async_fs::read_to_string(&path).await {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(s) => s,
-        }) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(map) => map,
-        };
+        self.map = self.parse_file_async(path.as_ref()).await?;
         Ok(self.map.clone())
+    }
+
+    async fn parse_file_async(
+        &self,
+        path: &Path,
+    ) -> Result<Map<String, Map<String, Option<String>>>, String> {
+        let input = async_fs::read_to_string(path)
+            .await
+            .map_err(|why| read_error(path, why))?;
+        self.parse(input).map_err(|why| read_error(path, why))
     }
 
     ///Loads a file from a defined path, parses it and applies it to the existing hashmap in our struct.
@@ -1543,33 +1387,8 @@ impl Ini {
         &mut self,
         path: T,
     ) -> Result<Map<String, Map<String, Option<String>>>, String> {
-        let loaded = match self.parse(match async_fs::read_to_string(&path).await {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(s) => s,
-        }) {
-            Err(why) => {
-                return Err(format!(
-                    "couldn't read {}: {}",
-                    &path.as_ref().display(),
-                    why
-                ));
-            }
-            Ok(map) => map,
-        };
-
-        for (section, section_map) in loaded.iter() {
-            self.map
-                .entry(section.clone())
-                .or_insert_with(Map::new)
-                .extend(section_map.clone());
-        }
-
+        let loaded = self.parse_file_async(path.as_ref()).await?;
+        self.append(loaded);
         Ok(self.map.clone())
     }
 

@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.63"
 name = "serial2"
-version = "0.2.37"
+version = "0.2.38"
 build = false
 publish = ["crates-io"]
 autolib = false
@@ -97,6 +97,9 @@ version = "0.4.0"
 
 [dev-dependencies.serde_json]
 version = "1.0.108"
+
+[dev-dependencies.toml]
+version = "1.1.4"
 
 [target."cfg(unix)".dependencies.cfg-if]
 version = "1.0.0"

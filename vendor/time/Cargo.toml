@@ -13,7 +13,7 @@
 edition = "2024"
 rust-version = "1.88.0"
 name = "time"
-version = "0.3.54"
+version = "0.3.55"
 authors = [
     "Jacob Pratt <open-source@jhpratt.dev>",
     "Time contributors",
