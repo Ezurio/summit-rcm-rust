@@ -124,20 +124,13 @@ impl NetworkManagerService {
         ])
     }
 
-    pub(super) async fn get_ap_properties(
+    pub(super) fn get_ap_properties(
         mode: i32,
         ap_properties: &serde_json::Map<String, Value>,
-        interface_name: &str,
     ) -> serde_json::Map<String, Value> {
         let mut result = serde_json::Map::with_capacity(12);
-        let fallback_frequency = Self::map_u32(ap_properties, "Frequency", 0);
-        let frequency = if mode == 3 {
-            RawNetworkService::get_frequency_info(interface_name)
-                .await
-                .unwrap_or(fallback_frequency)
-        } else {
-            fallback_frequency
-        };
+        let frequency = Self::map_u32(ap_properties, "Frequency", 0);
+        let strength = Self::map_u32(ap_properties, "Strength", 0);
 
         let _ = result.insert("Ssid".to_string(), json!(Self::ssid_from_json(ap_properties.get("Ssid"))));
         let _ = result.insert("HwAddress".to_string(), json!(Self::map_string(ap_properties, "HwAddress", "")));
@@ -158,7 +151,7 @@ impl NetworkManagerService {
         let _ = result.insert("Bandwidth".to_string(), json!(Self::map_u32(ap_properties, "Bandwidth", 0)));
         let _ = result.insert(
             "Strength".to_string(),
-            json!(if mode == 3 { 100 } else { Self::map_u32(ap_properties, "Strength", 0) }),
+            json!(if mode == 3 { 100 } else { strength }),
         );
         let _ = result.insert("Frequency".to_string(), json!(frequency));
         let _ = result.insert(
@@ -166,9 +159,7 @@ impl NetworkManagerService {
             json!(if mode == 3 {
                 INVALID_RSSI
             } else {
-                RawNetworkService::get_active_ap_rssi(interface_name)
-                    .await
-                    .unwrap_or(INVALID_RSSI)
+                ((strength as i32 / 2) - 100) as f64
             }),
         );
         let _ = result.insert("Channel".to_string(), json!(frequency_to_channel(frequency)));
@@ -318,7 +309,7 @@ impl NetworkManagerService {
     pub(crate) async fn get_access_points_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
         let mut access_points = Vec::new();
 
-        for (interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
+        for (_interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
             let wireless_properties = Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             let mode = dbus::property::<i32>(&wireless_properties, "Mode").unwrap_or_default();
             let access_point_paths =
@@ -328,7 +319,7 @@ impl NetworkManagerService {
             for access_point_path in access_point_paths {
                 let access_point_properties = Self::get_properties(access_point_path.as_str(), NM_ACCESS_POINT_IFACE).await?;
                 let access_point_json = Self::properties_to_json(&access_point_properties);
-                let mut formatted = Self::get_ap_properties(mode, &access_point_json, &interface_name).await;
+                let mut formatted = Self::get_ap_properties(mode, &access_point_json);
 
                 let ssid = formatted.remove("Ssid").unwrap_or_else(|| json!(""));
                 let hw_address = formatted.remove("HwAddress").unwrap_or_else(|| json!(""));
@@ -362,7 +353,7 @@ impl NetworkManagerService {
     pub(crate) async fn get_access_points_legacy_dbus(iface: Option<&str>) -> Result<Vec<Value>> {
         let mut access_points = Vec::new();
 
-        for (interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
+        for (_interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
             let wireless_properties =
                 Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             let mode = dbus::property::<i32>(&wireless_properties, "Mode").unwrap_or_default();
@@ -378,7 +369,7 @@ impl NetworkManagerService {
                     Self::get_properties(access_point_path.as_str(), NM_ACCESS_POINT_IFACE).await?;
                 let access_point_json = Self::properties_to_json(&access_point_properties);
                 let mut formatted =
-                    Self::get_ap_properties(mode, &access_point_json, &interface_name).await;
+                    Self::get_ap_properties(mode, &access_point_json);
 
                 let ssid = formatted.remove("Ssid").unwrap_or_else(|| json!(""));
                 let hw_address = formatted.remove("HwAddress").unwrap_or_else(|| json!(""));

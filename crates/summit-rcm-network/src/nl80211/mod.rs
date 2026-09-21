@@ -240,11 +240,11 @@ impl Nl80211Client {
             .ok_or_else(|| anyhow!("interface frequency not found"))
     }
 
-    pub(crate) async fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<f64> {
+    pub(crate) async fn get_active_ap_rssi(&mut self, ifname: &str) -> Result<i64> {
         let stations = self.get_station_dump(ifname).await?;
         stations
             .into_values()
-            .find_map(|station| station.signal.map(|value| value as f64))
+            .find_map(|station| station.signal)
             .ok_or_else(|| anyhow!("station signal not found"))
     }
 

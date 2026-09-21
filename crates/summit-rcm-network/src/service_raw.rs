@@ -267,7 +267,7 @@ impl NetworkService {
         client.get_frequency_info(&interface_name).await
     }
 
-    pub async fn get_active_ap_rssi(interface_name: &str) -> Result<f64> {
+    pub async fn get_active_ap_rssi(interface_name: &str) -> Result<i64> {
         let interface_name = interface_name.to_string();
         let mut client = Nl80211Client::connect().await?;
         client.get_active_ap_rssi(&interface_name).await

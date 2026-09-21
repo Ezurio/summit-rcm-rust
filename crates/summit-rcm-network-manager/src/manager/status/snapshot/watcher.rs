@@ -16,10 +16,10 @@ use std::sync::atomic::Ordering;
 
 use super::super::super::{
     NetworkManagerService, NmProperties, NM_ACCESS_POINT_IFACE, NM_BUS_NAME,
-    NM_CONNECTION_ACTIVE_IFACE, NM_DEVICE_IFACE, NM_DEVICE_WIRED_IFACE, NM_DEVICE_WIRELESS_IFACE,
-    NM_DHCP4_CONFIG_IFACE, NM_DHCP6_CONFIG_IFACE, NM_IFACE, NM_IP4_CONFIG_IFACE,
-    NM_IP6_CONFIG_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE, NETWORK_STATUS_CACHE,
-    NETWORK_STATUS_INIT_STARTED, NETWORK_STATUS_SIGNAL_TASK, NETWORK_STATUS_WATCHER,
+    NM_DEVICE_IFACE, NM_DEVICE_WIRED_IFACE, NM_DEVICE_WIRELESS_IFACE,
+    NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE, NM_SETTINGS_IFACE,
+    NETWORK_STATUS_CACHE, NETWORK_STATUS_INIT_STARTED, NETWORK_STATUS_SIGNAL_TASK,
+    NETWORK_STATUS_WATCHER,
 };
 
 const NETWORKMANAGER_SERVICE_FILE: &str = "NetworkManager.service";
@@ -29,33 +29,157 @@ impl NetworkManagerService {
         *NETWORK_STATUS_CACHE.write().await = json!({});
     }
 
-    fn should_refresh_status_cache(
-        path: &str,
-        changed_interface: &str,
+    pub(crate) fn update_cached_device_properties(
+        cache: &mut serde_json::Value,
+        object_path: &str,
+        interface: &str,
         changed_properties: &NmProperties,
-        invalidated_properties: &[String],
     ) -> bool {
-        if changed_interface == NM_IFACE && path == NM_MAIN_OBJ {
-            return changed_properties.contains_key("Devices")
-                || changed_properties.contains_key("ActiveConnections")
-                || invalidated_properties.iter().any(|property| property == "Devices" || property == "ActiveConnections");
+        let Some(devices) = cache.as_object_mut() else {
+            return false;
+        };
+
+        let mut matched = false;
+        for raw_device_value in devices.values_mut() {
+            let Some(raw_device) = raw_device_value.as_object_mut() else {
+                continue;
+            };
+
+            let is_match = raw_device.get("path").and_then(serde_json::Value::as_str) == Some(object_path)
+                || raw_device
+                    .get("status")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|status| status.values().any(|val| val.as_str() == Some(object_path)))
+                || raw_device
+                    .get("wireless")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|wireless| wireless.get("ActiveAccessPoint").and_then(serde_json::Value::as_str) == Some(object_path));
+
+            if !is_match {
+                continue;
+            }
+
+            matched = true;
+
+            // Route properties directly to the appropriate sub-map based on the D-Bus interface
+            let submap = match interface {
+                NM_DEVICE_IFACE => raw_device.get_mut("status").and_then(serde_json::Value::as_object_mut),
+                NM_DEVICE_WIRED_IFACE => raw_device.get_mut("wired").and_then(serde_json::Value::as_object_mut),
+                NM_DEVICE_WIRELESS_IFACE => raw_device.get_mut("wireless").and_then(serde_json::Value::as_object_mut),
+                NM_ACCESS_POINT_IFACE => raw_device.get_mut("ActiveAccessPoint").and_then(serde_json::Value::as_object_mut),
+                _ => {
+                    // For interface types like "org.freedesktop.NetworkManager.IP4Config",
+                    // the submap key matches the interface's trailing component (e.g. "IP4Config" -> "Ip4Config")
+                    // Look for an existing submap key that matches case-insensitively.
+                    let trailing = interface.rsplit('.').next().unwrap_or(interface);
+                    raw_device
+                        .iter_mut()
+                        .find(|(k, v)| v.is_object() && k.eq_ignore_ascii_case(trailing))
+                        .and_then(|(_, v)| v.as_object_mut())
+                }
+            };
+
+            let Some(submap) = submap else {
+                continue;
+            };
+
+            for (key, owned_value) in changed_properties {
+                let _ = submap.insert(key.clone(), dbus::owned_value_to_json(owned_value));
+            }
+
+            if interface == NM_DEVICE_IFACE {
+                let Some(interface_name) = raw_device.get("interface").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let interface_name = interface_name.to_string();
+                let details = Self::interface_detail_fields(&interface_name, object_path, raw_device);
+                raw_device.extend(details);
+            }
         }
 
-        if changed_interface == NM_DEVICE_IFACE
-            || changed_interface == NM_DEVICE_WIRED_IFACE
-            || changed_interface == NM_DEVICE_WIRELESS_IFACE
-            || changed_interface == NM_CONNECTION_ACTIVE_IFACE
-            || changed_interface == NM_IP4_CONFIG_IFACE
-            || changed_interface == NM_IP6_CONFIG_IFACE
-            || changed_interface == NM_DHCP4_CONFIG_IFACE
-            || changed_interface == NM_DHCP6_CONFIG_IFACE
-            || changed_interface == NM_ACCESS_POINT_IFACE
-            || changed_interface == NM_SETTINGS_CONNECTION_IFACE
+        matched
+    }
+
+    async fn handle_dbus_properties_changed(
+        path: &str,
+        interface: &str,
+        changed: &NmProperties,
+        invalidated: &[String],
+    ) {
+        if !path.starts_with(NM_MAIN_OBJ) {
+            return;
+        }
+
+        if interface == NM_IFACE && path == NM_MAIN_OBJ {
+            let devices_changed = changed.contains_key("Devices")
+                || invalidated.iter().any(|prop| prop == "Devices");
+
+            if devices_changed {
+                if let Err(error) = Self::refresh_status_cache().await {
+                    error!("failed to refresh status cache on NetworkManager topology change: {}", error);
+                }
+            }
+            return;
+        }
+
+        if interface == NM_SETTINGS_CONNECTION_IFACE
+            || (interface == NM_SETTINGS_IFACE && (changed.contains_key("Connections") || invalidated.iter().any(|p| p == "Connections")))
         {
-            return path.starts_with(NM_MAIN_OBJ);
+            if let Err(error) = Self::refresh_status_cache().await {
+                error!("failed to refresh status cache on connection settings change: {}", error);
+            }
+            return;
         }
 
-        false
+        // Check if an object path pointer changed (e.g. ActiveConnection, Ip4Config, or ActiveAccessPoint changed to a different path).
+        let has_pointer_change = changed.keys().any(|key| {
+            matches!(
+                key.as_str(),
+                "ActiveConnection"
+                    | "Ip4Config"
+                    | "Ip6Config"
+                    | "Dhcp4Config"
+                    | "Dhcp6Config"
+                    | "ActiveAccessPoint"
+            )
+        });
+
+        if has_pointer_change {
+            let target_path = {
+                let cache = NETWORK_STATUS_CACHE.read().await;
+                cache.as_object().and_then(|devices| {
+                    devices.values().find_map(|dev| {
+                        let obj = dev.as_object()?;
+                        let is_match = obj.get("path").and_then(serde_json::Value::as_str) == Some(path)
+                            || obj.get("status").and_then(serde_json::Value::as_object)
+                                .is_some_and(|status| status.values().any(|val| val.as_str() == Some(path)));
+                        if is_match {
+                            obj.get("path").and_then(serde_json::Value::as_str).map(ToString::to_string)
+                        } else {
+                            None
+                        }
+                    })
+                })
+            };
+
+            if let Some(dev_path) = target_path {
+                if let Err(error) = Self::refresh_device_status_cache(&dev_path).await {
+                    error!("failed to refresh device status cache for pointer change {}: {}", path, error);
+                }
+                return;
+            }
+        }
+
+        let updated = {
+            let mut cache = NETWORK_STATUS_CACHE.write().await;
+            Self::update_cached_device_properties(&mut cache, path, interface, changed)
+        };
+
+        if !updated && interface == NM_DEVICE_IFACE {
+            if let Err(error) = Self::refresh_device_status_cache(path).await {
+                error!("failed to refresh device status cache for new device {}: {}", path, error);
+            }
+        }
     }
 
     async fn networkmanager_systemd_active_state() -> String {
@@ -88,18 +212,13 @@ impl NetworkManagerService {
                     return;
                 };
 
-                if !NetworkManagerService::should_refresh_status_cache(
+                NetworkManagerService::handle_dbus_properties_changed(
                     &signal.path,
                     &signal.interface,
                     &signal.changed,
                     &signal.invalidated,
-                ) {
-                    return;
-                }
-
-                if let Err(error) = NetworkManagerService::refresh_status_cache().await {
-                    error!("failed to refresh cached NetworkManager status: {}", error);
-                }
+                )
+                .await;
             },
         )
         .await?;
