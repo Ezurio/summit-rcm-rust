@@ -56,9 +56,20 @@ async fn ping_target(target: &str, timeout_secs: u64, protocol: PingProtocol) ->
 }
 
 fn format_ping_millis(duration: Duration) -> String {
-    let millis = duration.as_secs_f64() * 1_000.0;
-    let formatted = format!("{millis:.3}");
-    formatted.trim_end_matches('0').trim_end_matches('.').to_string()
+    // Three decimal places in milliseconds are microseconds. Round from the
+    // nanosecond precision supplied by `Duration` without converting to a
+    // floating-point value.
+    let total_micros = (duration.as_nanos() + 500) / 1_000;
+    let millis = total_micros / 1_000;
+    let micros = total_micros % 1_000;
+
+    if micros == 0 {
+        millis.to_string()
+    } else {
+        format!("{millis}.{micros:03}")
+            .trim_end_matches('0')
+            .to_string()
+    }
 }
 
 pub async fn execute_communication_check(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
@@ -132,3 +143,22 @@ pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::commands::command_spec!("ate1", "ATE1", 0, &[], execute_at_echo_enable),
     crate::commands::command_spec!("ate0", "ATE0", 0, &[], execute_at_echo_disable),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::format_ping_millis;
+    use std::time::Duration;
+
+    #[test]
+    fn format_ping_millis_rounds_to_microseconds() {
+        assert_eq!(format_ping_millis(Duration::from_nanos(1_234_499)), "1.234");
+        assert_eq!(format_ping_millis(Duration::from_nanos(1_234_500)), "1.235");
+    }
+
+    #[test]
+    fn format_ping_millis_trims_fractional_zeros() {
+        assert_eq!(format_ping_millis(Duration::ZERO), "0");
+        assert_eq!(format_ping_millis(Duration::from_millis(12)), "12");
+        assert_eq!(format_ping_millis(Duration::from_micros(12_340)), "12.34");
+    }
+}
