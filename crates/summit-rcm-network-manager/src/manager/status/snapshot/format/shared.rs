@@ -74,7 +74,7 @@ const SUMMIT_DEVICE_TYPE_TEXT_TABLE: [&str; 35] = [
 ];
 
 impl NetworkManagerService {
-    pub(super) fn metered_text(metered: u32) -> &'static str {
+    pub(crate) fn metered_text(metered: u32) -> &'static str {
         METERED_TEXT_TABLE
             .get(metered as usize)
             .copied()

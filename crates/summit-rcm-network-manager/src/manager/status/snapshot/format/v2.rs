@@ -183,7 +183,7 @@ impl NetworkManagerService {
     }
 
     pub(crate) async fn format_device_status_v2(
-        interface_name: &str,
+        _interface_name: &str,
         raw_device: &serde_json::Map<String, Value>,
         include_details: bool,
     ) -> Option<Value> {
@@ -263,7 +263,7 @@ impl NetworkManagerService {
             {
                 let mode = Self::map_i32(wireless, "Mode", 0);
                 let access_point =
-                    Self::get_ap_properties(mode, access_point, interface_name).await;
+                    Self::get_ap_properties(mode, access_point);
                 Self::insert_v2_converted(&mut device, "ActiveAccessPoint", Value::Object(access_point));
             }
         }

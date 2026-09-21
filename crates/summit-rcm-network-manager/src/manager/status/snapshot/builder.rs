@@ -158,4 +158,25 @@ impl NetworkManagerService {
         *NETWORK_STATUS_CACHE.write().await = snapshot;
         Ok(())
     }
+
+    pub(super) async fn refresh_device_status_cache(device_path: &str) -> Result<()> {
+        let conn = Self::system_bus().await?;
+        match Self::build_device_status_with_conn(conn.as_ref(), device_path).await? {
+            Some((interface_name, device_status)) => {
+                let mut cache = NETWORK_STATUS_CACHE.write().await;
+                if let Some(devices) = cache.as_object_mut() {
+                    let _ = devices.insert(interface_name, device_status);
+                }
+            }
+            None => {
+                let mut cache = NETWORK_STATUS_CACHE.write().await;
+                if let Some(devices) = cache.as_object_mut() {
+                    devices.retain(|_, dev| {
+                        dev.get("path").and_then(Value::as_str) != Some(device_path)
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
 }
