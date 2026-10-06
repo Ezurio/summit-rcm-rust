@@ -14,8 +14,8 @@ use super::notification::{
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{LazyLock, Mutex};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::Message;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 /// BlueZ device properties surfaced on the `discovery` topic, mirroring the
 /// Python `discovery_keys` projection. Only these keys are forwarded; all other
@@ -30,10 +30,10 @@ static CHAR_UUID_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
 /// `InterfacesAdded`: a newly discovered device → emit its `discovery` frame
 /// directly from the signal payload.
 pub(super) async fn on_interfaces_added(message: Message) {
-    let Ok((_, interfaces)) = message
-        .body()
-        .deserialize::<(OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>)>()
-    else {
+    let Ok((_, interfaces)) = message.body().deserialize::<(
+        OwnedObjectPath,
+        HashMap<String, HashMap<String, OwnedValue>>,
+    )>() else {
         return;
     };
 
@@ -203,10 +203,7 @@ fn services_map(device: &DeviceSnapshot) -> Option<BTreeMap<String, ServicesEntr
                 })
                 .collect();
 
-            (
-                service_uuid.clone(),
-                ServicesEntry { characteristics },
-            )
+            (service_uuid.clone(), ServicesEntry { characteristics })
         })
         .collect();
 

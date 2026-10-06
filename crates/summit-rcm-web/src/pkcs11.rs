@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use base64::Engine as _;
 use std::path::Path;
 
@@ -69,7 +69,8 @@ fn pkcs11_uri_to_pem_bytes(pkcs11_uri: &str) -> Result<Vec<u8>> {
         );
     }
 
-    let desc_len = 1 + der_encode_length(PKCS11_PROVIDER_URI_DESCRIPTION.len()).1
+    let desc_len = 1
+        + der_encode_length(PKCS11_PROVIDER_URI_DESCRIPTION.len()).1
         + PKCS11_PROVIDER_URI_DESCRIPTION.len();
     let uri_len = 1 + der_encode_length(pkcs11_uri.len()).1 + pkcs11_uri.len();
     let mut der = Vec::with_capacity(1 + 5 + desc_len + uri_len);

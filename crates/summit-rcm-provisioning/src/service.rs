@@ -2,38 +2,42 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_core::certificates::CertificatesService;
-use summit_rcm_core::config::ServerConfig;
-use summit_rcm_core::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
-use crate::paths::{
-    CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH,
-    DEVICE_CA_CERT_CHAIN_PATH, DEVICE_SERVER_CSR_PATH, DEVICE_SERVER_KEY_PATH,
-    PROVISIONING_CA_CERT_CHAIN_PATH,
-    device_server_cert_path,
-    provisioning_server_cert_path,
-    provisioning_server_key_path,
-    provisioning_state_file_path,
-};
 use crate::enable_client_pairing;
-use summit_rcm_date_time::service::DateTimeService;
-use summit_rcm_core::systemd_unit::SystemdUnit;
-use summit_rcm_core::utils::{command_output, path_exists, path_exists_sync, read_text};
-use anyhow::{bail, Result};
+use crate::paths::{
+    CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH, DEVICE_CA_CERT_CHAIN_PATH, DEVICE_SERVER_CSR_PATH,
+    DEVICE_SERVER_KEY_PATH, PROVISIONING_CA_CERT_CHAIN_PATH, device_server_cert_path,
+    provisioning_server_cert_path, provisioning_server_key_path, provisioning_state_file_path,
+};
+use anyhow::{Result, bail};
+use log::error;
 use openssl::asn1::{Asn1Time, Asn1TimeRef};
-use openssl::hash::{hash, MessageDigest};
-use rustix::fs::{statat, utimensat, AtFlags, CWD, Timestamps};
+use openssl::hash::{MessageDigest, hash};
+use rustix::fs::{AtFlags, CWD, Timestamps, statat, utimensat};
 use rustix::io::Errno;
 use rustix::time::Timespec;
 use std::path::Path;
+use summit_rcm_core::certificates::CertificatesService;
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_core::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
+use summit_rcm_core::systemd_unit::SystemdUnit;
+use summit_rcm_core::utils::{command_output, path_exists, path_exists_sync, read_text};
+use summit_rcm_date_time::service::DateTimeService;
 use time::{Duration, UtcDateTime};
-use log::error;
 
 fn server_ssl_certificate_chain() -> String {
-    ServerConfig::get_string("global", "server.ssl_certificate_chain", "/etc/summit-rcm/ssl/ca.crt")
+    ServerConfig::get_string(
+        "global",
+        "server.ssl_certificate_chain",
+        "/etc/summit-rcm/ssl/ca.crt",
+    )
 }
 
 fn disable_certificate_expiry_verification() -> bool {
-    ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
+    ServerConfig::get_bool(
+        "summit-rcm",
+        "disable_certificate_expiry_verification",
+        true,
+    )
 }
 
 fn paired_client_cert_path() -> String {
@@ -204,17 +208,22 @@ impl CertificateProvisioningService {
         UtcDateTime::from_unix_timestamp_nanos(i128::from(timestamp_micros) * 1_000).ok()
     }
 
-    pub(crate) fn get_client_cert_validity_period(tls_info: &ClientTlsInfo) -> Result<TimestampValidityWindow> {
+    pub(crate) fn get_client_cert_validity_period(
+        tls_info: &ClientTlsInfo,
+    ) -> Result<TimestampValidityWindow> {
         if tls_info.client_cert_error.is_some() || tls_info.client_cert_chain.is_empty() {
             bail!("Could not read client certificate validity period");
         }
 
-        let cert =
-            CertificatesService::parse_certificate_bytes(tls_info.client_cert_chain[0].as_bytes(), None)?;
+        let cert = CertificatesService::parse_certificate_bytes(
+            tls_info.client_cert_chain[0].as_bytes(),
+            None,
+        )?;
         Self::certificate_validity_period(&cert)
     }
 
-    pub(crate) async fn get_device_server_cert_validity_period() -> Result<TimestampValidityWindow> {
+    pub(crate) async fn get_device_server_cert_validity_period() -> Result<TimestampValidityWindow>
+    {
         let cert_path = device_server_cert_path();
         if !path_exists(&cert_path).await {
             bail!("Could not get device certificate validity period - file not found");
@@ -230,8 +239,11 @@ impl CertificateProvisioningService {
             bail!("Could not read client certificate hash");
         }
 
-        let digest = hash(MessageDigest::sha256(), tls_info.client_cert_chain[0].as_bytes())
-            .map_err(|e| anyhow::anyhow!("SHA256 hash failed: {}", e))?;
+        let digest = hash(
+            MessageDigest::sha256(),
+            tls_info.client_cert_chain[0].as_bytes(),
+        )
+        .map_err(|e| anyhow::anyhow!("SHA256 hash failed: {}", e))?;
         Ok(hex::encode(digest.as_ref()))
     }
 
@@ -254,7 +266,9 @@ impl CertificateProvisioningService {
         Self::certificate_validity_period(&cert)
     }
 
-    pub(crate) async fn get_validity_period(tls_info: &ClientTlsInfo) -> Result<TimestampValidityWindow> {
+    pub(crate) async fn get_validity_period(
+        tls_info: &ClientTlsInfo,
+    ) -> Result<TimestampValidityWindow> {
         match Self::get_provisioning_state_async().await {
             ProvisioningState::PartiallyProvisioned | ProvisioningState::FullyProvisioned => {
                 match Self::get_device_server_cert_validity_period().await {
@@ -265,10 +279,12 @@ impl CertificateProvisioningService {
                     },
                 }
             }
-            ProvisioningState::Unprovisioned => match Self::get_client_cert_validity_period(tls_info) {
-                Ok(validity) => Ok(validity),
-                Err(_) => Self::get_ca_cert_validity_period().await,
-            },
+            ProvisioningState::Unprovisioned => {
+                match Self::get_client_cert_validity_period(tls_info) {
+                    Ok(validity) => Ok(validity),
+                    Err(_) => Self::get_ca_cert_validity_period().await,
+                }
+            }
         }
     }
 
@@ -379,8 +395,7 @@ impl CertificateProvisioningService {
                 if !Self::provisioning_tls_assets_available(&cert_path, &key_path) {
                     error!(
                         "Restricted provisioning mode requested but provisioning TLS assets are unavailable (cert: {}, key: {}); continuing with primary TLS config",
-                        cert_path,
-                        key_path,
+                        cert_path, key_path,
                     );
                     None
                 } else {
@@ -503,7 +518,9 @@ impl CertificateProvisioningService {
         if !path_exists(CERT_TEMP_PATH).await {
             return Err(ProvisioningSaveError::Internal);
         }
-        if !Self::verify_certificate_against_ca(CERT_TEMP_PATH, PROVISIONING_CA_CERT_CHAIN_PATH).await {
+        if !Self::verify_certificate_against_ca(CERT_TEMP_PATH, PROVISIONING_CA_CERT_CHAIN_PATH)
+            .await
+        {
             return Err(ProvisioningSaveError::InvalidCertificate);
         }
         let device_server_cert_path = device_server_cert_path();

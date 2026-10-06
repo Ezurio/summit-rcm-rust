@@ -24,7 +24,10 @@ fn workspace_public_version(cargo_toml: &str) -> Option<String> {
         };
         let value = value.trim_start();
         let value = value.strip_prefix('=')?.trim();
-        return value.strip_prefix('"')?.strip_suffix('"').map(str::to_string);
+        return value
+            .strip_prefix('"')?
+            .strip_suffix('"')
+            .map(str::to_string);
     }
     None
 }

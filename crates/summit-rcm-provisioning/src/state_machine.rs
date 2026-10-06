@@ -103,7 +103,11 @@ impl fmt::Display for TransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WrongState { current, event } => {
-                write!(f, "invalid provisioning transition: event {:?} in state {:?}", event, current)
+                write!(
+                    f,
+                    "invalid provisioning transition: event {:?} in state {:?}",
+                    event, current
+                )
             }
             Self::Persist(error) => write!(f, "failed to persist provisioning state: {error}"),
             Self::Restart(error) => write!(f, "failed to restart summit-rcm: {error}"),

@@ -3,21 +3,24 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_core::config::ServerConfig;
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::manager::NetworkManagerService;
 use crate::routes::connection_profile::ConnectionProfile;
 use crate::routes::legacy::types::{
-    ActivateConnectionLegacyRequest, LegacyConnectionProfileResponse,
-    LegacyDhcpLeasesResponse, LegacyDhcpLeasesResponses, LegacyNetworkInterfaceResponse,
+    ActivateConnectionLegacyRequest, LegacyConnectionProfileResponse, LegacyDhcpLeasesResponse,
+    LegacyDhcpLeasesResponses, LegacyNetworkInterfaceResponse,
 };
-use crate::routes::shared::{parse_route_model, DhcpLeasesResponse};
+use crate::routes::shared::{DhcpLeasesResponse, parse_route_model};
 use crate::service::{InterfaceError, NetworkService};
-use summit_rcm_web::axum::{extract::{Path, Query}, Json};
-use serde::{Deserialize, Serialize};
-use summit_rcm_web::serde_json::Value;
-use std::collections::BTreeMap;
 use log::error;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_web::axum::{
+    Json,
+    extract::{Path, Query},
+};
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
+use summit_rcm_web::serde_json::Value;
 
 fn unmanaged_hardware_devices() -> Vec<String> {
     ServerConfig::get_words("summit-rcm", "unmanaged_hardware_devices")
@@ -27,19 +30,22 @@ summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum GetConnectionLegacyResponses(LegacyConnectionProfileResponse);
 }
 
-pub(crate) type WriteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type WriteConnectionLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum ListConnectionsLegacyResponses(LegacyConnectionsResponse);
 }
 
-pub(crate) type DeleteConnectionLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteConnectionLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum GetAccessPointsLegacyResponses(LegacyAccessPointsResponse);
 }
 
-pub(crate) type PutAccessPointsLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutAccessPointsLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum GetWifiEnableLegacyResponses(LegacyWifiEnableInfoResponse);
@@ -245,13 +251,12 @@ fn legacy_dhcp_leases_response(
     operation: LegacyOperationResponse,
     leases: DhcpLeasesResponse,
 ) -> LegacyDhcpLeasesResponse {
-    LegacyDhcpLeasesResponse {
-        operation,
-        leases,
-    }
+    LegacyDhcpLeasesResponse { operation, leases }
 }
 
-fn legacy_empty_dhcp_leases_response(operation: LegacyOperationResponse) -> LegacyDhcpLeasesResponse {
+fn legacy_empty_dhcp_leases_response(
+    operation: LegacyOperationResponse,
+) -> LegacyDhcpLeasesResponse {
     legacy_dhcp_leases_response(
         operation,
         DhcpLeasesResponse {
@@ -277,12 +282,15 @@ pub(crate) struct WifiStateQuery {
     pub enable: Option<String>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/connections",
-    tag = "legacy",
-    responses(ListConnectionsLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/connections",
+        tag = "legacy",
+        responses(ListConnectionsLegacyResponses)
+    )
+)]
 pub(crate) async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
     match NetworkService::get_connections_legacy().await {
         Ok(connections) => match parse_route_model::<BTreeMap<String, LegacyConnectionSummary>>(
@@ -300,24 +308,35 @@ pub(crate) async fn get_connections_legacy() -> ListConnectionsLegacyResponses {
         },
         Err(error) => {
             error!("Error getting connections: {}", error);
-            legacy_connections_response(fail_response("Error retrieving connections"), BTreeMap::new()).into()
+            legacy_connections_response(
+                fail_response("Error retrieving connections"),
+                BTreeMap::new(),
+            )
+            .into()
         }
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/connection",
-    tag = "legacy",
-    responses(GetConnectionLegacyResponses)
-))]
-pub(crate) async fn get_connection_legacy(Query(q): Query<UuidQuery>) -> GetConnectionLegacyResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/connection",
+        tag = "legacy",
+        responses(GetConnectionLegacyResponses)
+    )
+)]
+pub(crate) async fn get_connection_legacy(
+    Query(q): Query<UuidQuery>,
+) -> GetConnectionLegacyResponses {
     let Some(uuid) = q.uuid.as_deref().filter(|value| !value.is_empty()) else {
         return legacy_connection_profile_response(fail_response("no UUID provided"), None).into();
     };
 
     match NetworkService::get_connection_profile_by_uuid(uuid).await {
-        Ok(connection) => legacy_connection_profile_response(ok_response(""), Some(connection)).into(),
+        Ok(connection) => {
+            legacy_connection_profile_response(ok_response(""), Some(connection)).into()
+        }
         Err(_) => legacy_connection_profile_response(fail_response("Invalid UUID"), None).into(),
     }
 }
@@ -329,32 +348,35 @@ pub(crate) async fn get_connection_legacy(Query(q): Query<UuidQuery>) -> GetConn
     request_body = ConnectionProfile,
     responses(WriteConnectionLegacyResponses)
 ))]
-pub(crate) async fn post_connection_legacy(Json(body): Json<ConnectionProfile>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn post_connection_legacy(
+    Json(body): Json<ConnectionProfile>,
+) -> WriteConnectionLegacyResponses {
     let fallback_name = body.connection.id.clone().unwrap_or_default();
 
     match NetworkService::create_connection_profile_typed(body).await {
         Ok((profile, created)) => {
-            let name = profile
-                .connection
-                .id
-                .unwrap_or(fallback_name);
+            let name = profile.connection.id.unwrap_or(fallback_name);
             ok_response(if created {
-                    format!("connection {} created", name)
-                } else {
-                    format!("connection {} updated", name)
-                })
+                format!("connection {} created", name)
+            } else {
+                format!("connection {} updated", name)
+            })
             .into()
         }
         Err(error) => fail_response(format!("Unable to create connection - {}", error)).into(),
     }
 }
 
-pub(crate) async fn put_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn put_connection_legacy(
+    Json(body): Json<ActivateConnectionLegacyRequest>,
+) -> WriteConnectionLegacyResponses {
     activate_connection_legacy(Json(body)).await
 }
 
 async fn get_legacy_connection_profile(uuid: &str) -> Option<ConnectionProfile> {
-    NetworkService::get_connection_profile_by_uuid(uuid).await.ok()
+    NetworkService::get_connection_profile_by_uuid(uuid)
+        .await
+        .ok()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -364,8 +386,13 @@ async fn get_legacy_connection_profile(uuid: &str) -> Option<ConnectionProfile> 
     params(("uuid" = String, Path, description = "Connection UUID")),
     responses(DeleteConnectionLegacyResponses)
 ))]
-pub(crate) async fn delete_connection_legacy(Path(uuid): Path<String>) -> DeleteConnectionLegacyResponses {
-    if NetworkManagerService::get_connection_path_by_uuid(&uuid).await.is_err() {
+pub(crate) async fn delete_connection_legacy(
+    Path(uuid): Path<String>,
+) -> DeleteConnectionLegacyResponses {
+    if NetworkManagerService::get_connection_path_by_uuid(&uuid)
+        .await
+        .is_err()
+    {
         return fail_response("Unable to delete connection, not found").into();
     }
 
@@ -375,13 +402,18 @@ pub(crate) async fn delete_connection_legacy(Path(uuid): Path<String>) -> Delete
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/connection",
-    tag = "legacy",
-    responses(DeleteConnectionLegacyResponses)
-))]
-pub(crate) async fn delete_connection_legacy_query(Query(q): Query<UuidQuery>) -> DeleteConnectionLegacyResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/connection",
+        tag = "legacy",
+        responses(DeleteConnectionLegacyResponses)
+    )
+)]
+pub(crate) async fn delete_connection_legacy_query(
+    Query(q): Query<UuidQuery>,
+) -> DeleteConnectionLegacyResponses {
     let uuid = q.uuid.unwrap_or_default();
     match NetworkService::delete_connection_by_uuid(&uuid).await {
         Ok(()) => ok_response("Connection deleted").into(),
@@ -396,7 +428,9 @@ pub(crate) async fn delete_connection_legacy_query(Query(q): Query<UuidQuery>) -
     request_body = ActivateConnectionLegacyRequest,
     responses(WriteConnectionLegacyResponses)
 ))]
-pub(crate) async fn activate_connection_legacy(Json(body): Json<ActivateConnectionLegacyRequest>) -> WriteConnectionLegacyResponses {
+pub(crate) async fn activate_connection_legacy(
+    Json(body): Json<ActivateConnectionLegacyRequest>,
+) -> WriteConnectionLegacyResponses {
     if body.uuid.is_empty() {
         return fail_response("Missing UUID").into();
     };
@@ -407,13 +441,17 @@ pub(crate) async fn activate_connection_legacy(Json(body): Json<ActivateConnecti
 
     if body.activate != 0 {
         match NetworkService::activate_connection(&body.uuid, None).await {
-            Ok(()) => ok_response(if connection.connection.connection_type.as_deref() == Some("bridge") {
+            Ok(()) => ok_response(
+                if connection.connection.connection_type.as_deref() == Some("bridge") {
                     "Bridge activated".to_string()
                 } else {
                     "Connection Activated".to_string()
-                })
+                },
+            )
             .into(),
-            Err(error) => fail_response(format!("Unable to activate connection - {}", error)).into(),
+            Err(error) => {
+                fail_response(format!("Unable to activate connection - {}", error)).into()
+            }
         }
     } else {
         match NetworkService::deactivate_connection(&body.uuid).await {
@@ -423,13 +461,18 @@ pub(crate) async fn activate_connection_legacy(Json(body): Json<ActivateConnecti
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/accesspoints",
-    tag = "legacy",
-    responses(GetAccessPointsLegacyResponses)
-))]
-pub(crate) async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) -> GetAccessPointsLegacyResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/accesspoints",
+        tag = "legacy",
+        responses(GetAccessPointsLegacyResponses)
+    )
+)]
+pub(crate) async fn get_access_points_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> GetAccessPointsLegacyResponses {
     let iface = q.interface.as_deref();
     match NetworkService::get_access_points_legacy(iface).await {
         Ok(value) => match parse_route_model::<LegacyAccessPointsResponse>(value) {
@@ -446,12 +489,15 @@ pub(crate) async fn get_access_points_legacy(Query(q): Query<InterfaceQuery>) ->
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/accesspoints",
-    tag = "legacy",
-    responses(PutAccessPointsLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/accesspoints",
+        tag = "legacy",
+        responses(PutAccessPointsLegacyResponses)
+    )
+)]
 pub(crate) async fn put_access_points_legacy() -> PutAccessPointsLegacyResponses {
     match NetworkService::request_ap_scan().await {
         Ok(_) => ok_response("Scan requested").into(),
@@ -459,12 +505,15 @@ pub(crate) async fn put_access_points_legacy() -> PutAccessPointsLegacyResponses
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/wifiEnable",
-    tag = "legacy",
-    responses(GetWifiEnableLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/wifiEnable",
+        tag = "legacy",
+        responses(GetWifiEnableLegacyResponses)
+    )
+)]
 pub(crate) async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
     match NetworkService::get_wifi_status_model().await {
         Ok(value) => legacy_wifi_enable_info_response(
@@ -473,7 +522,12 @@ pub(crate) async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
             Some(value.wifi_radio_hardware_enabled),
         )
         .into(),
-        Err(error) => legacy_wifi_enable_info_response(fail_response(error.to_string()), Some(false), Some(false)).into(),
+        Err(error) => legacy_wifi_enable_info_response(
+            fail_response(error.to_string()),
+            Some(false),
+            Some(false),
+        )
+        .into(),
     }
 }
 
@@ -484,7 +538,9 @@ pub(crate) async fn get_wifi_enable_legacy() -> GetWifiEnableLegacyResponses {
     params(("enable" = String, Query, description = "Desired Wi-Fi enabled state")),
     responses(PutWifiEnableLegacyResponses)
 ))]
-pub(crate) async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> PutWifiEnableLegacyResponses {
+pub(crate) async fn put_wifi_enable_legacy(
+    Query(q): Query<WifiStateQuery>,
+) -> PutWifiEnableLegacyResponses {
     let requested_enable = q.enable.clone();
     let enabled = match requested_enable.as_deref().map(str::to_ascii_lowercase) {
         Some(value) if ["y", "yes", "t", "true", "on", "1"].contains(&value.as_str()) => true,
@@ -499,7 +555,7 @@ pub(crate) async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> P
                 None,
                 None,
             )
-            .into()
+            .into();
         }
     };
 
@@ -522,42 +578,60 @@ pub(crate) async fn put_wifi_enable_legacy(Query(q): Query<WifiStateQuery>) -> P
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterface",
-    tag = "legacy",
-    responses(GetInterfaceLegacyResponses)
-))]
-pub(crate) async fn get_interface_legacy(Query(q): Query<InterfaceQuery>) -> GetInterfaceLegacyResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterface",
+        tag = "legacy",
+        responses(GetInterfaceLegacyResponses)
+    )
+)]
+pub(crate) async fn get_interface_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> GetInterfaceLegacyResponses {
     let Some(iface) = q.name.as_deref() else {
         return legacy_interface_error("no interface name provided").into();
     };
 
-    if unmanaged_hardware_devices().iter().any(|device| device == iface) {
+    if unmanaged_hardware_devices()
+        .iter()
+        .any(|device| device == iface)
+    {
         return legacy_interface_error("invalid interface name provided").into();
     }
 
     match NetworkService::get_interface_legacy(iface).await {
-        Ok(properties) if properties.as_object().is_some_and(|value| !value.is_empty()) => {
+        Ok(properties)
+            if properties
+                .as_object()
+                .is_some_and(|value| !value.is_empty()) =>
+        {
             match parse_route_model::<LegacyNetworkInterfaceResponse>(properties) {
-                Ok(properties) => legacy_interface_response(ok_response(""), Some(properties)).into(),
+                Ok(properties) => {
+                    legacy_interface_response(ok_response(""), Some(properties)).into()
+                }
                 Err(error) => legacy_interface_error(error.to_string()).into(),
             }
         }
         Ok(_) => legacy_interface_error("invalid interface name provided").into(),
         Err(error) => {
             error!("Error getting interface {}: {}", iface, error);
-            legacy_interface_error("Unable to retrieve detailed network interface configuration").into()
+            legacy_interface_error("Unable to retrieve detailed network interface configuration")
+                .into()
         }
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaces",
-    tag = "legacy",
-    responses(GetInterfacesLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaces",
+        tag = "legacy",
+        responses(GetInterfacesLegacyResponses)
+    )
+)]
 pub(crate) async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
     match NetworkService::get_all_interfaces().await {
         Ok(names) => match parse_route_model::<Vec<String>>(names) {
@@ -571,13 +645,18 @@ pub(crate) async fn get_interfaces_legacy() -> GetInterfacesLegacyResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceDhcpLeases",
-    tag = "legacy",
-    responses(LegacyDhcpLeasesResponses)
-))]
-pub(crate) async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQuery>) -> LegacyDhcpLeasesResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceDhcpLeases",
+        tag = "legacy",
+        responses(LegacyDhcpLeasesResponses)
+    )
+)]
+pub(crate) async fn get_interface_dhcp_leases_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacyDhcpLeasesResponses {
     let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
         return legacy_empty_dhcp_leases_response(fail_response("Invalid interface name")).into();
     };
@@ -587,7 +666,10 @@ pub(crate) async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQu
             Ok(leases) => legacy_dhcp_leases_response(ok_response(""), leases).into(),
             Err(error) => {
                 error!("Error parsing DHCP leases for {}: {}", name, error);
-                legacy_empty_dhcp_leases_response(fail_response("Could not read current DHCP leases")).into()
+                legacy_empty_dhcp_leases_response(fail_response(
+                    "Could not read current DHCP leases",
+                ))
+                .into()
             }
         },
         Err(InterfaceError::InvalidName) => {
@@ -595,7 +677,8 @@ pub(crate) async fn get_interface_dhcp_leases_legacy(Query(q): Query<InterfaceQu
         }
         Err(error) => {
             error!("Error getting DHCP leases for {}: {:?}", name, error);
-            legacy_empty_dhcp_leases_response(fail_response("Could not read current DHCP leases")).into()
+            legacy_empty_dhcp_leases_response(fail_response("Could not read current DHCP leases"))
+                .into()
         }
     }
 }

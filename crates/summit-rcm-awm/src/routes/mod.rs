@@ -13,8 +13,8 @@ pub(crate) mod shared;
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) mod v2_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(
+    #[derive(utoipa::OpenApi)]
+    #[openapi(
 		tags((name = "awm", description = "Adaptive Worldwide Mode")),
 		paths(
 			crate::routes::v2::get_awm,
@@ -22,16 +22,16 @@ pub(crate) mod v2_openapi {
 		),
 		components(schemas(crate::routes::v2::AwmPut))
 	)]
-	pub(crate) struct ApiDoc;
+    pub(crate) struct ApiDoc;
 }
 
 #[cfg(all(feature = "api-docs", feature = "api-legacy"))]
 pub(crate) mod legacy_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(paths(
-		crate::routes::legacy::get_awm_legacy,
-		crate::routes::legacy::put_awm_legacy,
-	))]
-	pub(crate) struct ApiDoc;
+    #[derive(utoipa::OpenApi)]
+    #[openapi(paths(
+        crate::routes::legacy::get_awm_legacy,
+        crate::routes::legacy::put_awm_legacy,
+    ))]
+    pub(crate) struct ApiDoc;
 }

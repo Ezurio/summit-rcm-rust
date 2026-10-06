@@ -10,7 +10,10 @@ fn bluetooth_web_publication_registers_routes_and_openapi_fragment() {
         .find(|publication| publication.name == "bluetooth")
         .expect("bluetooth web publication should be registered");
 
-    assert!(bluetooth.routes.is_some(), "bluetooth publication should expose routes");
+    assert!(
+        bluetooth.routes.is_some(),
+        "bluetooth publication should expose routes"
+    );
     assert!(
         bluetooth.openapi_json.is_some(),
         "bluetooth publication should expose an OpenAPI fragment"
@@ -143,7 +146,10 @@ fn bluetooth_device_get_openapi_matches_bluetooth_state_contract() {
     }
 
     assert_ne!(response_schema(v2_device_get), response_schema(v2_root_get));
-    assert_eq!(response_schema(legacy_device_get), response_schema(legacy_root_get));
+    assert_eq!(
+        response_schema(legacy_device_get),
+        response_schema(legacy_root_get)
+    );
     assert!(has_filter_query_param(v2_device_get));
     assert!(has_filter_query_param(legacy_device_get));
 }

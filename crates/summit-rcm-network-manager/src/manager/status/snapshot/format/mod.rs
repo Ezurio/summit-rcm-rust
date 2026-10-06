@@ -10,8 +10,8 @@
 //! v2 (modern, camelCase) encoder is also used by the AT command interface, so
 //! it is available whenever either `api-v2` or `at-interface` is enabled.
 
+#[cfg(feature = "api-legacy")]
+mod legacy;
 mod shared;
 #[cfg(any(feature = "api-v2", feature = "at-interface"))]
 mod v2;
-#[cfg(feature = "api-legacy")]
-mod legacy;

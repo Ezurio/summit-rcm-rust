@@ -4,12 +4,12 @@
 //
 //! Chrony NTP AT commands: at+ntpconf, at+ntpget
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::service::{ChronyNTPService, SourceCommand};
-use std::fmt::Write as _;
 use log::error;
+use std::fmt::Write as _;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_ntp_conf(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let command = params.trimmed(0).to_string();
@@ -79,7 +79,18 @@ async fn execute_ntp_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOut
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+ntpconf", "AT+NTPCONF=<command>,<source1>[,<source2>...]", 2, &[0], execute_ntp_conf),
-    summit_rcm_at::commands::command_spec!("at+ntpget", "AT+NTPGET[=<scope>]", 0, &[], execute_ntp_get),
+    summit_rcm_at::commands::command_spec!(
+        "at+ntpconf",
+        "AT+NTPCONF=<command>,<source1>[,<source2>...]",
+        2,
+        &[0],
+        execute_ntp_conf
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+ntpget",
+        "AT+NTPGET[=<scope>]",
+        0,
+        &[],
+        execute_ntp_get
+    ),
 ];
-

@@ -15,7 +15,10 @@ pub(crate) const CERT_TEMP_PATH: &str = "/tmp/dev.crt";
 pub(crate) const CONFIG_FILE_TEMP_PATH: &str = "/tmp/dev.cnf";
 
 pub(crate) fn provisioning_state_file_path() -> String {
-    summit_rcm_core::config::env_or_trimmed("SUMMIT_RCM_PROVISIONING_STATE_FILE", PROVISIONING_STATE_FILE_PATH)
+    summit_rcm_core::config::env_or_trimmed(
+        "SUMMIT_RCM_PROVISIONING_STATE_FILE",
+        PROVISIONING_STATE_FILE_PATH,
+    )
 }
 
 pub(crate) fn provisioning_server_cert_path() -> String {

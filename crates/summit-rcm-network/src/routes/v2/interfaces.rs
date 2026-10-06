@@ -10,9 +10,9 @@ pub(crate) use crate::types::{
     AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station, SummitStatus,
     VirtualInterfaceResponse,
 };
-use summit_rcm_web::axum::extract::Path;
-use std::collections::BTreeMap;
 use log::error;
+use std::collections::BTreeMap;
+use summit_rcm_web::axum::extract::Path;
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     pub(crate) enum PutInterfaceResponses(VirtualInterfaceResponse);
@@ -123,7 +123,9 @@ pub(crate) async fn get_interface_stats(Path(name): Path<String>) -> GetInterfac
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceDriverInfoResponses)
 ))]
-pub(crate) async fn get_interface_driver_info(Path(name): Path<String>) -> GetInterfaceDriverInfoResponses {
+pub(crate) async fn get_interface_driver_info(
+    Path(name): Path<String>,
+) -> GetInterfaceDriverInfoResponses {
     match NetworkService::get_interface_driver_info(&name).await {
         Ok(value) => value.into(),
         Err(RawNetworkError::InvalidInterfaceName) => GetInterfaceDriverInfoResponses::BadRequest,
@@ -141,7 +143,9 @@ pub(crate) async fn get_interface_driver_info(Path(name): Path<String>) -> GetIn
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceAvailableApChannelsResponses)
 ))]
-pub(crate) async fn get_interface_available_ap_channels(Path(name): Path<String>) -> GetInterfaceAvailableApChannelsResponses {
+pub(crate) async fn get_interface_available_ap_channels(
+    Path(name): Path<String>,
+) -> GetInterfaceAvailableApChannelsResponses {
     match NetworkService::get_interface_available_ap_channels(&name).await {
         Ok(value) => value.into(),
         Err(error) => {
@@ -175,7 +179,9 @@ pub(crate) async fn get_station_dump(Path(name): Path<String>) -> GetStationDump
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceSummitStatusResponses)
 ))]
-pub(crate) async fn get_interface_summit_status(Path(name): Path<String>) -> GetInterfaceSummitStatusResponses {
+pub(crate) async fn get_interface_summit_status(
+    Path(name): Path<String>,
+) -> GetInterfaceSummitStatusResponses {
     match NetworkService::get_summit_status(&name).await {
         Ok(value) => value.into(),
         Err(RawNetworkError::InterfaceNotFound) => GetInterfaceSummitStatusResponses::BadRequest,

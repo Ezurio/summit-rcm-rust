@@ -57,7 +57,7 @@ impl BluetoothService {
             &(),
             None,
         )
-            .await?;
+        .await?;
         Ok(())
     }
 
@@ -153,14 +153,20 @@ impl BluetoothService {
         Ok(objects)
     }
 
-    pub(super) fn get_adapter_path(objects: &ManagedObjects, controller: Option<&str>) -> Option<String> {
+    pub(super) fn get_adapter_path(
+        objects: &ManagedObjects,
+        controller: Option<&str>,
+    ) -> Option<String> {
         let adapter_paths = Self::adapter_paths(objects);
 
         if let Some(ctrl) = controller {
-            if let Some(index) = ctrl.strip_prefix("controller").and_then(|value| value.parse::<usize>().ok())
-                && let Some(path) = adapter_paths.get(index) {
-                    return Some(path.clone());
-                }
+            if let Some(index) = ctrl
+                .strip_prefix("controller")
+                .and_then(|value| value.parse::<usize>().ok())
+                && let Some(path) = adapter_paths.get(index)
+            {
+                return Some(path.clone());
+            }
 
             let want = format!("/org/bluez/{}", ctrl);
             if adapter_paths.iter().any(|path| path == &want) {
@@ -212,7 +218,10 @@ impl BluetoothService {
     pub(super) fn build_device_gatt_snapshot(
         objects: &ManagedObjects,
         device_path: &str,
-    ) -> (BTreeMap<String, ServiceSnapshot>, BTreeMap<String, CharacteristicSnapshot>) {
+    ) -> (
+        BTreeMap<String, ServiceSnapshot>,
+        BTreeMap<String, CharacteristicSnapshot>,
+    ) {
         let mut service_paths: Vec<(String, String, String)> = Vec::with_capacity(objects.len());
         let mut services = BTreeMap::new();
 
@@ -233,7 +242,9 @@ impl BluetoothService {
             let service_path = path.as_str().to_string();
             let service_uuid_lower = service_uuid.to_ascii_lowercase();
             service_paths.push((service_path, service_uuid.clone(), service_uuid_lower));
-            let _ = services.entry(service_uuid).or_insert_with(ServiceSnapshot::default);
+            let _ = services
+                .entry(service_uuid)
+                .or_insert_with(ServiceSnapshot::default);
         }
 
         service_paths.sort_by(|left, right| left.0.cmp(&right.0));
@@ -321,7 +332,11 @@ impl BluetoothService {
     }
 
     #[cfg(feature = "bluetooth-websocket")]
-    pub(super) fn send_char_result_notification(char_uuid: &str, result: i32, error: Option<String>) {
+    pub(super) fn send_char_result_notification(
+        char_uuid: &str,
+        result: i32,
+        error: Option<String>,
+    ) {
         BleNotification::CharResult(CharResultNotification {
             char_uuid: char_uuid.to_string(),
             result,

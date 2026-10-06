@@ -6,11 +6,11 @@
 //! The helper expects the image mode without any side suffix.
 
 use anyhow::Result;
+use log::{error, warn};
 use rustix::process::{Pid, Signal, kill_process};
 use std::process::Stdio;
 use std::sync::Mutex;
 use tokio::process::Command;
-use log::{error, warn};
 
 use super::FW_UPDATE_SCRIPT;
 use super::spawn_child_watcher;
@@ -43,8 +43,11 @@ pub(super) async fn start(image_mode: &str, _inactive_side: Option<&str>, url: &
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound { warn!("fw_update script not found"); }
-            else { error!("start_update: {}", e); }
+            if e.kind() == std::io::ErrorKind::NotFound {
+                warn!("fw_update script not found");
+            } else {
+                error!("start_update: {}", e);
+            }
             e
         })?;
     *URL_CHILD_PID.lock().unwrap() = child.id().and_then(child_pid);

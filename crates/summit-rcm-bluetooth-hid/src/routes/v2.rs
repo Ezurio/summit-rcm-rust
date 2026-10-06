@@ -8,13 +8,13 @@
 //! compatibility.
 
 use crate::routes::shared::{
-    hid_connections_response, BluetoothHidCommandRequest, BluetoothHidControlResponse,
+    BluetoothHidCommandRequest, BluetoothHidControlResponse, hid_connections_response,
 };
 use crate::service::list_hid_connections;
 use summit_rcm_bluetooth::service::{
     BluetoothCommandRouteError, BluetoothCommandRouteStatus, BluetoothService,
 };
-use summit_rcm_web::axum::{extract::Path, Json};
+use summit_rcm_web::axum::{Json, extract::Path};
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_json_response_family! {
@@ -55,7 +55,13 @@ async fn run_hid_command(
         "command".to_string(),
         serde_json::Value::String(command.to_string()),
     );
-    match BluetoothService::run_command_value_v2(Some(controller), device, serde_json::Value::Object(body)).await {
+    match BluetoothService::run_command_value_v2(
+        Some(controller),
+        device,
+        serde_json::Value::Object(body),
+    )
+    .await
+    {
         Ok(Ok((_response, _info))) => BluetoothHidControlResponse::default().into(),
         Ok(Err(error)) => hid_put_error_response(&error),
         Err(error) => {
@@ -115,7 +121,13 @@ pub(crate) async fn put_bluetooth_hid(
 pub(crate) async fn delete_bluetooth_hid(
     Path((controller, device)): Path<(String, String)>,
 ) -> PutBluetoothHidResponses {
-    run_hid_command(&controller, Some(&device), serde_json::Map::new(), "hidDisconnect").await
+    run_hid_command(
+        &controller,
+        Some(&device),
+        serde_json::Map::new(),
+        "hidDisconnect",
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -124,9 +136,5 @@ mod tests;
 
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 #[derive(utoipa::OpenApi)]
-#[openapi(paths(
-    get_bluetooth_hid,
-    put_bluetooth_hid,
-    delete_bluetooth_hid,
-))]
+#[openapi(paths(get_bluetooth_hid, put_bluetooth_hid, delete_bluetooth_hid,))]
 pub(crate) struct HidApiDoc;

@@ -4,10 +4,10 @@
 //
 //! AWM AT commands: at+awmmode, at+awmscan
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_awm_mode(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     let lite = crate::service::AwmConfigService::get_lite_mode_enabled().await;
@@ -47,6 +47,11 @@ async fn execute_awm_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOu
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     summit_rcm_at::commands::command_spec!("at+awmmode", "AT+AWMMODE", 0, &[], execute_awm_mode),
-    summit_rcm_at::commands::command_spec!("at+awmscan", "AT+AWMSCAN[=<attempts>]", 0, &[], execute_awm_scan),
+    summit_rcm_at::commands::command_spec!(
+        "at+awmscan",
+        "AT+AWMSCAN[=<attempts>]",
+        0,
+        &[],
+        execute_awm_scan
+    ),
 ];
-

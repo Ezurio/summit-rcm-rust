@@ -11,11 +11,11 @@ mod progress;
 mod stream;
 mod update_url;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use bytes::Bytes;
-use summit_rcm_core::utils::get_boot_rootfs_info;
-use std::sync::RwLock;
 use log::error;
+use std::sync::RwLock;
+use summit_rcm_core::utils::get_boot_rootfs_info;
 
 const FW_UPDATE_SCRIPT: &str = "fw_update";
 
@@ -159,12 +159,12 @@ impl FirmwareUpdateService {
         let (running_on_sd, current_side) = match get_boot_rootfs_info().await {
             Ok(info) if info.is_running_on_sd() => (true, None),
             Ok(info) => (false, info.current_side_option().map(str::to_string)),
-            Err(_)   => (false, None),
+            Err(_) => (false, None),
         };
 
         let stream_mode = match (url.is_empty(), running_on_sd) {
-            (false, _)    => StreamMode::Url,
-            (true, true)  => StreamMode::Pipe,
+            (false, _) => StreamMode::Url,
+            (true, true) => StreamMode::Pipe,
             (true, false) => StreamMode::Ipc,
         };
 
@@ -185,14 +185,16 @@ impl FirmwareUpdateService {
         {
             let mut state = STATE.write().unwrap();
             state.image = image_mode.to_string();
-            if !url.is_empty() { state.url = url.to_string(); }
+            if !url.is_empty() {
+                state.url = url.to_string();
+            }
             state.percent_complete = 0;
         }
 
         let start_result = match stream_mode {
-            StreamMode::Url  => update_url::start(image_mode, inactive_side.as_deref(), url).await,
+            StreamMode::Url => update_url::start(image_mode, inactive_side.as_deref(), url).await,
             StreamMode::Pipe => pipe::start(image_mode, inactive_side.as_deref()).await,
-            StreamMode::Ipc  => ipc::start(image_mode, inactive_side.as_deref()).await,
+            StreamMode::Ipc => ipc::start(image_mode, inactive_side.as_deref()).await,
         };
 
         if let Err(error) = start_result {
@@ -223,7 +225,9 @@ impl FirmwareUpdateService {
             let mode = state.stream_mode.take();
             (state.progress_task.take(), mode)
         };
-        if let Some(h) = handle { h.abort(); }
+        if let Some(h) = handle {
+            h.abort();
+        }
         match mode {
             Some(StreamMode::Url) => update_url::kill(),
             Some(StreamMode::Pipe) | Some(StreamMode::Ipc) => stream::close(),

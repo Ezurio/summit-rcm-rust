@@ -3,20 +3,17 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::routes::shared::{
-    create_csr_from_upload, save_uploaded_certificate, ProvisioningRouteError,
+    ProvisioningRouteError, create_csr_from_upload, save_uploaded_certificate,
 };
 use crate::service::{CertificateProvisioningService, ClientTlsInfo};
 use crate::state_machine::{Event, ProvisioningStateMachine};
 use summit_rcm_date_time::routes::legacy::DateTimeBody;
 use summit_rcm_date_time::service::DateTimeService;
 use summit_rcm_web::axum::{
-    extract::multipart::MultipartRejection,
-    extract::Multipart,
-    extract::Extension,
-    Json,
+    Json, extract::Extension, extract::Multipart, extract::multipart::MultipartRejection,
 };
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -36,7 +33,8 @@ summit_rcm_web::define_text_response_family! {
     from String => Ok;
 }
 
-pub(crate) type PutProvisioningLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutProvisioningLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum PutProvisioningDateTimeLegacyResponses(ProvisioningLegacyDateTimeResponse);
@@ -68,7 +66,9 @@ pub(crate) struct ProvisioningLegacyDateTimeResponse {
     pub not_after: Option<String>,
 }
 
-async fn invalid_timestamp_legacy_response(tls_info: &ClientTlsInfo) -> ProvisioningLegacyDateTimeResponse {
+async fn invalid_timestamp_legacy_response(
+    tls_info: &ClientTlsInfo,
+) -> ProvisioningLegacyDateTimeResponse {
     let validity = CertificateProvisioningService::timestamp_validity_payload(tls_info).await;
     ProvisioningLegacyDateTimeResponse {
         operation: fail_response("Invalid timestamp"),
@@ -96,12 +96,15 @@ fn legacy_put_response(
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/certificateProvisioning",
-    tag = "provisioning",
-    responses(GetProvisioningLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/certificateProvisioning",
+        tag = "provisioning",
+        responses(GetProvisioningLegacyResponses)
+    )
+)]
 pub(crate) async fn get_provisioning_legacy() -> GetProvisioningLegacyResponses {
     let state = CertificateProvisioningService::get_provisioning_state_async().await;
     LegacyProvisioningStateResponse {
@@ -126,8 +129,12 @@ pub(crate) async fn post_provisioning_legacy(
         Err(ProvisioningRouteError::BadRequest)
         | Err(ProvisioningRouteError::AlreadyProvisioned)
         | Err(ProvisioningRouteError::MissingFilename)
-        | Err(ProvisioningRouteError::InvalidCertificate) => PostProvisioningLegacyResponses::BadRequest,
-        Err(ProvisioningRouteError::InternalError) => PostProvisioningLegacyResponses::InternalError,
+        | Err(ProvisioningRouteError::InvalidCertificate) => {
+            PostProvisioningLegacyResponses::BadRequest
+        }
+        Err(ProvisioningRouteError::InternalError) => {
+            PostProvisioningLegacyResponses::InternalError
+        }
     }
 }
 
@@ -143,12 +150,19 @@ pub(crate) async fn put_provisioning_legacy(
 ) -> PutProvisioningLegacyResponses {
     match save_uploaded_certificate(multipart).await {
         Ok(()) => ok_response("").into(),
-        Err(ProvisioningRouteError::AlreadyProvisioned) => fail_response("Already provisioned").into(),
-        Err(ProvisioningRouteError::MissingFilename) => fail_response("No filename specified").into(),
-        Err(ProvisioningRouteError::BadRequest) | Err(ProvisioningRouteError::InvalidCertificate) => {
+        Err(ProvisioningRouteError::AlreadyProvisioned) => {
+            fail_response("Already provisioned").into()
+        }
+        Err(ProvisioningRouteError::MissingFilename) => {
+            fail_response("No filename specified").into()
+        }
+        Err(ProvisioningRouteError::BadRequest)
+        | Err(ProvisioningRouteError::InvalidCertificate) => {
             fail_response("Invalid certificate file").into()
         }
-        Err(ProvisioningRouteError::InternalError) => fail_response("Error uploading certificate file").into(),
+        Err(ProvisioningRouteError::InternalError) => {
+            fail_response("Error uploading certificate file").into()
+        }
     }
 }
 
@@ -171,11 +185,17 @@ pub(crate) async fn put_datetime_legacy(
             ));
         }
     } else if body.method.as_deref() == Some("manual") {
-        if let Some(datetime) = body.datetime.as_deref().filter(|datetime| !datetime.is_empty()) {
+        if let Some(datetime) = body
+            .datetime
+            .as_deref()
+            .filter(|datetime| !datetime.is_empty())
+        {
             if let Ok(parsed) = datetime.parse::<i64>()
                 && !CertificateProvisioningService::validate_new_timestamp(parsed, &tls_info).await
             {
-                return PutProvisioningDateTimeLegacyResponses::Ok(invalid_timestamp_legacy_response(&tls_info).await);
+                return PutProvisioningDateTimeLegacyResponses::Ok(
+                    invalid_timestamp_legacy_response(&tls_info).await,
+                );
             }
 
             if let Err(e) = DateTimeService::set_time_manual(datetime).await {

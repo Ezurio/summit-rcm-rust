@@ -8,8 +8,8 @@ use crate::routes::shared::{
     NetworkInterfaceStatus, NetworkInterfaceWiredProperties, NetworkInterfaceWirelessProperties,
 };
 use serde::{Deserialize, Serialize};
-use summit_rcm_web::serde_json::Value;
 use std::collections::BTreeMap;
+use summit_rcm_web::serde_json::Value;
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]

@@ -4,8 +4,8 @@
 //
 
 use crate::service::{ChronyNTPService, ChronySource, SourceCommand};
-use summit_rcm_web::axum::{extract::Path, Json};
 use log::error;
+use summit_rcm_web::axum::{Json, extract::Path};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -27,12 +27,15 @@ summit_rcm_web::define_status_response_family! {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/datetime/ntp",
-    tag = "chrony",
-    responses(GetNtpResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/datetime/ntp",
+        tag = "chrony",
+        responses(GetNtpResponses)
+    )
+)]
 pub(crate) async fn get_ntp() -> GetNtpResponses {
     match ChronyNTPService::get_sources().await {
         Ok(sources) => sources.into(),
@@ -43,18 +46,25 @@ pub(crate) async fn get_ntp() -> GetNtpResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/system/datetime/ntp",
-    tag = "chrony",
-    responses(PutNtpResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/system/datetime/ntp",
+        tag = "chrony",
+        responses(PutNtpResponses)
+    )
+)]
 pub(crate) async fn put_ntp(Json(body): Json<Vec<ChronySource>>) -> PutNtpResponses {
-    let new_sources: Vec<String> = body.into_iter()
+    let new_sources: Vec<String> = body
+        .into_iter()
         .filter(|s| s.source_type == "static")
         .map(|s| s.address)
         .collect();
-    match ChronyNTPService::configure_sources(SourceCommand::OverrideSources, &new_sources).await.map(|_| ()) {
+    match ChronyNTPService::configure_sources(SourceCommand::OverrideSources, &new_sources)
+        .await
+        .map(|_| ())
+    {
         Ok(_) => match ChronyNTPService::get_sources().await {
             Ok(sources) => sources.into(),
             Err(e) => {
@@ -80,7 +90,10 @@ pub(crate) async fn get_ntp_source(Path(address): Path<String>) -> GetNtpSourceR
     match ChronyNTPService::get_source(&address).await {
         Ok(Some(src)) => src.into(),
         Ok(None) => GetNtpSourceResponses::NotFound,
-        Err(e) => { error!("Unable to retrieve chrony NTP source: {}", e); GetNtpSourceResponses::InternalError }
+        Err(e) => {
+            error!("Unable to retrieve chrony NTP source: {}", e);
+            GetNtpSourceResponses::InternalError
+        }
     }
 }
 

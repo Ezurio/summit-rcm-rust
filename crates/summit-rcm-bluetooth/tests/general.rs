@@ -12,18 +12,16 @@ use summit_rcm_bluetooth::routes::legacy::LegacyBluetoothControllerModel;
 #[cfg(feature = "api-legacy")]
 #[test]
 fn legacy_controller_state_serializes_transport_filter_under_legacy_name() {
-    let payload = serde_json::to_value(
-        BTreeMap::from([(
-            "controller0".to_string(),
-            LegacyBluetoothControllerModel {
-                bluetooth_devices: Some(vec![]),
-                discovering: Some(1),
-                powered: Some(1),
-                discoverable: Some(0),
-                transport_filter: Some("le".to_string()),
-            },
-        )]),
-    )
+    let payload = serde_json::to_value(BTreeMap::from([(
+        "controller0".to_string(),
+        LegacyBluetoothControllerModel {
+            bluetooth_devices: Some(vec![]),
+            discovering: Some(1),
+            powered: Some(1),
+            discoverable: Some(0),
+            transport_filter: Some("le".to_string()),
+        },
+    )]))
     .expect("legacy controller state should serialize");
 
     let controller = payload
@@ -49,12 +47,24 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
         .get("controller0")
         .expect("expected controller0 on the live BlueZ bus");
 
-    assert!(controller.get("powered").and_then(serde_json::Value::as_i64).is_some());
-    assert!(controller.get("discovering").and_then(serde_json::Value::as_i64).is_some());
-    assert!(controller
-        .get("bluetoothDevices")
-        .and_then(serde_json::Value::as_array)
-        .is_some());
+    assert!(
+        controller
+            .get("powered")
+            .and_then(serde_json::Value::as_i64)
+            .is_some()
+    );
+    assert!(
+        controller
+            .get("discovering")
+            .and_then(serde_json::Value::as_i64)
+            .is_some()
+    );
+    assert!(
+        controller
+            .get("bluetoothDevices")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
+    );
 
     let (started, info_msg) = BluetoothService::handle_command_v2(
         Some("controller0"),
@@ -96,5 +106,8 @@ async fn live_bluez_discovery_command_uses_real_adapter_state() {
     .expect("bleStopDiscovery should succeed")
     .expect("bleStopDiscovery should not return a route error");
 
-    assert!(observed_discovering, "expected live BlueZ discovery to become visible at least once");
+    assert!(
+        observed_discovering,
+        "expected live BlueZ discovery to become visible at least once"
+    );
 }

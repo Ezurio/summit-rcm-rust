@@ -5,12 +5,12 @@
 //! System power / factory-reset service (D-Bus via zbus)
 
 use crate::{FACTORY_RESET_SCRIPT, PowerState};
+use anyhow::Result;
+use log::{error, info};
+use std::sync::RwLock;
 use summit_rcm_core::systemd_power as power;
 use summit_rcm_core::utils::command_output;
 use summit_rcm_core::utils::path_exists_sync;
-use anyhow::Result;
-use std::sync::RwLock;
-use log::{error, info};
 
 static POWER_STATE: RwLock<PowerState> = RwLock::new(PowerState::On);
 

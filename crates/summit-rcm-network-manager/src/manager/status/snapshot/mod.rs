@@ -15,7 +15,7 @@ mod watcher;
 use anyhow::Result;
 use serde_json::Value;
 
-use super::super::{NetworkManagerService, NETWORK_STATUS_CACHE};
+use super::super::{NETWORK_STATUS_CACHE, NetworkManagerService};
 
 impl NetworkManagerService {
     pub(crate) async fn get_status_snapshot_raw() -> Result<Value> {

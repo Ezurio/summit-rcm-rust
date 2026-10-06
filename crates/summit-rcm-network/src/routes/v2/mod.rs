@@ -16,15 +16,12 @@ pub(crate) mod interfaces;
         crate::routes::v2::interfaces::get_station_dump,
         crate::routes::v2::interfaces::get_interface_summit_status,
     ),
-    components(
-        schemas(
-            interfaces::AvailableApChannel,
-            interfaces::InterfaceDriverInfo,
-            interfaces::InterfaceStats,
-            interfaces::SummitStatus,
-            interfaces::VirtualInterfaceResponse
-        )
-    )
+    components(schemas(
+        interfaces::AvailableApChannel,
+        interfaces::InterfaceDriverInfo,
+        interfaces::InterfaceStats,
+        interfaces::SummitStatus,
+        interfaces::VirtualInterfaceResponse
+    ))
 )]
 pub(crate) struct ApiDoc;
-

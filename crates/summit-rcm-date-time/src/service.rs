@@ -4,11 +4,11 @@
 //
 //! Date/time management service (D-Bus timedate1 + timedatectl)
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use summit_rcm_core::dbus;
 use summit_rcm_core::definition::SUMMIT_RCM_TIME_FORMAT_DESCRIPTION;
 use summit_rcm_core::utils::read_text;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, PrimitiveDateTime, util};
 
 const TIMEDATE1_BUS_NAME: &str = "org.freedesktop.timedate1";

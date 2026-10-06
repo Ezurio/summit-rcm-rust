@@ -22,9 +22,6 @@ pub async fn add_security_headers(req: Request<Body>, next: Next) -> Response<Bo
             .parse()
             .unwrap(),
     );
-    headers.insert(
-        "Strict-Transport-Security",
-        "max-age=600".parse().unwrap(),
-    );
+    headers.insert("Strict-Transport-Security", "max-age=600".parse().unwrap());
     resp
 }

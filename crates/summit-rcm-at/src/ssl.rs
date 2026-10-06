@@ -3,11 +3,11 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_core::config::ServerConfig;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509VerifyResult;
 use std::path::Path;
+use summit_rcm_core::config::ServerConfig;
 
 const SUMMIT_RCM_CLIENT_SSL_DIR: &str = "/etc/summit-rcm/client-ssl/";
 
@@ -121,13 +121,19 @@ impl AtSslConfig {
 
         if self.mode.requires_server_verification() {
             let verify_mode = SslVerifyMode::PEER;
-            if ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true) {
+            if ServerConfig::get_bool(
+                "summit-rcm",
+                "disable_certificate_expiry_verification",
+                true,
+            ) {
                 builder.set_verify_callback(verify_mode, |preverify_ok, store_ctx| {
                     if preverify_ok {
                         return true;
                     }
 
-                    if summit_rcm_core::utils::should_ignore_certificate_time_verify_error(store_ctx.error()) {
+                    if summit_rcm_core::utils::should_ignore_certificate_time_verify_error(
+                        store_ctx.error(),
+                    ) {
                         store_ctx.set_error(X509VerifyResult::OK);
                         return true;
                     }
@@ -175,11 +181,19 @@ impl AtSslConfig {
         }
     }
 
-    pub(crate) fn check_hostname(&self) -> bool { self.check_hostname }
+    pub(crate) fn check_hostname(&self) -> bool {
+        self.check_hostname
+    }
 
-    pub(crate) fn key_path(&self) -> Option<String> { Self::resolve_ssl_file_path(&self.key) }
+    pub(crate) fn key_path(&self) -> Option<String> {
+        Self::resolve_ssl_file_path(&self.key)
+    }
 
-    pub(crate) fn cert_path(&self) -> Option<String> { Self::resolve_ssl_file_path(&self.cert) }
+    pub(crate) fn cert_path(&self) -> Option<String> {
+        Self::resolve_ssl_file_path(&self.cert)
+    }
 
-    pub(crate) fn ca_path(&self) -> Option<String> { Self::resolve_ssl_file_path(&self.ca) }
+    pub(crate) fn ca_path(&self) -> Option<String> {
+        Self::resolve_ssl_file_path(&self.ca)
+    }
 }

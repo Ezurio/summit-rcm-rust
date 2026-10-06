@@ -15,17 +15,17 @@ mod service;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 summit_rcm_web::declare_web_api! {
-	name: "cww",
-	routes {
-		v2 => [
-			protected SomeProvisioning "/api/v2/network/interfaces/{name}/cww" => {
-				PUT => routes::v2::put_interface_cww
-			},
-		],
-		legacy => [
-			protected SomeProvisioning "/cww" => {
-				PUT => routes::legacy::put_cww_legacy
-			},
-		],
-	},
+    name: "cww",
+    routes {
+        v2 => [
+            protected SomeProvisioning "/api/v2/network/interfaces/{name}/cww" => {
+                PUT => routes::v2::put_interface_cww
+            },
+        ],
+        legacy => [
+            protected SomeProvisioning "/cww" => {
+                PUT => routes::legacy::put_cww_legacy
+            },
+        ],
+    },
 }

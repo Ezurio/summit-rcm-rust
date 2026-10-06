@@ -12,11 +12,13 @@
 //! bluetooth service holds no compile-time reference to VSP.
 
 use super::*;
-use summit_rcm_bluetooth::service::{BluetoothService, ManagedObjects, DEVICE_IFACE, GATT_CHR_IFACE};
 use log::debug;
 use std::collections::HashMap;
-use zbus::zvariant::{OwnedObjectPath, OwnedValue};
+use summit_rcm_bluetooth::service::{
+    BluetoothService, DEVICE_IFACE, GATT_CHR_IFACE, ManagedObjects,
+};
 use zbus::Message;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 fn find_device_path(objects: &ManagedObjects, device_address: &str) -> Option<String> {
     objects.iter().find_map(|(path, ifaces)| {
@@ -44,14 +46,24 @@ pub(super) async fn refresh_vsp_connection(
         &state.service_uuid,
         &state.read_char_uuid,
     )
-    .ok_or_else(|| anyhow::anyhow!("no VSP read characteristic found for device {}", device_address))?;
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "no VSP read characteristic found for device {}",
+            device_address
+        )
+    })?;
     let write_char_path = BluetoothService::find_characteristic_path(
         &objects,
         &device_path,
         &state.service_uuid,
         &state.write_char_uuid,
     )
-    .ok_or_else(|| anyhow::anyhow!("no VSP write characteristic found for device {}", device_address))?;
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "no VSP write characteristic found for device {}",
+            device_address
+        )
+    })?;
 
     {
         let mut active_read_path = state.read_char_path.lock().unwrap();
@@ -62,8 +74,13 @@ pub(super) async fn refresh_vsp_connection(
         *active_write_path = write_char_path;
     }
 
-    BluetoothService::call_bluez_noargs(&state.conn, read_char_path.as_str(), GATT_CHR_IFACE, "StartNotify")
-        .await?;
+    BluetoothService::call_bluez_noargs(
+        &state.conn,
+        read_char_path.as_str(),
+        GATT_CHR_IFACE,
+        "StartNotify",
+    )
+    .await?;
     Ok(())
 }
 

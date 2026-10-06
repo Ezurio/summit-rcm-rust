@@ -49,9 +49,12 @@ fn main() {
         builder = builder.clang_arg(format!("-I{}", include_dir.display()));
     }
 
-    let bindings = builder
-        .generate()
-        .unwrap_or_else(|e| panic!("unable to generate bindings from {}: {e}", header_path.display()));
+    let bindings = builder.generate().unwrap_or_else(|e| {
+        panic!(
+            "unable to generate bindings from {}: {e}",
+            header_path.display()
+        )
+    });
 
     bindings
         .write_to_file(&output_path)

@@ -3,11 +3,11 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+#[cfg(feature = "api-legacy")]
+use crate::legacy_response::{SdcerrCode, fail_response};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use summit_rcm_core::systemd_unit::SYSTEMD_UNIT_VALID_CONFIG_STATES;
-#[cfg(feature = "api-legacy")]
-use crate::legacy_response::{fail_response, SdcerrCode};
 
 crate::define_status_response_family! {
     pub enum StateValidationError {

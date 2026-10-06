@@ -7,13 +7,13 @@
 //! POST  /api/v2/login  – create session
 //! DELETE /api/v2/login – destroy session
 
-use summit_rcm_core::config::ServerConfig;
 use crate::LoginService;
 use crate::UserService;
-use summit_rcm_web::axum::Json;
-use tower_sessions::Session;
 use log::info;
 use serde::Deserialize;
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_web::axum::Json;
+use tower_sessions::Session;
 
 fn sessions_enabled() -> bool {
     summit_rcm_core::cached_config!(bool, ServerConfig::get_bool("/", "tools.sessions.on", true))
@@ -68,7 +68,11 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
                     LoginService::remove_session(existing_id);
                 }
                 if let Err(error) = session.flush().await {
-                    log::error!("failed to flush session during rejected refresh for {}: {}", username, error);
+                    log::error!(
+                        "failed to flush session during rejected refresh for {}: {}",
+                        username,
+                        error
+                    );
                     return LoginResponses::InternalError;
                 }
                 return LoginResponses::Forbidden;
@@ -79,7 +83,11 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
                 return LoginResponses::InternalError;
             }
             if let Err(error) = session.save().await {
-                log::error!("failed to save refreshed session for {}: {}", username, error);
+                log::error!(
+                    "failed to save refreshed session for {}: {}",
+                    username,
+                    error
+                );
                 return LoginResponses::InternalError;
             }
 
@@ -92,7 +100,11 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
         }
         Ok(None) => {}
         Err(error) => {
-            log::error!("failed to load session during login for {}: {}", username, error);
+            log::error!(
+                "failed to load session during login for {}: {}",
+                username,
+                error
+            );
             return LoginResponses::InternalError;
         }
     }
@@ -113,9 +125,7 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
         );
     }
 
-    if !LoginService::allow_multiple_user_sessions()
-        && LoginService::is_user_logged_in(username)
-    {
+    if !LoginService::allow_multiple_user_sessions() && LoginService::is_user_logged_in(username) {
         return LoginResponses::Forbidden;
     }
 
@@ -127,7 +137,11 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
     LoginService::login_reset(username);
 
     if let Err(error) = session.flush().await {
-        log::error!("failed to reset session before login for {}: {}", username, error);
+        log::error!(
+            "failed to reset session before login for {}: {}",
+            username,
+            error
+        );
         return LoginResponses::InternalError;
     }
 
@@ -152,12 +166,15 @@ pub(crate) async fn login(session: Session, Json(body): Json<LoginRequest>) -> L
 }
 
 /// DELETE /api/v2/login
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/api/v2/login",
-    tag = "auth",
-    responses(LogoutResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/api/v2/login",
+        tag = "auth",
+        responses(LogoutResponses)
+    )
+)]
 pub(crate) async fn logout(session: Session) -> LogoutResponses {
     if !sessions_enabled() {
         return LogoutResponses::Ok;
@@ -182,7 +199,11 @@ pub(crate) async fn logout(session: Session) -> LogoutResponses {
 
     LoginService::remove_session(session_id);
     if let Err(error) = session.flush().await {
-        log::error!("failed to flush session {} during logout: {}", session_id, error);
+        log::error!(
+            "failed to flush session {} during logout: {}",
+            session_id,
+            error
+        );
         return LogoutResponses::InternalError;
     }
     info!("Session {} logged out for user {}", session_id, username);

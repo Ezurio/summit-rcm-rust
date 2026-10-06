@@ -35,7 +35,8 @@ impl NetworkManagerService {
                 words.push(current);
                 current = String::new();
             }
-            previous_was_lower_or_digit = character.is_ascii_lowercase() || character.is_ascii_digit();
+            previous_was_lower_or_digit =
+                character.is_ascii_lowercase() || character.is_ascii_digit();
             current.push(character);
         }
 
@@ -136,7 +137,10 @@ impl NetworkManagerService {
             "domain_name" => Some(("domain_name", "domainName")),
             "interface_mtu" => Some(("interface_mtu", "interfaceMtu")),
             "broadcast_address" => Some(("broadcast_address", "broadcastAddress")),
-            "rfc3442_classless_static_routes" => Some(("rfc3442_classless_static_routes", "rfc3442ClasslessStaticRoutes")),
+            "rfc3442_classless_static_routes" => Some((
+                "rfc3442_classless_static_routes",
+                "rfc3442ClasslessStaticRoutes",
+            )),
             "routers" => Some(("routers", "routers")),
             "static_routes" => Some(("static_routes", "staticRoutes")),
             "nis_domain" => Some(("nis_domain", "nisDomain")),
@@ -144,8 +148,13 @@ impl NetworkManagerService {
             "ntp_servers" => Some(("ntp_servers", "ntpServers")),
             "dhcp_server_identifier" => Some(("dhcp_server_identifier", "dhcpServerIdentifier")),
             "domain_search" => Some(("domain_search", "domainSearch")),
-            "ms_classless_static_routes" => Some(("ms_classless_static_routes", "msClasslessStaticRoutes")),
-            "requested_rfc3442_classless_static_routes" => Some(("requested_rfc3442_classless_static_routes", "requestedrfc3442Classlessstaticroutes")),
+            "ms_classless_static_routes" => {
+                Some(("ms_classless_static_routes", "msClasslessStaticRoutes"))
+            }
+            "requested_rfc3442_classless_static_routes" => Some((
+                "requested_rfc3442_classless_static_routes",
+                "requestedrfc3442Classlessstaticroutes",
+            )),
             "wpad" => Some(("wpad", "wpad")),
             "root_path" => Some(("root_path", "rootPath")),
             "time_servers" => Some(("time_servers", "timeServers")),
@@ -154,13 +163,17 @@ impl NetworkManagerService {
             "cookie_servers" => Some(("cookie_servers", "cookieServers")),
             "lpr_servers" => Some(("lpr_servers", "lprServers")),
             "impress_servers" => Some(("impress_servers", "impressServers")),
-            "resource_location_servers" => Some(("resource_location_servers", "resourceLocationServers")),
+            "resource_location_servers" => {
+                Some(("resource_location_servers", "resourceLocationServers"))
+            }
             "boot_size" => Some(("boot_size", "bootSize")),
             "merit_dump" => Some(("merit_dump", "meritDump")),
             "swap_server" => Some(("swap_server", "swapServer")),
             "extensions_path" => Some(("extensions_path", "extensionsPath")),
             "ip_forwarding" => Some(("ip_forwarding", "ipForwarding")),
-            "non_local_source_routing" => Some(("non_local_source_routing", "nonLocalSourceRouting")),
+            "non_local_source_routing" => {
+                Some(("non_local_source_routing", "nonLocalSourceRouting"))
+            }
             "policy_filter" => Some(("policy_filter", "policyFilter")),
             "max_dgram_reassembly" => Some(("max_dgram_reassembly", "maxDgramReassembly")),
             "default_ip_ttl" => Some(("default_ip_ttl", "defaultIpTtl")),
@@ -170,14 +183,20 @@ impl NetworkManagerService {
             "perform_mask_discovery" => Some(("perform_mask_discovery", "performMaskDiscovery")),
             "mask_supplier" => Some(("mask_supplier", "maskSupplier")),
             "router_discovery" => Some(("router_discovery", "routerDiscovery")),
-            "router_solicitation_address" => Some(("router_solicitation_address", "routerSolicitationAddress")),
+            "router_solicitation_address" => {
+                Some(("router_solicitation_address", "routerSolicitationAddress"))
+            }
             "trailer_encapsulation" => Some(("trailer_encapsulation", "trailerEncapsulation")),
             "arp_cache_timeout" => Some(("arp_cache_timeout", "arpCacheTimeout")),
-            "ieee802_3_encapsulation" => Some(("ieee802_3_encapsulation", "ieee802_3_encapsulation")),
+            "ieee802_3_encapsulation" => {
+                Some(("ieee802_3_encapsulation", "ieee802_3_encapsulation"))
+            }
             "default_tcp_ttl" => Some(("default_tcp_ttl", "defaultTcpTtl")),
             "tcp_keepalive_internal" => Some(("tcp_keepalive_internal", "tcpKeepaliveInternal")),
             "tcp_keepalive_garbage" => Some(("tcp_keepalive_garbage", "tcpKeepaliveGarbage")),
-            "vendor_encapsulated_options" => Some(("vendor_encapsulated_options", "vendorEncapsulatedOptions")),
+            "vendor_encapsulated_options" => {
+                Some(("vendor_encapsulated_options", "vendorEncapsulatedOptions"))
+            }
             "netbios_name_servers" => Some(("netbios_name_servers", "netbiosNameServers")),
             "netbios_dd_server" => Some(("netbios_dd_server", "netbiosDdServer")),
             "font_servers" => Some(("font_servers", "fontServers")),

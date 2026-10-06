@@ -5,13 +5,13 @@
 //! Network manager AT commands owned by the network_manager plugin.
 
 use crate::certificates::CertificatesService;
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::service::NetworkService;
+use log::error;
 use serde_json::{Value, from_str, to_string};
 use std::fmt::Write as _;
-use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     match NetworkService::get_connections().await {
@@ -21,7 +21,10 @@ async fn execute_connection_list(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> C
                 for conn in arr {
                     let uuid = conn.get("uuid").and_then(|x| x.as_str()).unwrap_or("");
                     let id = conn.get("id").and_then(|x| x.as_str()).unwrap_or("");
-                    let activated = conn.get("activated").and_then(|x| x.as_bool()).unwrap_or(false) as i32;
+                    let activated = conn
+                        .get("activated")
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or(false) as i32;
                     let _ = writeln!(out, "+CONNLIST: {}:{},{}\r", uuid, id, activated);
                 }
             }
@@ -40,7 +43,11 @@ async fn execute_connection_activate(_fsm: &FsmHandle, params: &CsvParams<'_>) -
     }
     let profile = params.trimmed(0);
 
-    let activate_raw = params.iter_raw_parameters().skip(1).collect::<Vec<_>>().join(",");
+    let activate_raw = params
+        .iter_raw_parameters()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(",");
 
     if profile.is_empty() || activate_raw.is_empty() {
         return CommandOutcome::Error;
@@ -75,7 +82,11 @@ async fn execute_connection_modify(_fsm: &FsmHandle, params: &CsvParams<'_>) -> 
         return CommandOutcome::Error;
     };
     let profile = params.trimmed(1);
-    let settings_raw = params.iter_raw_parameters().skip(2).collect::<Vec<_>>().join(",");
+    let settings_raw = params
+        .iter_raw_parameters()
+        .skip(2)
+        .collect::<Vec<_>>()
+        .join(",");
     let settings = if settings_raw.is_empty() {
         None
     } else {
@@ -198,7 +209,11 @@ async fn execute_wifi_list(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandO
     } else {
         params.trimmed(0)
     };
-    let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
+    let iface = if iface_name.is_empty() {
+        None
+    } else {
+        Some(iface_name)
+    };
     match NetworkService::get_access_points(iface).await {
         Ok(v) => {
             let mut out = String::new();
@@ -222,7 +237,11 @@ async fn execute_wifi_scan(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandO
     } else {
         params.trimmed(0)
     };
-    let iface = if iface_name.is_empty() { None } else { Some(iface_name) };
+    let iface = if iface_name.is_empty() {
+        None
+    } else {
+        Some(iface_name)
+    };
     match NetworkService::scan_access_points(iface).await {
         Ok(_) => CommandOutcome::Ok,
         Err(e) => {
@@ -272,13 +291,61 @@ async fn execute_wifi_hardware(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> Com
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+connlist", "AT+CONNLIST", 0, &[], execute_connection_list),
-    summit_rcm_at::commands::command_spec!("at+connact", "AT+CONNACT=<uuid>|<id>,<activate>", 0, &[], execute_connection_activate),
-    summit_rcm_at::commands::command_spec!("at+connmod", "AT+CONNMOD=<json>", 0, &[], execute_connection_modify),
-    summit_rcm_at::commands::command_spec!("at+certget", "AT+CERTGET=<name>[,<password>]", 0, &[], execute_certificates_get),
-    summit_rcm_at::commands::command_spec!("at+netif", "AT+NETIF[=<name>]", 0, &[], execute_network_interfaces),
-    summit_rcm_at::commands::command_spec!("at+wlist", "AT+WLIST[=<iface>]", 0, &[], execute_wifi_list),
-    summit_rcm_at::commands::command_spec!("at+wscan", "AT+WSCAN[=<iface>]", 0, &[], execute_wifi_scan),
-    summit_rcm_at::commands::command_spec!("at+wenable", "AT+WENABLE[=<0|1>]", 0, &[], execute_wifi_enabled),
+    summit_rcm_at::commands::command_spec!(
+        "at+connlist",
+        "AT+CONNLIST",
+        0,
+        &[],
+        execute_connection_list
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+connact",
+        "AT+CONNACT=<uuid>|<id>,<activate>",
+        0,
+        &[],
+        execute_connection_activate
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+connmod",
+        "AT+CONNMOD=<json>",
+        0,
+        &[],
+        execute_connection_modify
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+certget",
+        "AT+CERTGET=<name>[,<password>]",
+        0,
+        &[],
+        execute_certificates_get
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+netif",
+        "AT+NETIF[=<name>]",
+        0,
+        &[],
+        execute_network_interfaces
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+wlist",
+        "AT+WLIST[=<iface>]",
+        0,
+        &[],
+        execute_wifi_list
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+wscan",
+        "AT+WSCAN[=<iface>]",
+        0,
+        &[],
+        execute_wifi_scan
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+wenable",
+        "AT+WENABLE[=<0|1>]",
+        0,
+        &[],
+        execute_wifi_enabled
+    ),
     summit_rcm_at::commands::command_spec!("at+whard", "AT+WHARD", 0, &[], execute_wifi_hardware),
 ];

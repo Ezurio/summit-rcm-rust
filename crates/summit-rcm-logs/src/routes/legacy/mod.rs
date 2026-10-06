@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::{CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalLogEntry, JournalctlLogType, LogsService, SupplicantLogLevel};
-use summit_rcm_web::axum::{extract::Query, Json};
+use crate::{
+    CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalLogEntry, JournalctlLogType,
+    LogsService, SupplicantLogLevel,
+};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use summit_rcm_web::axum::{Json, extract::Query};
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -95,12 +98,15 @@ fn log_verbosity_error(info_msg: impl Into<String>) -> LegacyLogVerbosityRespons
     log_verbosity_response(fail_response(info_msg), None, None, None)
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/logData",
-    tag = "legacy",
-    responses(GetLogLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/logData",
+        tag = "legacy",
+        responses(GetLogLegacyResponses)
+    )
+)]
 pub(crate) async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegacyResponses {
     let log_type = q.log_type.unwrap_or(JournalctlLogType::All);
     let legacy_type_label = match log_type {
@@ -126,10 +132,7 @@ pub(crate) async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegac
         Ok(log_entries) => LegacyLogDataResponse {
             operation: ok_response(format!(
                 "type: {}; days: {}; hours: {}; Priority: {}",
-                legacy_type_label,
-                days,
-                hours,
-                priority
+                legacy_type_label, days, hours, priority
             )),
             count: Some(log_entries.len()),
             log: Some(log_entries),
@@ -144,12 +147,15 @@ pub(crate) async fn get_log_legacy(Query(q): Query<LogDataQuery>) -> GetLogLegac
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/logSetting",
-    tag = "legacy",
-    responses(GetLogVerbosityLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/logSetting",
+        tag = "legacy",
+        responses(GetLogVerbosityLegacyResponses)
+    )
+)]
 pub(crate) async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses {
     let mut response = log_verbosity_response(ok_response(""), None, None, None);
 
@@ -188,7 +194,9 @@ pub(crate) async fn get_log_verbosity_legacy() -> GetLogVerbosityLegacyResponses
     request_body = LogVerbosityRequest,
     responses(PutLogVerbosityLegacyResponses)
 ))]
-pub(crate) async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityRequest>) -> PutLogVerbosityLegacyResponses {
+pub(crate) async fn put_log_verbosity_legacy(
+    Json(body): Json<LogVerbosityRequest>,
+) -> PutLogVerbosityLegacyResponses {
     let Some(level) = body.supp_debug_level.as_deref() else {
         return log_verbosity_error("suppDebugLevel missing from JSON data").into();
     };
@@ -201,7 +209,9 @@ pub(crate) async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityReques
     let driver_level = match driver_level {
         LegacyDriverDebugLevelInput::Int(0) => Some(DriverLogLevel::Disabled),
         LegacyDriverDebugLevelInput::Int(1) => Some(DriverLogLevel::Enabled),
-        LegacyDriverDebugLevelInput::String(value) if value == "0" => Some(DriverLogLevel::Disabled),
+        LegacyDriverDebugLevelInput::String(value) if value == "0" => {
+            Some(DriverLogLevel::Disabled)
+        }
         LegacyDriverDebugLevelInput::String(value) if value == "1" => Some(DriverLogLevel::Enabled),
         _ => None,
     };
@@ -209,7 +219,10 @@ pub(crate) async fn put_log_verbosity_legacy(Json(body): Json<LogVerbosityReques
         return log_verbosity_error("driverDebugLevel must be 0 or 1").into();
     };
 
-    if LogsService::set_supplicant_debug_level(supplicant_level).await.is_ok() {
+    if LogsService::set_supplicant_debug_level(supplicant_level)
+        .await
+        .is_ok()
+    {
         LogsService::set_wifi_driver_debug_level(driver_level).await;
         let driver_level_string = match driver_level {
             DriverLogLevel::Disabled => "0",

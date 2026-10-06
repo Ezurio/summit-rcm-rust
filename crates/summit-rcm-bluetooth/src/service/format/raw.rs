@@ -95,7 +95,10 @@ fn extra_device_properties(
         if TYPED_DEVICE_PROPERTIES.contains(&key.as_str()) {
             continue;
         }
-        let _ = extra.insert(key.clone(), normalize_json_value(dbus::owned_value_to_json(value)));
+        let _ = extra.insert(
+            key.clone(),
+            normalize_json_value(dbus::owned_value_to_json(value)),
+        );
     }
 
     extra
@@ -126,7 +129,11 @@ impl From<&DeviceSnapshot> for RawBluetoothDeviceView {
                 "ManufacturerData",
                 &device.manufacturer_data,
             ),
-            service_data: some_if_present_map(&device.raw_properties, "ServiceData", &device.service_data),
+            service_data: some_if_present_map(
+                &device.raw_properties,
+                "ServiceData",
+                &device.service_data,
+            ),
             tx_power: device.tx_power.map(i32::from),
             services_resolved: Some(i32::from(device.services_resolved)),
             extra: extra_device_properties(&device.raw_properties),

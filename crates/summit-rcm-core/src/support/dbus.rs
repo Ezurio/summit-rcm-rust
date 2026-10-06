@@ -1,4 +1,3 @@
-
 //
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
@@ -6,21 +5,21 @@
 
 //! Shared application-wide D-Bus helpers.
 
-use std::os::fd::AsRawFd;
 use anyhow::Result;
 use log::warn;
-use serde_json::{json, Value as JsonValue};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{Value as JsonValue, json};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, LazyLock};
-use tokio::sync::RwLock;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use zbus::{
+    Connection, MatchRule, Message, MessageStream,
     connection::Builder,
     message::Type as MessageType,
     zvariant::{OwnedValue, Type, Value},
-    Connection, MatchRule, Message, MessageStream,
 };
 
 pub const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
@@ -118,7 +117,11 @@ fn current_system_bus_key() -> Cow<'static, str> {
     }
 
     let key = super::config::env_or_trimmed(TEST_SYSTEM_BUS_ADDRESS_ENV, "");
-    if key.is_empty() { Cow::Borrowed("__system__") } else { Cow::Owned(key) }
+    if key.is_empty() {
+        Cow::Borrowed("__system__")
+    } else {
+        Cow::Owned(key)
+    }
 }
 
 static DBUS_METHOD_TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
@@ -161,12 +164,7 @@ pub async fn system_bus() -> Result<Arc<Connection>> {
 pub async fn system_bus_with_timeout(timeout: Option<Duration>) -> Result<Arc<Connection>> {
     let cache_key = (current_system_bus_key(), timeout_cache_key(timeout));
 
-    if let Some(connection) = SYSTEM_BUS_CONNECTIONS
-        .read()
-        .await
-        .get(&cache_key)
-        .cloned()
-    {
+    if let Some(connection) = SYSTEM_BUS_CONNECTIONS.read().await.get(&cache_key).cloned() {
         return Ok(connection);
     }
 
@@ -221,7 +219,8 @@ where
     B: Serialize + Type,
 {
     let conn = conn.connection();
-    let reply = call_method_typed(conn, destination, path, interface, method, body, timeout).await?;
+    let reply =
+        call_method_typed(conn, destination, path, interface, method, body, timeout).await?;
     reply.body().deserialize().map_err(Into::into)
 }
 
@@ -256,15 +255,16 @@ where
 {
     let conn = conn.connection();
     if let Some(requested_timeout) = timeout
-        && conn.method_timeout() != Some(requested_timeout) {
-            warn!(
-                "D-Bus call {}.{} requested {} ms but connection timeout is {:?}; using connection timeout",
-                interface.unwrap_or("<none>"),
-                method,
-                requested_timeout.as_millis(),
-                conn.method_timeout().map(|value| value.as_millis())
-            );
-        }
+        && conn.method_timeout() != Some(requested_timeout)
+    {
+        warn!(
+            "D-Bus call {}.{} requested {} ms but connection timeout is {:?}; using connection timeout",
+            interface.unwrap_or("<none>"),
+            method,
+            requested_timeout.as_millis(),
+            conn.method_timeout().map(|value| value.as_millis())
+        );
+    }
 
     match conn
         .call_method(destination, path, interface, method, body)
@@ -314,7 +314,15 @@ where
     <T as TryFrom<OwnedValue>>::Error: Into<anyhow::Error>,
 {
     let conn = conn.connection();
-    get_property_with_timeout(conn, destination, path, interface, property_name, Some(dbus_method_timeout())).await
+    get_property_with_timeout(
+        conn,
+        destination,
+        path,
+        interface,
+        property_name,
+        Some(dbus_method_timeout()),
+    )
+    .await
 }
 
 pub async fn get_property_with_timeout<T>(
@@ -456,7 +464,10 @@ pub struct PropertiesChanged {
 /// match the standard signature, so observer handlers can `let … else` and skip
 /// malformed signals without bespoke parsing.
 pub fn parse_properties_changed(message: &Message) -> Option<PropertiesChanged> {
-    let path = message.header().path().map(|path| path.as_str().to_string())?;
+    let path = message
+        .header()
+        .path()
+        .map(|path| path.as_str().to_string())?;
     let (interface, changed, invalidated) = message
         .body()
         .deserialize::<(String, HashMap<String, OwnedValue>, Vec<String>)>()
@@ -521,7 +532,6 @@ impl SignalObservers {
         self.tasks
     }
 }
-
 
 pub fn clone_owned_value(value: &OwnedValue) -> Result<OwnedValue> {
     value.try_clone().map_err(Into::into)

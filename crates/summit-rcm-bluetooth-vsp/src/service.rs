@@ -3,23 +3,22 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 use summit_rcm_bluetooth::routes::shared::BluetoothConnectionModel;
 use summit_rcm_bluetooth::service::{
-    BluetoothCommandContext, BluetoothCommandFuture, BluetoothCommandOutcome,
-    BluetoothCommandRouteError, BluetoothService, ManagedObjects, BLUEZ_SERVICE,
-    GATT_CHR_IFACE,
+    BLUEZ_SERVICE, BluetoothCommandContext, BluetoothCommandFuture, BluetoothCommandOutcome,
+    BluetoothCommandRouteError, BluetoothService, GATT_CHR_IFACE, ManagedObjects,
 };
 use summit_rcm_core::dbus;
 use summit_rcm_web::serde_json;
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{tcp::OwnedWriteHalf, TcpListener},
+    net::{TcpListener, tcp::OwnedWriteHalf},
     sync::mpsc,
     task::JoinHandle,
 };
-use zbus::{zvariant::Value, Connection};
+use zbus::{Connection, zvariant::Value};
 
 #[path = "service_signals.rs"]
 mod signals;
@@ -103,10 +102,7 @@ pub(super) struct StartVspConnectionArgs {
     socket_rx_type: VspSocketRxType,
 }
 
-async fn run_vsp_writer(
-    mut writer: OwnedWriteHalf,
-    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
-) {
+async fn run_vsp_writer(mut writer: OwnedWriteHalf, mut rx: mpsc::UnboundedReceiver<Vec<u8>>) {
     while let Some(data) = rx.recv().await {
         if writer.write_all(&data).await.is_err() {
             break;
@@ -295,16 +291,23 @@ pub(super) async fn run_vsp_server(listener: TcpListener, state: Arc<VspConnecti
             while pending.len() >= state.write_size {
                 let chunk = pending.drain(..state.write_size).collect::<Vec<_>>();
                 if let Err(error) = send_vsp_chunk(&state, &chunk).await
-                    && state.is_json() {
-                        send_vsp_json(&state, &VspErrorMessage { error: "Transmit failed" }).await;
-                        if matches!(
-                            error,
-                            dbus::DbusCallError::Method(zbus::Error::MethodError(name, _, _))
-                                if name.as_str() == "org.bluez.Error.NotConnected"
-                        ) {
-                            send_vsp_json(&state, &VspNotConnectedMessage { connected: 0 }).await;
-                        }
+                    && state.is_json()
+                {
+                    send_vsp_json(
+                        &state,
+                        &VspErrorMessage {
+                            error: "Transmit failed",
+                        },
+                    )
+                    .await;
+                    if matches!(
+                        error,
+                        dbus::DbusCallError::Method(zbus::Error::MethodError(name, _, _))
+                            if name.as_str() == "org.bluez.Error.NotConnected"
+                    ) {
+                        send_vsp_json(&state, &VspNotConnectedMessage { connected: 0 }).await;
                     }
+                }
             }
         }
 
@@ -350,7 +353,14 @@ pub(crate) fn handle_vsp_connect_command<'a>(
     ctx: BluetoothCommandContext<'a>,
 ) -> BluetoothCommandFuture<'a> {
     Box::pin(async move {
-        handle_gatt_connect(ctx.conn, ctx.objects, ctx.adapter_path, ctx.device, ctx.body).await
+        handle_gatt_connect(
+            ctx.conn,
+            ctx.objects,
+            ctx.adapter_path,
+            ctx.device,
+            ctx.body,
+        )
+        .await
     })
 }
 
@@ -404,7 +414,7 @@ async fn handle_gatt_connect(
             return Err(bad_request_error(format!(
                 "invalid value for vspWriteChrType param: {}",
                 value
-            )))
+            )));
         }
     };
 
@@ -431,8 +441,13 @@ async fn handle_gatt_connect(
     )
     .ok_or_else(|| command_failed_error(format!("no VSP Service found for device {}", dev_addr)))?;
 
-    BluetoothService::call_bluez_noargs(conn, read_char_path.as_str(), GATT_CHR_IFACE, "StartNotify")
-        .await?;
+    BluetoothService::call_bluez_noargs(
+        conn,
+        read_char_path.as_str(),
+        GATT_CHR_IFACE,
+        "StartNotify",
+    )
+    .await?;
 
     start_vsp_connection(
         conn,
@@ -452,7 +467,9 @@ async fn handle_gatt_connect(
     )
     .await?;
 
-    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
+    Ok(BluetoothCommandOutcome::success(
+        BluetoothService::empty_control_response(),
+    ))
 }
 
 async fn handle_gatt_disconnect(device: Option<&str>) -> anyhow::Result<BluetoothCommandOutcome> {
@@ -464,7 +481,9 @@ async fn handle_gatt_disconnect(device: Option<&str>) -> anyhow::Result<Bluetoot
         )));
     }
 
-    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
+    Ok(BluetoothCommandOutcome::success(
+        BluetoothService::empty_control_response(),
+    ))
 }
 
 #[cfg(test)]

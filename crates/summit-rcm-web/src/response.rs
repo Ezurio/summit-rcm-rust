@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Ezurio LLC.
 
 use axum::{
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;

@@ -6,11 +6,14 @@
 //! Network certificate endpoints.
 
 use crate::certificates::{CertificateInfo, CertificatesService};
-use summit_rcm_core::files_service::FilesService;
-use summit_rcm_web::axum::{body::to_bytes, extract::{multipart::MultipartRejection, Multipart, Path}};
-use summit_rcm_web::axum;
-use serde::Deserialize;
 use log::error;
+use serde::Deserialize;
+use summit_rcm_core::files_service::FilesService;
+use summit_rcm_web::axum;
+use summit_rcm_web::axum::{
+    body::to_bytes,
+    extract::{Multipart, Path, multipart::MultipartRejection},
+};
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
@@ -43,12 +46,15 @@ pub(crate) struct CertificateInfoRequest {
     pub password: Option<String>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/certificates",
-    tag = "network",
-    responses(ListCertificatesResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/certificates",
+        tag = "network",
+        responses(ListCertificatesResponses)
+    )
+)]
 pub(crate) async fn list_certificates() -> ListCertificatesResponses {
     match FilesService::try_get_cert_and_pac_files().await {
         Ok(files) => files.into(),
@@ -67,7 +73,10 @@ pub(crate) async fn list_certificates() -> ListCertificatesResponses {
     request_body = CertificateInfoRequest,
     responses(GetCertificateResponses)
 ))]
-pub(crate) async fn get_certificate(Path(name): Path<String>, req: axum::extract::Request) -> GetCertificateResponses {
+pub(crate) async fn get_certificate(
+    Path(name): Path<String>,
+    req: axum::extract::Request,
+) -> GetCertificateResponses {
     let body = match to_bytes(req.into_body(), 64 * 1024).await {
         Ok(body) => body,
         Err(error) => {

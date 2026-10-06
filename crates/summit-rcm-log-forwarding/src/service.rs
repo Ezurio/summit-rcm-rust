@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use crate::{
-    LOG_FORWARDING_ENABLED_FLAG_FILE, SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE,
-};
-use summit_rcm_core::systemd_unit::SystemdUnit;
+use crate::{LOG_FORWARDING_ENABLED_FLAG_FILE, SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE};
 use anyhow::{Result, bail};
+use summit_rcm_core::systemd_unit::SystemdUnit;
 
 pub(crate) struct LogForwardingService {
     unit: SystemdUnit,
@@ -20,7 +18,9 @@ impl Default for LogForwardingService {
 
 impl LogForwardingService {
     pub(crate) fn new() -> Self {
-        Self { unit: SystemdUnit::new(SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE) }
+        Self {
+            unit: SystemdUnit::new(SYSTEMD_JOURNAL_GATEWAYD_SOCKET_FILE),
+        }
     }
 
     #[cfg(feature = "at-interface")]

@@ -12,6 +12,9 @@ use summit_rcm_logs::{CURRENT_PROCESS_LOG_IDENTIFIER, JournalctlLogType};
 #[test]
 fn current_process_log_type_aliases_parse() {
     for alias in ["python", "weblcm-python", CURRENT_PROCESS_LOG_IDENTIFIER] {
-        assert_eq!(JournalctlLogType::from_str(alias), Ok(JournalctlLogType::CurrentProcess));
+        assert_eq!(
+            JournalctlLogType::from_str(alias),
+            Ok(JournalctlLogType::CurrentProcess)
+        );
     }
 }

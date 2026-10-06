@@ -40,19 +40,17 @@ pub(crate) mod wifi;
         crate::routes::v2::wifi::get_wifi,
         crate::routes::v2::wifi::set_wifi,
     ),
-    components(
-        schemas(
-            crate::routes::shared::AccessPoint,
-            access_points::AccessPointScanAge,
-            access_points::AccessPointScanRequested,
-            certificates::CertificateInfoRequest,
-            crate::routes::shared::DhcpLeasesResponse,
-            crate::routes::shared::Ipv4DhcpLease,
-            crate::routes::shared::Ipv6DhcpLease,
-            types::NetworkStatusResponse,
-            wifi::WifiRequest,
-            crate::routes::shared::WifiStatus
-        )
-    )
+    components(schemas(
+        crate::routes::shared::AccessPoint,
+        access_points::AccessPointScanAge,
+        access_points::AccessPointScanRequested,
+        certificates::CertificateInfoRequest,
+        crate::routes::shared::DhcpLeasesResponse,
+        crate::routes::shared::Ipv4DhcpLease,
+        crate::routes::shared::Ipv6DhcpLease,
+        types::NetworkStatusResponse,
+        wifi::WifiRequest,
+        crate::routes::shared::WifiStatus
+    ))
 )]
 pub(crate) struct ApiDoc;

@@ -6,8 +6,8 @@
 // Source: /devel/cp_linux/summit-radio-devel-external/externals/lrd-network-manager
 
 use serde::{Deserialize, Deserializer, Serialize};
-use summit_rcm_web::serde_json::Value;
 use std::collections::BTreeMap;
+use summit_rcm_web::serde_json::Value;
 
 fn deserialize_optional_string_vec<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
 where
@@ -20,11 +20,13 @@ where
         One(String),
     }
 
-    Ok(match Option::<StringVecOrString>::deserialize(deserializer)? {
-        None => None,
-        Some(StringVecOrString::Many(values)) => Some(values),
-        Some(StringVecOrString::One(value)) => Some(vec![value]),
-    })
+    Ok(
+        match Option::<StringVecOrString>::deserialize(deserializer)? {
+            None => None,
+            Some(StringVecOrString::Many(values)) => Some(values),
+            Some(StringVecOrString::One(value)) => Some(vec![value]),
+        },
+    )
 }
 
 #[derive(Clone, Deserialize, Serialize)]

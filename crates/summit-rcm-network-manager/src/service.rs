@@ -4,30 +4,30 @@
 //
 //! Network management helpers backed by NetworkManager and related system APIs.
 
-use anyhow::Result;
-use summit_rcm_core::config::ServerConfig;
-use summit_rcm_core::dbus;
 use crate::FILEDIR_CERT;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::routes::connection_profile::ConnectionProfile;
+#[cfg(feature = "api-legacy")]
+use crate::routes::legacy::types::LegacyNetworkStatusPayload;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::routes::shared::{AccessPoint, WifiStatus};
 #[cfg(feature = "api-v2")]
 use crate::routes::v2::types::NetworkStatusResponse;
-#[cfg(feature = "api-legacy")]
-use crate::routes::legacy::types::LegacyNetworkStatusPayload;
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use summit_rcm_core::utils::{boottime, timespec_duration};
-use serde_json::{json, Value};
+use anyhow::Result;
 #[cfg(feature = "api-legacy")]
 use serde_json;
+use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::net::Ipv6Addr;
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_core::dbus;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use summit_rcm_core::utils::{boottime, timespec_duration};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 use crate::manager::{
-    NetworkManagerService, NmConnectionSettings, NM_DEVICE_IFACE, NM_IFACE, NM_MAIN_OBJ,
-    NM_SETTINGS_IFACE, NM_SETTINGS_OBJ,
+    NM_DEVICE_IFACE, NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_IFACE, NM_SETTINGS_OBJ,
+    NetworkManagerService, NmConnectionSettings,
 };
 
 pub struct NetworkService;
@@ -64,10 +64,10 @@ fn append_managed_software_devices(interfaces: &mut Vec<String>) {
     append_missing_interfaces(interfaces, managed_software_devices());
 }
 
-#[path = "service_profiles.rs"]
-mod profiles;
 #[path = "service_interfaces.rs"]
 mod interfaces;
+#[path = "service_profiles.rs"]
+mod profiles;
 
 impl NetworkService {
     async fn active_connection_paths() -> Result<HashSet<OwnedObjectPath>> {
@@ -81,22 +81,25 @@ impl NetworkService {
 
         let mut connections = Vec::with_capacity(connection_paths.len());
         for path in connection_paths {
-            let settings = match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
-                Ok(settings) => settings,
-                Err(_) => continue,
-            };
-            let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid") else {
+            let settings =
+                match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
+                    Ok(settings) => settings,
+                    Err(_) => continue,
+                };
+            let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid")
+            else {
                 continue;
             };
-            let connection_type = Self::connection_setting_string(&settings, "802-11-wireless", "mode")
-                .unwrap_or_else(|| {
-                    if settings.contains_key("802-11-wireless") {
-                        "infrastructure".to_string()
-                    } else {
-                        Self::connection_setting_string(&settings, "connection", "type")
-                            .unwrap_or_default()
-                    }
-                });
+            let connection_type =
+                Self::connection_setting_string(&settings, "802-11-wireless", "mode")
+                    .unwrap_or_else(|| {
+                        if settings.contains_key("802-11-wireless") {
+                            "infrastructure".to_string()
+                        } else {
+                            Self::connection_setting_string(&settings, "connection", "type")
+                                .unwrap_or_default()
+                        }
+                    });
             connections.push(json!({
                 "id": Self::connection_setting_string(&settings, "connection", "id").unwrap_or_default(),
                 "uuid": uuid,
@@ -109,7 +112,9 @@ impl NetworkService {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_all_interfaces_model() -> Result<Vec<String>> {
-        Self::get_all_interfaces().await.and_then(Self::decode_route_model)
+        Self::get_all_interfaces()
+            .await
+            .and_then(Self::decode_route_model)
     }
 
     /// Get legacy connection profiles keyed by UUID.
@@ -120,25 +125,40 @@ impl NetworkService {
 
         let mut connections = serde_json::Map::with_capacity(connection_paths.len());
         for path in connection_paths {
-            let settings = match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
-                Ok(settings) => settings,
-                Err(_) => continue,
-            };
-            let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid") else {
+            let settings =
+                match NetworkManagerService::get_raw_connection_settings(path.as_str()).await {
+                    Ok(settings) => settings,
+                    Err(_) => continue,
+                };
+            let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid")
+            else {
                 continue;
             };
 
-            let connection_type = Self::connection_setting_string(&settings, "802-11-wireless", "mode")
-                .map(|mode| if mode == "ap" { "ap".to_string() } else { String::new() });
+            let connection_type =
+                Self::connection_setting_string(&settings, "802-11-wireless", "mode").map(|mode| {
+                    if mode == "ap" {
+                        "ap".to_string()
+                    } else {
+                        String::new()
+                    }
+                });
 
             let mut connection = serde_json::Map::with_capacity(3);
             let _ = connection.insert(
                 "activated".to_string(),
-                json!(if active_connections.contains(&path) { 1 } else { 0 }),
+                json!(if active_connections.contains(&path) {
+                    1
+                } else {
+                    0
+                }),
             );
             let _ = connection.insert(
                 "id".to_string(),
-                json!(Self::connection_setting_string(&settings, "connection", "id").unwrap_or_default()),
+                json!(
+                    Self::connection_setting_string(&settings, "connection", "id")
+                        .unwrap_or_default()
+                ),
             );
             if let Some(connection_type) = connection_type {
                 let _ = connection.insert("type".to_string(), json!(connection_type));
@@ -156,7 +176,11 @@ impl NetworkService {
         let mut map = Self::structured_connection_settings(&settings);
         let _ = map.insert(
             "activated".to_string(),
-            json!(NetworkManagerService::get_active_connection_path_by_uuid(uuid).await?.is_some()),
+            json!(
+                NetworkManagerService::get_active_connection_path_by_uuid(uuid)
+                    .await?
+                    .is_some()
+            ),
         );
         Ok(Value::Object(map))
     }
@@ -228,8 +252,8 @@ impl NetworkService {
             return Ok(-1);
         }
 
-        let now_millis = i64::try_from(timespec_duration(boottime()).as_millis())
-            .unwrap_or(i64::MAX);
+        let now_millis =
+            i64::try_from(timespec_duration(boottime()).as_millis()).unwrap_or(i64::MAX);
         let elapsed = now_millis.saturating_sub(last_scan_millis);
         Ok((elapsed / 1000).max(0))
     }
@@ -265,8 +289,7 @@ impl NetworkService {
 
     pub async fn get_wifi_status() -> Result<Value> {
         let (software_enabled, hardware_enabled) =
-            NetworkManagerService::get_wifi_radio_state_dbus()
-                .await?;
+            NetworkManagerService::get_wifi_radio_state_dbus().await?;
         Ok(json!({
             "wifiRadioSoftwareEnabled": software_enabled,
             "wifiRadioHardwareEnabled": hardware_enabled,
@@ -275,7 +298,9 @@ impl NetworkService {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     pub async fn get_wifi_status_model() -> Result<WifiStatus> {
-        Self::get_wifi_status().await.and_then(Self::decode_route_model)
+        Self::get_wifi_status()
+            .await
+            .and_then(Self::decode_route_model)
     }
 
     #[cfg(feature = "at-interface")]
@@ -324,33 +349,41 @@ impl NetworkService {
         let mut replaced_existing = false;
         if overwrite_existing {
             if let Some(id) = existing_id.as_deref()
-                && let Ok(uuid) = Self::get_connection_profile_uuid_from_id(id).await {
-                    Self::delete_connection_by_uuid(&uuid).await?;
-                    replaced_existing = true;
-                }
+                && let Ok(uuid) = Self::get_connection_profile_uuid_from_id(id).await
+            {
+                Self::delete_connection_by_uuid(&uuid).await?;
+                replaced_existing = true;
+            }
 
             if let Some(uuid) = existing_uuid.as_deref()
-                && Self::get_connection_by_uuid(uuid).await.is_ok() {
-                    Self::delete_connection_by_uuid(uuid).await?;
-                    replaced_existing = true;
-                }
+                && Self::get_connection_by_uuid(uuid).await.is_ok()
+            {
+                Self::delete_connection_by_uuid(uuid).await?;
+                replaced_existing = true;
+            }
         } else {
             if let Some(id) = existing_id.as_deref()
-                && Self::get_connection_profile_uuid_from_id(id).await.is_ok() {
-                    anyhow::bail!("Connection '{}' already exists", id);
-                }
+                && Self::get_connection_profile_uuid_from_id(id).await.is_ok()
+            {
+                anyhow::bail!("Connection '{}' already exists", id);
+            }
 
             if let Some(uuid) = existing_uuid.as_deref()
-                && Self::get_connection_by_uuid(uuid).await.is_ok() {
-                    anyhow::bail!("Connection '{}' already exists", uuid);
-                }
+                && Self::get_connection_by_uuid(uuid).await.is_ok()
+            {
+                anyhow::bail!("Connection '{}' already exists", uuid);
+            }
         }
 
-        let (profile, _) = Self::save_connection_profile_internal(settings, None, None, true).await?;
+        let (profile, _) =
+            Self::save_connection_profile_internal(settings, None, None, true).await?;
         Ok((profile, !replaced_existing))
     }
 
-    pub async fn save_connection_profile_by_uuid(uuid: &str, settings: Value) -> Result<(Value, bool)> {
+    pub async fn save_connection_profile_by_uuid(
+        uuid: &str,
+        settings: Value,
+    ) -> Result<(Value, bool)> {
         Self::save_connection_profile_internal(settings, Some(uuid), None, true).await
     }
 
@@ -359,7 +392,10 @@ impl NetworkService {
     }
 
     pub async fn update_connection_profile(profile: &str, settings: Value) -> Result<Value> {
-        if NetworkManagerService::get_connection_path_by_uuid(profile).await.is_ok() {
+        if NetworkManagerService::get_connection_path_by_uuid(profile)
+            .await
+            .is_ok()
+        {
             Self::save_connection_profile_by_uuid(profile, settings)
                 .await
                 .map(|(profile, _)| profile)
@@ -434,7 +470,6 @@ impl NetworkService {
         let profile = Self::patch_connection_profile_by_id(id, settings).await?;
         Self::decode_connection_profile(profile)
     }
-
 }
 
 #[cfg(test)]

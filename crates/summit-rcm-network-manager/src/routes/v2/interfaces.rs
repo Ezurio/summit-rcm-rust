@@ -1,4 +1,4 @@
- //
+//
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
@@ -8,8 +8,8 @@
 use crate::routes::shared::DhcpLeasesResponse;
 use crate::routes::v2::types::NetworkInterfaceResponse;
 use crate::service::{InterfaceError, NetworkService};
-use summit_rcm_web::axum::extract::Path;
 use log::error;
+use summit_rcm_web::axum::extract::Path;
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
@@ -30,12 +30,15 @@ summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     pub(crate) enum GetInterfaceDhcpLeasesResponses(DhcpLeasesResponse);
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/interfaces",
-    tag = "network",
-    responses(ListInterfacesResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/interfaces",
+        tag = "network",
+        responses(ListInterfacesResponses)
+    )
+)]
 pub(crate) async fn list_interfaces() -> ListInterfacesResponses {
     match NetworkService::get_all_interfaces_model().await {
         Ok(value) => value.into(),
@@ -78,7 +81,9 @@ pub(crate) async fn get_interface(Path(name): Path<String>) -> GetInterfaceRespo
     params(("name" = String, Path, description = "Interface name")),
     responses(GetInterfaceDhcpLeasesResponses)
 ))]
-pub(crate) async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetInterfaceDhcpLeasesResponses {
+pub(crate) async fn get_interface_dhcp_leases(
+    Path(name): Path<String>,
+) -> GetInterfaceDhcpLeasesResponses {
     match NetworkService::get_dhcp_leases(&name).await {
         Ok(value) => match serde_json::from_value::<DhcpLeasesResponse>(value) {
             Ok(value) => value.into(),
@@ -87,9 +92,7 @@ pub(crate) async fn get_interface_dhcp_leases(Path(name): Path<String>) -> GetIn
                 GetInterfaceDhcpLeasesResponses::InternalError
             }
         },
-        Err(InterfaceError::InvalidName) => {
-            GetInterfaceDhcpLeasesResponses::BadRequest
-        }
+        Err(InterfaceError::InvalidName) => GetInterfaceDhcpLeasesResponses::BadRequest,
         Err(error) => {
             error!("get_interface_dhcp_leases {}: {:?}", name, error);
             GetInterfaceDhcpLeasesResponses::InternalError

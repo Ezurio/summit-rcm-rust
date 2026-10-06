@@ -5,8 +5,8 @@
 //! POST /api/v2/system/factoryReset
 
 use crate::routes::shared::{self, FactoryResetResult};
-use serde::Serialize;
 use log::error;
+use serde::Serialize;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
     pub enum FactoryResetResponses(FactoryResetResponse);
@@ -18,12 +18,15 @@ pub(crate) struct FactoryResetResponse {
     pub result: String,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    post,
-    path = "/api/v2/system/factoryReset",
-    tag = "system",
-    responses(FactoryResetResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        post,
+        path = "/api/v2/system/factoryReset",
+        tag = "system",
+        responses(FactoryResetResponses)
+    )
+)]
 pub(crate) async fn factory_reset() -> FactoryResetResponses {
     match shared::run_factory_reset().await {
         FactoryResetResult::Initiated => FactoryResetResponse {
@@ -41,12 +44,15 @@ pub(crate) async fn factory_reset() -> FactoryResetResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/system/factoryReset",
-    tag = "system",
-    responses(FactoryResetResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/system/factoryReset",
+        tag = "system",
+        responses(FactoryResetResponses)
+    )
+)]
 pub(crate) async fn factory_reset_put() -> FactoryResetResponses {
     factory_reset().await
 }

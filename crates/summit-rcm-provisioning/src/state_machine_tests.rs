@@ -5,9 +5,9 @@
 
 use crate::service::{CertificateProvisioningService, ProvisioningState};
 use crate::state_machine::{Event, ProvisioningStateMachine, TransitionError};
-use summit_rcm_core::config::test_support as config_test_support;
 use std::sync::MutexGuard;
 use std::time::{SystemTime, UNIX_EPOCH};
+use summit_rcm_core::config::test_support as config_test_support;
 
 struct ProvisioningStateMachineTestCleanup {
     _guard: MutexGuard<'static, ()>,
@@ -15,10 +15,14 @@ struct ProvisioningStateMachineTestCleanup {
 
 impl Drop for ProvisioningStateMachineTestCleanup {
     fn drop(&mut self) {
-        if let Some(state_path) = config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE") {
+        if let Some(state_path) =
+            config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE")
+        {
             let _ = std::fs::remove_file(&state_path);
         }
-        if let Some(device_cert_path) = config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT") {
+        if let Some(device_cert_path) =
+            config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT")
+        {
             let _ = std::fs::remove_file(&device_cert_path);
         }
         config_test_support::clear_env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE");
@@ -102,7 +106,10 @@ async fn generate_test_device_certificate(cert_path: &std::path::Path) {
         .status()
         .await
         .expect("openssl should run for provisioning state-machine test");
-    assert!(status.success(), "openssl should generate a test certificate");
+    assert!(
+        status.success(),
+        "openssl should generate a test certificate"
+    );
     let _ = tokio::fs::remove_file(key_path).await;
 }
 
@@ -116,7 +123,10 @@ async fn cert_upload_then_manual_time_set_completes_provisioning_flow() {
     ProvisioningStateMachine::handle(Event::CertUploaded)
         .await
         .expect("certificate upload transition should succeed");
-    assert_eq!(ProvisioningStateMachine::current().await, ProvisioningState::PartiallyProvisioned);
+    assert_eq!(
+        ProvisioningStateMachine::current().await,
+        ProvisioningState::PartiallyProvisioned
+    );
 
     let validity = CertificateProvisioningService::get_device_server_cert_validity_period()
         .await
@@ -136,7 +146,10 @@ async fn cert_upload_then_manual_time_set_completes_provisioning_flow() {
     ProvisioningStateMachine::handle(Event::ManualTimeSet)
         .await
         .expect("manual time set transition should succeed");
-    assert_eq!(ProvisioningStateMachine::current().await, ProvisioningState::FullyProvisioned);
+    assert_eq!(
+        ProvisioningStateMachine::current().await,
+        ProvisioningState::FullyProvisioned
+    );
 }
 
 #[tokio::test]
@@ -145,7 +158,10 @@ async fn wrong_state_events_are_rejected_or_noop_per_contract() {
     set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
 
     match ProvisioningStateMachine::handle(Event::ClientBundleUploaded).await {
-        Err(TransitionError::WrongState { current, event: Event::ClientBundleUploaded }) => {
+        Err(TransitionError::WrongState {
+            current,
+            event: Event::ClientBundleUploaded,
+        }) => {
             assert_eq!(current, ProvisioningState::Unprovisioned);
         }
         other => panic!("unexpected client bundle result in Unprovisioned: {other:?}"),
@@ -154,11 +170,17 @@ async fn wrong_state_events_are_rejected_or_noop_per_contract() {
     ProvisioningStateMachine::handle(Event::ManualTimeSet)
         .await
         .expect("manual time set outside PartiallyProvisioned should be a no-op");
-    assert_eq!(ProvisioningStateMachine::current().await, ProvisioningState::Unprovisioned);
+    assert_eq!(
+        ProvisioningStateMachine::current().await,
+        ProvisioningState::Unprovisioned
+    );
 
     set_test_provisioning_state(ProvisioningState::PartiallyProvisioned).await;
     match ProvisioningStateMachine::handle(Event::CertUploaded).await {
-        Err(TransitionError::WrongState { current, event: Event::CertUploaded }) => {
+        Err(TransitionError::WrongState {
+            current,
+            event: Event::CertUploaded,
+        }) => {
             assert_eq!(current, ProvisioningState::PartiallyProvisioned);
         }
         other => panic!("unexpected cert uploaded result in PartiallyProvisioned: {other:?}"),
@@ -166,6 +188,11 @@ async fn wrong_state_events_are_rejected_or_noop_per_contract() {
 
     ProvisioningStateMachine::handle(Event::ClientBundleUploaded)
         .await
-        .expect("client bundle event should restart without changing state in PartiallyProvisioned");
-    assert_eq!(ProvisioningStateMachine::current().await, ProvisioningState::PartiallyProvisioned);
+        .expect(
+            "client bundle event should restart without changing state in PartiallyProvisioned",
+        );
+    assert_eq!(
+        ProvisioningStateMachine::current().await,
+        ProvisioningState::PartiallyProvisioned
+    );
 }

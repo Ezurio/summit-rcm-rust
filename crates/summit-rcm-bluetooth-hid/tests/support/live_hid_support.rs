@@ -65,7 +65,11 @@ struct MockDevice {
 
 impl MockDevice {
     fn snapshot(&self) -> MockDeviceState {
-        self.state.device.lock().expect("device mutex poisoned").clone()
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .clone()
     }
 }
 
@@ -172,7 +176,10 @@ impl TestBus {
             .stderr(Stdio::null())
             .spawn()?;
 
-        let stdout = daemon.stdout.take().expect("dbus-daemon stdout unavailable");
+        let stdout = daemon
+            .stdout
+            .take()
+            .expect("dbus-daemon stdout unavailable");
         let mut reader = StdBufReader::new(stdout);
         let mut printed_address = String::new();
         let _ = reader.read_line(&mut printed_address)?;
@@ -183,7 +190,6 @@ impl TestBus {
             daemon,
         })
     }
-
 }
 
 impl Drop for TestBus {
@@ -205,7 +211,11 @@ impl MockBluezHarness {
     pub(crate) async fn start() -> anyhow::Result<Self> {
         let bus = TestBus::spawn()?;
         let state = Arc::new(MockBluezState::default());
-        state.device.lock().expect("device mutex poisoned").connected = true;
+        state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .connected = true;
 
         let service_conn = Builder::address(bus.address.as_str())?
             .name(BLUEZ_SERVICE)?
@@ -213,7 +223,9 @@ impl MockBluezHarness {
             .serve_at("/org/bluez/hci0", MockAdapter)?
             .serve_at(
                 "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
-                MockDevice { state: state.clone() },
+                MockDevice {
+                    state: state.clone(),
+                },
             )?
             .build()
             .await?;
@@ -242,7 +254,10 @@ pub(crate) async fn connect_tcp_client(port: u16) -> TcpStream {
         match TcpStream::connect(("127.0.0.1", port)).await {
             Ok(stream) => return stream,
             Err(error) => {
-                assert!(Instant::now() < deadline, "timed out connecting to HID TCP server: {error}");
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out connecting to HID TCP server: {error}"
+                );
                 sleep(Duration::from_millis(100)).await;
             }
         }
@@ -263,12 +278,16 @@ pub(crate) async fn wait_for_line(reader: &mut BufReader<TcpStream>, needle: &st
         if line.contains(needle) {
             return line.clone();
         }
-        assert!(Instant::now() < deadline, "timed out waiting for line containing {needle}");
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for line containing {needle}"
+        );
     }
 }
 
 pub(crate) fn compile_uhid_simulator() -> PathBuf {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/uhid_barcode_scanner_sim.c");
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/uhid_barcode_scanner_sim.c");
     let output = std::env::temp_dir().join("uhid_barcode_scanner_sim_test");
     let status = Command::new("gcc")
         .args(["-O2", "-Wall", "-Wextra", "-std=c11"])
@@ -306,24 +325,33 @@ pub(crate) fn wait_for_hidraw_by_uniq(uniq: &str) -> PathBuf {
                 let Ok(content) = std::fs::read_to_string(&uevent_path) else {
                     continue;
                 };
-                if content
-                    .lines()
-                    .any(|line| line.trim().eq_ignore_ascii_case(&format!("HID_UNIQ={uniq}")))
-                {
+                if content.lines().any(|line| {
+                    line.trim()
+                        .eq_ignore_ascii_case(&format!("HID_UNIQ={uniq}"))
+                }) {
                     return Path::new("/dev").join(entry.file_name());
                 }
             }
         }
-        assert!(Instant::now() < deadline, "timed out waiting for UHID hidraw device");
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for UHID hidraw device"
+        );
         thread::sleep(Duration::from_millis(100));
     }
 }
 
-pub(crate) async fn run_live_hid_connect_test(harness: MockBluezHarness, simulator: PathBuf, tcp_port: u16) {
+pub(crate) async fn run_live_hid_connect_test(
+    harness: MockBluezHarness,
+    simulator: PathBuf,
+    tcp_port: u16,
+) {
     let local = LocalSet::new();
     local
         .run_until(async move {
-            summit_rcm_core::dbus::test_support::set_system_bus_address_override(&harness.bus.address);
+            summit_rcm_core::dbus::test_support::set_system_bus_address_override(
+                &harness.bus.address,
+            );
 
             let mut child = spawn_uhid_simulator(&simulator, TEST_DEVICE_ADDRESS, "ABC123");
             let _hidraw = wait_for_hidraw_by_uniq(TEST_DEVICE_ADDRESS);
@@ -367,5 +395,12 @@ pub(crate) async fn run_live_hid_connect_test(harness: MockBluezHarness, simulat
         })
         .await;
 
-    assert!(harness.state.device.lock().expect("device mutex poisoned").connected);
+    assert!(
+        harness
+            .state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .connected
+    );
 }

@@ -6,25 +6,36 @@
 //! status snapshot stored in the status cache.
 
 use anyhow::Result;
-use summit_rcm_core::dbus;
 use log::error;
-use serde_json::{json, Value};
-use zbus::zvariant::OwnedObjectPath;
+use serde_json::{Value, json};
+use summit_rcm_core::dbus;
 use zbus::Connection;
+use zbus::zvariant::OwnedObjectPath;
 
 use super::super::super::{
-    NetworkManagerService, NM_ACCESS_POINT_IFACE, NM_CONNECTION_ACTIVE_IFACE, NM_DEVICE_IFACE,
+    NETWORK_STATUS_CACHE, NM_ACCESS_POINT_IFACE, NM_CONNECTION_ACTIVE_IFACE, NM_DEVICE_IFACE,
     NM_DEVICE_WIRED_IFACE, NM_DEVICE_WIRELESS_IFACE, NM_DHCP4_CONFIG_IFACE, NM_DHCP6_CONFIG_IFACE,
-    NM_IFACE, NM_IP4_CONFIG_IFACE, NM_IP6_CONFIG_IFACE, NM_MAIN_OBJ, NETWORK_STATUS_CACHE,
+    NM_IFACE, NM_IP4_CONFIG_IFACE, NM_IP6_CONFIG_IFACE, NM_MAIN_OBJ, NetworkManagerService,
 };
 
 impl NetworkManagerService {
-    async fn connection_active_json_with_conn(conn: &Connection, active_connection_path: &str) -> Result<Option<Value>> {
-        let active_connection = Self::get_properties_with_conn(conn, active_connection_path, NM_CONNECTION_ACTIVE_IFACE).await?;
-        let Some(connection_path) = dbus::property::<OwnedObjectPath>(&active_connection, "Connection") else {
+    async fn connection_active_json_with_conn(
+        conn: &Connection,
+        active_connection_path: &str,
+    ) -> Result<Option<Value>> {
+        let active_connection = Self::get_properties_with_conn(
+            conn,
+            active_connection_path,
+            NM_CONNECTION_ACTIVE_IFACE,
+        )
+        .await?;
+        let Some(connection_path) =
+            dbus::property::<OwnedObjectPath>(&active_connection, "Connection")
+        else {
             return Ok(None);
         };
-        let settings = Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await?;
+        let settings =
+            Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await?;
         let Some(connection) = settings.get("connection") else {
             return Ok(None);
         };
@@ -37,11 +48,16 @@ impl NetworkManagerService {
         Ok(Some(Value::Object(connection_json)))
     }
 
-    async fn available_connections_json_with_conn(conn: &Connection, connection_paths: &[OwnedObjectPath]) -> Value {
+    async fn available_connections_json_with_conn(
+        conn: &Connection,
+        connection_paths: &[OwnedObjectPath],
+    ) -> Value {
         let mut connections = Vec::with_capacity(connection_paths.len());
 
         for connection_path in connection_paths {
-            let Ok(settings) = Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await else {
+            let Ok(settings) =
+                Self::get_raw_connection_settings_with_conn(conn, connection_path.as_str()).await
+            else {
                 continue;
             };
             let Some(connection) = settings.get("connection") else {
@@ -74,8 +90,12 @@ impl NetworkManagerService {
         }
     }
 
-    async fn build_device_status_with_conn(conn: &Connection, device_path: &str) -> Result<Option<(String, Value)>> {
-        let device_properties = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_IFACE).await?;
+    async fn build_device_status_with_conn(
+        conn: &Connection,
+        device_path: &str,
+    ) -> Result<Option<(String, Value)>> {
+        let device_properties =
+            Self::get_properties_with_conn(conn, device_path, NM_DEVICE_IFACE).await?;
         let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface") else {
             return Ok(None);
         };
@@ -86,42 +106,84 @@ impl NetworkManagerService {
             Value::Object(Self::properties_to_json(&device_properties)),
         );
 
-        if let Some(active_connection_path) = dbus::property::<OwnedObjectPath>(&device_properties, "ActiveConnection")
+        if let Some(active_connection_path) =
+            dbus::property::<OwnedObjectPath>(&device_properties, "ActiveConnection")
             && active_connection_path.as_str() != "/"
-                && let Ok(Some(connection_active)) = Self::connection_active_json_with_conn(conn, active_connection_path.as_str()).await {
-                    let _ = device_status.insert("connection_active".to_string(), connection_active);
-                }
+            && let Ok(Some(connection_active)) =
+                Self::connection_active_json_with_conn(conn, active_connection_path.as_str()).await
+        {
+            let _ = device_status.insert("connection_active".to_string(), connection_active);
+        }
 
         let _ = device_status.insert(
             "Ip4Config".to_string(),
-            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Ip4Config"), NM_IP4_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(
+                conn,
+                dbus::property::<OwnedObjectPath>(&device_properties, "Ip4Config"),
+                NM_IP4_CONFIG_IFACE,
+            )
+            .await,
         );
         let _ = device_status.insert(
             "Ip6Config".to_string(),
-            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Ip6Config"), NM_IP6_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(
+                conn,
+                dbus::property::<OwnedObjectPath>(&device_properties, "Ip6Config"),
+                NM_IP6_CONFIG_IFACE,
+            )
+            .await,
         );
         let _ = device_status.insert(
             "Dhcp4Config".to_string(),
-            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp4Config"), NM_DHCP4_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(
+                conn,
+                dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp4Config"),
+                NM_DHCP4_CONFIG_IFACE,
+            )
+            .await,
         );
         let _ = device_status.insert(
             "Dhcp6Config".to_string(),
-            Self::optional_properties_json_with_conn(conn, dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp6Config"), NM_DHCP6_CONFIG_IFACE).await,
+            Self::optional_properties_json_with_conn(
+                conn,
+                dbus::property::<OwnedObjectPath>(&device_properties, "Dhcp6Config"),
+                NM_DHCP6_CONFIG_IFACE,
+            )
+            .await,
         );
 
-        if let Ok(properties) = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRED_IFACE).await {
-            let _ = device_status.insert("wired".to_string(), Value::Object(Self::properties_to_json(&properties)));
+        if let Ok(properties) =
+            Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRED_IFACE).await
+        {
+            let _ = device_status.insert(
+                "wired".to_string(),
+                Value::Object(Self::properties_to_json(&properties)),
+            );
         }
-        if let Ok(properties) = Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRELESS_IFACE).await {
-            if let Some(access_point_path) = dbus::property::<OwnedObjectPath>(&properties, "ActiveAccessPoint")
-                && access_point_path.as_str() != "/" {
-                    let access_point = Self::optional_properties_json_with_conn(conn, Some(access_point_path), NM_ACCESS_POINT_IFACE).await;
-                    let _ = device_status.insert("ActiveAccessPoint".to_string(), access_point);
-                }
-            let _ = device_status.insert("wireless".to_string(), Value::Object(Self::properties_to_json(&properties)));
+        if let Ok(properties) =
+            Self::get_properties_with_conn(conn, device_path, NM_DEVICE_WIRELESS_IFACE).await
+        {
+            if let Some(access_point_path) =
+                dbus::property::<OwnedObjectPath>(&properties, "ActiveAccessPoint")
+                && access_point_path.as_str() != "/"
+            {
+                let access_point = Self::optional_properties_json_with_conn(
+                    conn,
+                    Some(access_point_path),
+                    NM_ACCESS_POINT_IFACE,
+                )
+                .await;
+                let _ = device_status.insert("ActiveAccessPoint".to_string(), access_point);
+            }
+            let _ = device_status.insert(
+                "wireless".to_string(),
+                Value::Object(Self::properties_to_json(&properties)),
+            );
         }
 
-        if let Some(connection_paths) = dbus::property::<Vec<OwnedObjectPath>>(&device_properties, "AvailableConnections") {
+        if let Some(connection_paths) =
+            dbus::property::<Vec<OwnedObjectPath>>(&device_properties, "AvailableConnections")
+        {
             let _ = device_status.insert(
                 "available_connections".to_string(),
                 Self::available_connections_json_with_conn(conn, &connection_paths).await,
@@ -136,9 +198,11 @@ impl NetworkManagerService {
 
     async fn build_status_snapshot() -> Result<Value> {
         let conn = Self::system_bus().await?;
-        let manager_properties = Self::get_properties_with_conn(conn.as_ref(), NM_MAIN_OBJ, NM_IFACE).await?;
-        let device_paths = dbus::property::<Vec<OwnedObjectPath>>(&manager_properties, "Devices").unwrap_or_default();
-    let mut status = serde_json::Map::with_capacity(device_paths.len());
+        let manager_properties =
+            Self::get_properties_with_conn(conn.as_ref(), NM_MAIN_OBJ, NM_IFACE).await?;
+        let device_paths = dbus::property::<Vec<OwnedObjectPath>>(&manager_properties, "Devices")
+            .unwrap_or_default();
+        let mut status = serde_json::Map::with_capacity(device_paths.len());
 
         for device_path in device_paths {
             match Self::build_device_status_with_conn(conn.as_ref(), device_path.as_str()).await {

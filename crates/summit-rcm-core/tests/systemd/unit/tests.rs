@@ -30,5 +30,8 @@ fn active_state_from_properties_returns_empty_string_when_active_state_missing()
     let properties = HashMap::<String, OwnedValue>::new();
 
     assert_eq!(SystemdUnit::active_state_from_properties(&properties), "");
-    assert_eq!(SystemdUnit::active_state_from_properties_legacy(&properties), "");
+    assert_eq!(
+        SystemdUnit::active_state_from_properties_legacy(&properties),
+        ""
+    );
 }

@@ -44,7 +44,8 @@ fn main() {
 
     let output = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR set by cargo"))
         .join("swupdate_sys.rs");
-    std::fs::write(output, bindings).expect("selected SWUpdate protocol definitions should be writable");
+    std::fs::write(output, bindings)
+        .expect("selected SWUpdate protocol definitions should be writable");
 }
 
 fn detect_packed_progress_msg() -> Option<bool> {

@@ -4,43 +4,49 @@
 //
 
 use crate::service::FipsService;
-use summit_rcm_web::axum::Json;
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::Json;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
 
 summit_rcm_web::define_ok_json_response_family! {
-	pub(crate) enum GetFipsResponses(FipsState);
+    pub(crate) enum GetFipsResponses(FipsState);
 }
 
 summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
-	pub(crate) enum SetFipsResponses(FipsState);
+    pub(crate) enum SetFipsResponses(FipsState);
 }
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub(crate) struct FipsRequest {
-	pub state: String,
+    pub state: String,
 }
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FipsState {
-	pub state: String,
+    pub state: String,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-	get,
-	path = "/api/v2/system/fips",
-	tag = "fips",
-	responses(GetFipsResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/fips",
+        tag = "fips",
+        responses(GetFipsResponses)
+    )
+)]
 pub(crate) async fn get_fips() -> GetFipsResponses {
-	let raw = FipsService::get_fips_state().await;
-	let fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
-	FipsState { state: fips_state.to_string() }.into()
+    let raw = FipsService::get_fips_state().await;
+    let fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
+    FipsState {
+        state: fips_state.to_string(),
+    }
+    .into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -51,26 +57,29 @@ pub(crate) async fn get_fips() -> GetFipsResponses {
 	responses(SetFipsResponses)
 ))]
 pub(crate) async fn set_fips(Json(body): Json<FipsRequest>) -> SetFipsResponses {
-	let mut desired_state = body.state;
-	if desired_state == "fipsWifi" {
-		desired_state = "fips_wifi".to_string();
-	}
+    let mut desired_state = body.state;
+    if desired_state == "fipsWifi" {
+        desired_state = "fips_wifi".to_string();
+    }
 
-	if desired_state.is_empty() {
-		return SetFipsResponses::BadRequest;
-	}
+    if desired_state.is_empty() {
+        return SetFipsResponses::BadRequest;
+    }
 
-	let success = match FipsService::set_fips_state(&desired_state).await {
-		Ok(success) => success,
-		Err(_) => return SetFipsResponses::BadRequest,
-	};
+    let success = match FipsService::set_fips_state(&desired_state).await {
+        Ok(success) => success,
+        Err(_) => return SetFipsResponses::BadRequest,
+    };
 
-	let raw = FipsService::get_fips_state().await;
-	let new_fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
+    let raw = FipsService::get_fips_state().await;
+    let new_fips_state = if raw == "fips_wifi" { "fipsWifi" } else { raw };
 
-	if success {
-		FipsState { state: new_fips_state.to_string() }.into()
-	} else {
-		SetFipsResponses::InternalError
-	}
+    if success {
+        FipsState {
+            state: new_fips_state.to_string(),
+        }
+        .into()
+    } else {
+        SetFipsResponses::InternalError
+    }
 }

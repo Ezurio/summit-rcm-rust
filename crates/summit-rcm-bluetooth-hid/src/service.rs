@@ -3,29 +3,32 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_bluetooth::routes::shared::BluetoothConnectionModel;
-use summit_rcm_bluetooth::service::{
-    BluetoothCommandContext, BluetoothCommandFuture, BluetoothCommandOutcome,
-    BluetoothCommandRouteError, BluetoothService, ManagedObjects, DEVICE_IFACE,
-};
-use summit_rcm_core::dbus;
-use summit_rcm_core::utils::read_sysfs;
-use summit_rcm_web::serde_json;
+use futures_util::StreamExt;
 use rustix::fs::OFlags;
 use rustix::io::Errno;
 use std::{
     collections::HashMap,
-    future::Future,
     fs,
+    future::Future,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, LazyLock, Mutex},
 };
-use futures_util::StreamExt;
+use summit_rcm_bluetooth::routes::shared::BluetoothConnectionModel;
+use summit_rcm_bluetooth::service::{
+    BluetoothCommandContext, BluetoothCommandFuture, BluetoothCommandOutcome,
+    BluetoothCommandRouteError, BluetoothService, DEVICE_IFACE, ManagedObjects,
+};
+use summit_rcm_core::dbus;
+use summit_rcm_core::utils::read_sysfs;
+use summit_rcm_web::serde_json;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, Interest, unix::AsyncFd},
-    net::{TcpListener, tcp::{OwnedReadHalf, OwnedWriteHalf}},
+    net::{
+        TcpListener,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
     sync::mpsc,
     task::JoinHandle,
     time::sleep,
@@ -50,23 +53,123 @@ const HID_CHAR_MAP_SIZE: usize = 57;
 const HID_UDEV_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 const HID_LOWERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
-    None, None, None, None, Some('a'), Some('b'), Some('c'), Some('d'), Some('e'), Some('f'),
-    Some('g'), Some('h'), Some('i'), Some('j'), Some('k'), Some('l'), Some('m'), Some('n'),
-    Some('o'), Some('p'), Some('q'), Some('r'), Some('s'), Some('t'), Some('u'), Some('v'),
-    Some('w'), Some('x'), Some('y'), Some('z'), Some('1'), Some('2'), Some('3'), Some('4'),
-    Some('5'), Some('6'), Some('7'), Some('8'), Some('9'), Some('0'), None, None, None, None,
-    Some(' '), Some('-'), Some('='), Some('['), Some(']'), Some('\\'), None, Some(';'),
-    Some('\''), Some('~'), Some(','), Some('.'), Some('/'),
+    None,
+    None,
+    None,
+    None,
+    Some('a'),
+    Some('b'),
+    Some('c'),
+    Some('d'),
+    Some('e'),
+    Some('f'),
+    Some('g'),
+    Some('h'),
+    Some('i'),
+    Some('j'),
+    Some('k'),
+    Some('l'),
+    Some('m'),
+    Some('n'),
+    Some('o'),
+    Some('p'),
+    Some('q'),
+    Some('r'),
+    Some('s'),
+    Some('t'),
+    Some('u'),
+    Some('v'),
+    Some('w'),
+    Some('x'),
+    Some('y'),
+    Some('z'),
+    Some('1'),
+    Some('2'),
+    Some('3'),
+    Some('4'),
+    Some('5'),
+    Some('6'),
+    Some('7'),
+    Some('8'),
+    Some('9'),
+    Some('0'),
+    None,
+    None,
+    None,
+    None,
+    Some(' '),
+    Some('-'),
+    Some('='),
+    Some('['),
+    Some(']'),
+    Some('\\'),
+    None,
+    Some(';'),
+    Some('\''),
+    Some('~'),
+    Some(','),
+    Some('.'),
+    Some('/'),
 ];
 
 const HID_UPPERCASE_CHAR_MAP: [Option<char>; HID_CHAR_MAP_SIZE] = [
-    None, None, None, None, Some('A'), Some('B'), Some('C'), Some('D'), Some('E'), Some('F'),
-    Some('G'), Some('H'), Some('I'), Some('J'), Some('K'), Some('L'), Some('M'), Some('N'),
-    Some('O'), Some('P'), Some('Q'), Some('R'), Some('S'), Some('T'), Some('U'), Some('V'),
-    Some('W'), Some('X'), Some('Y'), Some('Z'), Some('!'), Some('@'), Some('#'), Some('$'),
-    Some('%'), Some('^'), Some('&'), Some('*'), Some('('), Some(')'), None, None, None, None,
-    Some(' '), Some('_'), Some('+'), Some('{'), Some('}'), Some('|'), None, Some(':'),
-    Some('"'), Some('~'), Some('<'), Some('>'), Some('?'),
+    None,
+    None,
+    None,
+    None,
+    Some('A'),
+    Some('B'),
+    Some('C'),
+    Some('D'),
+    Some('E'),
+    Some('F'),
+    Some('G'),
+    Some('H'),
+    Some('I'),
+    Some('J'),
+    Some('K'),
+    Some('L'),
+    Some('M'),
+    Some('N'),
+    Some('O'),
+    Some('P'),
+    Some('Q'),
+    Some('R'),
+    Some('S'),
+    Some('T'),
+    Some('U'),
+    Some('V'),
+    Some('W'),
+    Some('X'),
+    Some('Y'),
+    Some('Z'),
+    Some('!'),
+    Some('@'),
+    Some('#'),
+    Some('$'),
+    Some('%'),
+    Some('^'),
+    Some('&'),
+    Some('*'),
+    Some('('),
+    Some(')'),
+    None,
+    None,
+    None,
+    None,
+    Some(' '),
+    Some('_'),
+    Some('+'),
+    Some('{'),
+    Some('}'),
+    Some('|'),
+    None,
+    Some(':'),
+    Some('"'),
+    Some('~'),
+    Some('<'),
+    Some('>'),
+    Some('?'),
 ];
 
 static HID_CONNECTIONS: LazyLock<Mutex<HashMap<String, HidConnectionHandle>>> =
@@ -104,10 +207,7 @@ struct HidConnectionHandle {
     connection_task: JoinHandle<()>,
 }
 
-async fn run_hid_writer(
-    mut writer: OwnedWriteHalf,
-    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
-) {
+async fn run_hid_writer(mut writer: OwnedWriteHalf, mut rx: mpsc::UnboundedReceiver<Vec<u8>>) {
     while let Some(payload) = rx.recv().await {
         if writer.write_all(&payload).await.is_err() {
             break;
@@ -152,9 +252,10 @@ impl HidSharedState {
     async fn try_send(&self, payload: &[u8]) {
         let sender = self.writer_tx.lock().unwrap().clone();
         if let Some(sender) = sender
-            && sender.send(payload.to_vec()).is_err() {
-                *self.writer_tx.lock().unwrap() = None;
-            }
+            && sender.send(payload.to_vec()).is_err()
+        {
+            *self.writer_tx.lock().unwrap() = None;
+        }
     }
 
     async fn close_tcp_connection(&self) {
@@ -181,7 +282,9 @@ impl HidRawReader {
     async fn open(devnode: &Path) -> std::io::Result<Self> {
         let file = tokio::fs::OpenOptions::new()
             .read(true)
-            .custom_flags(i32::try_from(OFlags::NONBLOCK.bits()).expect("O_NONBLOCK should fit in i32"))
+            .custom_flags(
+                i32::try_from(OFlags::NONBLOCK.bits()).expect("O_NONBLOCK should fit in i32"),
+            )
             .open(devnode)
             .await?;
         let file = file.into_std().await;
@@ -241,7 +344,8 @@ async fn handle_hid_connect(
         .get("tcpPort")
         .and_then(|value| value.as_u64())
         .ok_or_else(|| bad_request_error("tcpPort param not specified"))?;
-    let tcp_port = u16::try_from(tcp_port).map_err(|_| bad_request_error("invalid value for tcpPort param"))?;
+    let tcp_port = u16::try_from(tcp_port)
+        .map_err(|_| bad_request_error("invalid value for tcpPort param"))?;
     if !(TCP_PORT_MIN..=TCP_PORT_MAX).contains(&tcp_port) {
         return Err(bad_request_error(format!("port {} not valid", tcp_port)));
     }
@@ -264,7 +368,10 @@ async fn handle_hid_connect(
         .map(|props| dbus::property_or_default(props, "Connected"))
         .unwrap_or(false);
     if !connected {
-        return Err(command_failed_error(format!("Device {} is not connected.", device_uuid)));
+        return Err(command_failed_error(format!(
+            "Device {} is not connected.",
+            device_uuid
+        )));
     }
 
     let hid_device = match find_hid_device(&device_uuid).await? {
@@ -273,7 +380,7 @@ async fn handle_hid_connect(
             return Err(command_failed_error(format!(
                 "No HID keyboard service found for device {}",
                 device_uuid
-            )))
+            )));
         }
     };
 
@@ -292,18 +399,17 @@ async fn handle_hid_connect(
         hid_connection_task(connection_state, listener, hid_device).await;
     });
 
-    let _ = HID_CONNECTIONS
-        .lock()
-        .unwrap()
-        .insert(
-            device_uuid,
-            HidConnectionHandle {
-                state,
-                connection_task,
-            },
-        );
+    let _ = HID_CONNECTIONS.lock().unwrap().insert(
+        device_uuid,
+        HidConnectionHandle {
+            state,
+            connection_task,
+        },
+    );
 
-    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
+    Ok(BluetoothCommandOutcome::success(
+        BluetoothService::empty_control_response(),
+    ))
 }
 
 async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<BluetoothCommandOutcome> {
@@ -328,10 +434,16 @@ async fn handle_hid_disconnect(device: Option<&str>) -> anyhow::Result<Bluetooth
     drop(connection_task);
     state.close_tcp_connection().await;
 
-    Ok(BluetoothCommandOutcome::success(BluetoothService::empty_control_response()))
+    Ok(BluetoothCommandOutcome::success(
+        BluetoothService::empty_control_response(),
+    ))
 }
 
-async fn hid_connection_task(state: Arc<HidSharedState>, listener: TcpListener, hid_device: PathBuf) {
+async fn hid_connection_task(
+    state: Arc<HidSharedState>,
+    listener: TcpListener,
+    hid_device: PathBuf,
+) {
     let mut tcp_reader: Option<OwnedReadHalf> = None;
     let mut tcp_buffer = [0u8; 16];
     let mut reader_state = Some(start_reader_state(state.clone(), hid_device, false).await);
@@ -501,9 +613,10 @@ async fn barcode_scanner_read_task(state: Arc<HidSharedState>, devnode: PathBuf)
             }
 
             if barcode.len() < MAX_BARCODE_LEN
-                && let Some(character) = decode_hid_character(code, use_uppercase) {
-                    barcode.push(character);
-                }
+                && let Some(character) = decode_hid_character(code, use_uppercase)
+            {
+                barcode.push(character);
+            }
             use_uppercase = false;
         }
     }

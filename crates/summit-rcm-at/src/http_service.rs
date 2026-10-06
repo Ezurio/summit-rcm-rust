@@ -49,7 +49,14 @@ impl HttpService {
         &INSTANCE
     }
 
-    pub fn configure_transaction(&mut self, host: &str, port: u16, method: &str, url: &str, timeout: u64) {
+    pub fn configure_transaction(
+        &mut self,
+        host: &str,
+        port: u16,
+        method: &str,
+        url: &str,
+        timeout: u64,
+    ) {
         self.host.clear();
         self.host.push_str(host);
         self.port = port;
@@ -192,7 +199,11 @@ fn run_blocking(
     ssl_config: Option<AtSslConfig>,
     include_response_headers: bool,
 ) -> anyhow::Result<String> {
-    let scheme = if ssl_config.is_some() { "https" } else { "http" };
+    let scheme = if ssl_config.is_some() {
+        "https"
+    } else {
+        "http"
+    };
     let authority = if port > 0 {
         format!("{host}:{port}")
     } else {
@@ -207,16 +218,18 @@ fn run_blocking(
     };
     let uri = format!("{scheme}://{authority}{path}");
 
-    let connector = ()
-        .chain(TcpConnector::default())
-        .chain(AtOpenSslConnector { ssl_config });
+    let connector = ().chain(TcpConnector::default()).chain(AtOpenSslConnector { ssl_config });
 
     let config = Config::builder()
         .timeout_global(Some(Duration::from_secs(timeout_secs)))
         .build();
     let agent = Agent::with_parts(config, connector, DefaultResolver::default());
 
-    let method = if method.is_empty() { "GET".to_string() } else { method };
+    let method = if method.is_empty() {
+        "GET".to_string()
+    } else {
+        method
+    };
     let mut builder = Request::builder().method(method.as_str()).uri(uri.as_str());
     for (k, v) in &headers {
         builder = builder.header(k, v);

@@ -81,8 +81,7 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
 }
 
 fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
 #[tokio::test]
@@ -111,7 +110,10 @@ async fn rust_converter_matches_uri2pem_py_output() {
     let rust_bytes = std::fs::read(&rust_output).expect("Rust output should be readable");
     let python_bytes = std::fs::read(&python_output).expect("Python output should be readable");
 
-    assert_eq!(rust_bytes, python_bytes, "Rust and Python converters must produce identical PEM files");
+    assert_eq!(
+        rust_bytes, python_bytes,
+        "Rust and Python converters must produce identical PEM files"
+    );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

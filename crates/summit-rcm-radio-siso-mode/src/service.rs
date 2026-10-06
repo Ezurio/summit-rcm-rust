@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use summit_rcm_core::utils::command_status_ok;
 use summit_rcm_core::utils::read_sysfs;
 
@@ -34,7 +34,9 @@ impl TryFrom<i32> for RadioSISOMode {
 }
 
 impl From<RadioSISOMode> for i32 {
-    fn from(m: RadioSISOMode) -> i32 { m as i32 }
+    fn from(m: RadioSISOMode) -> i32 {
+        m as i32
+    }
 }
 
 pub(crate) struct RadioSISOModeService;
@@ -78,7 +80,9 @@ impl RadioSISOModeService {
         current: RadioSISOMode,
     ) -> Result<()> {
         // Hard stop before any disruptive module operations when mode is unchanged.
-        if current == mode { return Ok(()); }
+        if current == mode {
+            return Ok(());
+        }
 
         let iface = Self::get_running_driver_interface().await?;
 
@@ -89,9 +93,7 @@ impl RadioSISOModeService {
 
         // Reload lrdmwl
         let reload_ok = match mode {
-            RadioSISOMode::SystemDefault => {
-                command_status_ok(MODPROBE_PATH, &["lrdmwl"]).await?
-            }
+            RadioSISOMode::SystemDefault => command_status_ok(MODPROBE_PATH, &["lrdmwl"]).await?,
             RadioSISOMode::Mimo => {
                 command_status_ok(MODPROBE_PATH, &["lrdmwl", "SISO_mode=0"]).await?
             }

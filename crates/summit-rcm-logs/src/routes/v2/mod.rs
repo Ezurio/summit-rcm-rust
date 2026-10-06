@@ -11,10 +11,10 @@
 //! PUT /api/v2/system/logs/webserver
 
 use crate::{DriverLogLevel, JournalLogEntry, JournalctlLogType, LogsService, SupplicantLogLevel};
-use summit_rcm_web::axum::{extract::Query, Json};
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use log::error;
+use summit_rcm_web::axum::{Json, extract::Query};
 
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
@@ -27,10 +27,7 @@ use log::error;
         crate::routes::v2::set_logs_webserver,
         crate::routes::v2::export_logs,
     ),
-    components(schemas(
-        LogsConfigRequest,
-        WebserverLogLevelRequest,
-    ))
+    components(schemas(LogsConfigRequest, WebserverLogLevelRequest,))
 )]
 pub(crate) struct ApiDoc;
 
@@ -116,7 +113,9 @@ pub(crate) async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLog
     }
     let hours = params.hours.unwrap_or(0);
     // Default days to 0 when hours is specified so an hours-only request isn't combined with a 1-day default.
-    let days = params.days.unwrap_or(if params.hours.is_some() { 0 } else { 1 });
+    let days = params
+        .days
+        .unwrap_or(if params.hours.is_some() { 0 } else { 1 });
     let log_type = params.log_type.unwrap_or(JournalctlLogType::All);
 
     match LogsService::get_journal_log_data(log_type, priority, days, hours).await {
@@ -128,12 +127,15 @@ pub(crate) async fn get_logs_data(Query(params): Query<LogsDataQuery>) -> GetLog
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/logs/config",
-    tag = "system",
-    responses(GetLogsConfigResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/logs/config",
+        tag = "system",
+        responses(GetLogsConfigResponses)
+    )
+)]
 pub(crate) async fn get_logs_config() -> GetLogsConfigResponses {
     let supp = match LogsService::try_get_supplicant_debug_level().await {
         Ok(level) => level,
@@ -195,12 +197,15 @@ pub(crate) async fn set_logs_config(Json(body): Json<LogsConfigRequest>) -> SetL
     .into()
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/logs/webserver",
-    tag = "system",
-    responses(GetLogsWebserverResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/logs/webserver",
+        tag = "system",
+        responses(GetLogsWebserverResponses)
+    )
+)]
 pub(crate) async fn get_logs_webserver() -> GetLogsWebserverResponses {
     WebserverLogLevelResponse {
         webserver_log_level: LogsService::get_webserver_log_level(),
@@ -215,7 +220,6 @@ pub(crate) struct WebserverLogLevelRequest {
     pub webserver_log_level: String,
 }
 
-
 #[cfg_attr(feature = "api-docs", utoipa::path(
     put,
     path = "/api/v2/system/logs/webserver",
@@ -223,8 +227,11 @@ pub(crate) struct WebserverLogLevelRequest {
     request_body = WebserverLogLevelRequest,
     responses(SetLogsWebserverResponses)
 ))]
-pub(crate) async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest>) -> SetLogsWebserverResponses {
-    if !crate::logs_service::VALID_WEBSERVER_LOG_LEVELS.contains(&body.webserver_log_level.as_str()) {
+pub(crate) async fn set_logs_webserver(
+    Json(body): Json<WebserverLogLevelRequest>,
+) -> SetLogsWebserverResponses {
+    if !crate::logs_service::VALID_WEBSERVER_LOG_LEVELS.contains(&body.webserver_log_level.as_str())
+    {
         return SetLogsWebserverResponses::BadRequest;
     }
     LogsService::set_webserver_log_level(&body.webserver_log_level);
@@ -241,12 +248,8 @@ pub(crate) async fn set_logs_webserver(Json(body): Json<WebserverLogLevelRequest
     request_body = LogsExportRequest,
     responses(ExportLogsResponses)
 ))]
-pub(crate) async fn export_logs(
-    body: Option<Json<LogsExportRequest>>,
-) -> ExportLogsResponses {
-    let password = body
-        .map(|Json(body)| body.password)
-        .unwrap_or_default();
+pub(crate) async fn export_logs(body: Option<Json<LogsExportRequest>>) -> ExportLogsResponses {
+    let password = body.map(|Json(body)| body.password).unwrap_or_default();
     if password.is_empty() {
         return ExportLogsResponses::BadRequest;
     }

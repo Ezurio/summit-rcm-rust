@@ -1,5 +1,5 @@
 use super::*;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 #[tokio::test]
 async fn usage_query_emits_response() {

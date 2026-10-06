@@ -5,22 +5,19 @@
 
 use anyhow::Result;
 use core::future::Future;
-use summit_rcm_core::dbus::DBUS_PROP_IFACE;
 use futures_util::StreamExt;
 use std::time::Duration;
+use summit_rcm_core::dbus::DBUS_PROP_IFACE;
 use zbus::MessageStream;
 
 use super::{
-    NetworkManagerService, NM_BUS_NAME, NM_IFACE, NM_MAIN_OBJ,
-    NM_SETTINGS_CONNECTION_IFACE,
+    NM_BUS_NAME, NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE, NetworkManagerService,
 };
 
 const NETWORK_STATE_VERIFY_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl NetworkManagerService {
-    async fn subscribe_to_nm_properties_changed(
-        max_queued: usize,
-    ) -> Result<MessageStream> {
+    async fn subscribe_to_nm_properties_changed(max_queued: usize) -> Result<MessageStream> {
         summit_rcm_core::dbus::subscribe_to_signal(
             NM_BUS_NAME,
             DBUS_PROP_IFACE,
@@ -31,7 +28,13 @@ impl NetworkManagerService {
     }
 
     async fn subscribe_to_connection_removed() -> Result<MessageStream> {
-        summit_rcm_core::dbus::subscribe_to_signal(NM_BUS_NAME, NM_SETTINGS_CONNECTION_IFACE, "Removed", 16).await
+        summit_rcm_core::dbus::subscribe_to_signal(
+            NM_BUS_NAME,
+            NM_SETTINGS_CONNECTION_IFACE,
+            "Removed",
+            16,
+        )
+        .await
     }
 
     /// Drive `stream` until `is_satisfied` reports the target state, bounded by
@@ -92,7 +95,10 @@ impl NetworkManagerService {
             if active { "activate" } else { "deactivate" }
         );
         Self::wait_for_nm_main_property(stream, "ActiveConnections", timeout_message, || async {
-            Ok(Self::get_active_connection_path_by_uuid(uuid).await?.is_some() == active)
+            Ok(Self::get_active_connection_path_by_uuid(uuid)
+                .await?
+                .is_some()
+                == active)
         })
         .await
     }
@@ -124,7 +130,9 @@ impl NetworkManagerService {
             }
         })
         .await
-        .map_err(|_| anyhow::anyhow!("Timed out waiting for connection '{}' to be deleted", uuid))??;
+        .map_err(|_| {
+            anyhow::anyhow!("Timed out waiting for connection '{}' to be deleted", uuid)
+        })??;
 
         Ok(())
     }
@@ -146,8 +154,12 @@ impl NetworkManagerService {
         device_obj_path: Option<&str>,
     ) -> Result<()> {
         let mut active_changes = Self::subscribe_to_nm_properties_changed(16).await?;
-        let active_path = Self::activate_connection_dbus(connection_obj_path, device_obj_path).await?;
-        debug_assert!(!active_path.as_str().is_empty(), "NetworkManager returned an empty active connection path");
+        let active_path =
+            Self::activate_connection_dbus(connection_obj_path, device_obj_path).await?;
+        debug_assert!(
+            !active_path.as_str().is_empty(),
+            "NetworkManager returned an empty active connection path"
+        );
         Self::wait_for_active_connection_state(uuid, true, &mut active_changes).await
     }
 
@@ -167,7 +179,8 @@ impl NetworkManagerService {
 
         let mut removed_signals = Self::subscribe_to_connection_removed().await?;
         Self::delete_connection_dbus(connection_path.as_str()).await?;
-        Self::wait_for_connection_removed(uuid, connection_path.as_str(), &mut removed_signals).await
+        Self::wait_for_connection_removed(uuid, connection_path.as_str(), &mut removed_signals)
+            .await
     }
 
     pub(crate) async fn set_wifi_enabled_and_wait(enabled: bool) -> Result<()> {

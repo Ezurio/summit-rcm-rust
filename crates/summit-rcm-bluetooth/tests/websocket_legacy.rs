@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use summit_rcm_bluetooth::service::BluetoothService;
-use summit_rcm_web::axum::body::{to_bytes, Body};
+use summit_rcm_web::axum::Router;
+use summit_rcm_web::axum::body::{Body, to_bytes};
 use summit_rcm_web::axum::http::Request;
 use summit_rcm_web::axum::http::StatusCode;
 use summit_rcm_web::axum::routing::get;
-use summit_rcm_web::axum::Router;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_tungstenite::{

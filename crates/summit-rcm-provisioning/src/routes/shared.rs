@@ -4,12 +4,10 @@
 //
 
 use crate::paths::{CERT_TEMP_PATH, CONFIG_FILE_TEMP_PATH, DEVICE_SERVER_CSR_PATH};
-use crate::service::{
-    CertificateProvisioningService, ProvisioningSaveError, ProvisioningState,
-};
+use crate::service::{CertificateProvisioningService, ProvisioningSaveError, ProvisioningState};
 use crate::state_machine::{Event, ProvisioningStateMachine};
-use summit_rcm_web::axum::{extract::multipart::MultipartRejection, extract::Multipart};
 use log::error;
+use summit_rcm_web::axum::{extract::Multipart, extract::multipart::MultipartRejection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProvisioningRouteError {
@@ -44,7 +42,10 @@ pub(crate) async fn create_csr_from_upload(
                 if !fname.ends_with(".cnf") {
                     return Err(ProvisioningRouteError::BadRequest);
                 }
-                let data = field.bytes().await.map_err(|_| ProvisioningRouteError::BadRequest)?;
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|_| ProvisioningRouteError::BadRequest)?;
                 if tokio::fs::write(CONFIG_FILE_TEMP_PATH, data).await.is_err() {
                     return Err(ProvisioningRouteError::InternalError);
                 }
@@ -107,7 +108,10 @@ pub(crate) async fn save_uploaded_certificate(
             if !fname.ends_with(".crt") && !fname.ends_with(".pem") {
                 return Err(ProvisioningRouteError::InvalidCertificate);
             }
-            let data = field.bytes().await.map_err(|_| ProvisioningRouteError::BadRequest)?;
+            let data = field
+                .bytes()
+                .await
+                .map_err(|_| ProvisioningRouteError::BadRequest)?;
             if tokio::fs::write(CERT_TEMP_PATH, data).await.is_err() {
                 return Err(ProvisioningRouteError::InternalError);
             }
@@ -123,11 +127,16 @@ pub(crate) async fn save_uploaded_certificate(
         Ok(_) => match ProvisioningStateMachine::handle(Event::CertUploaded).await {
             Ok(_) => Ok(()),
             Err(error) => {
-                error!("Couldn't transition provisioning state after cert upload: {:?}", error);
+                error!(
+                    "Couldn't transition provisioning state after cert upload: {:?}",
+                    error
+                );
                 Err(ProvisioningRouteError::InternalError)
             }
         },
-        Err(ProvisioningSaveError::InvalidCertificate) => Err(ProvisioningRouteError::InvalidCertificate),
+        Err(ProvisioningSaveError::InvalidCertificate) => {
+            Err(ProvisioningRouteError::InvalidCertificate)
+        }
         Err(error) => {
             error!("Couldn't upload certificate file: {:?}", error);
             Err(ProvisioningRouteError::InternalError)

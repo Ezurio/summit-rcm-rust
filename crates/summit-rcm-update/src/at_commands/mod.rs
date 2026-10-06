@@ -5,14 +5,14 @@
 
 //! Firmware update AT commands owned by the update plugin.
 
+use crate::FirmwareUpdateService;
+use crate::firmware_update_service::UpdateStreamError;
 use bytes::Bytes;
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use log::error;
 use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
 use summit_rcm_at::data_mode::{DataModeRead, DataModeSession};
 use summit_rcm_at::fsm::FsmHandle;
-use crate::firmware_update_service::UpdateStreamError;
-use crate::FirmwareUpdateService;
-use log::error;
 use tokio::time::Duration;
 
 const FW_UPDATE_UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
@@ -40,7 +40,9 @@ async fn stream_fw_update_upload(length: usize) -> Result<(), UpdateStreamError>
             let (mut chunk, escaped) = match session.read().await {
                 DataModeRead::Data(data) => (data, false),
                 DataModeRead::Escape(data) => (data, true),
-                DataModeRead::Closed | DataModeRead::TimedOut => return Err(UpdateStreamError::Internal),
+                DataModeRead::Closed | DataModeRead::TimedOut => {
+                    return Err(UpdateStreamError::Internal);
+                }
             };
 
             if chunk.len() > remaining {
@@ -94,13 +96,15 @@ async fn execute_fw_update_run(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comm
             FirmwareUpdateService::cancel();
             CommandOutcome::Ok
         }
-        FW_UPDATE_MODE_START if !image.is_empty() => match FirmwareUpdateService::start_update(url, image).await {
-            Ok(_) => CommandOutcome::Ok,
-            Err(error) => {
-                error!("FW update run error: {}", error);
-                CommandOutcome::Error
+        FW_UPDATE_MODE_START if !image.is_empty() => {
+            match FirmwareUpdateService::start_update(url, image).await {
+                Ok(_) => CommandOutcome::Ok,
+                Err(error) => {
+                    error!("FW update run error: {}", error);
+                    CommandOutcome::Error
+                }
             }
-        },
+        }
         _ => CommandOutcome::Error,
     }
 }
@@ -140,8 +144,32 @@ async fn execute_fw_update_status(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> 
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+fwrun", "AT+FWRUN=<mode>[,<image>[,<url>]]", 3, &[], execute_fw_update_run),
-    summit_rcm_at::commands::command_spec!("at+fwsend", "AT+FWSEND=<length>", 0, &[], execute_fw_update_send),
-    summit_rcm_at::commands::command_spec!("at+fwsenddirect", "AT+FWSENDDIRECT=<length>,<image>", 2, &[0, 1], execute_fw_update_send_direct),
-    summit_rcm_at::commands::command_spec!("at+fwstatus", "AT+FWSTATUS", 0, &[], execute_fw_update_status),
+    summit_rcm_at::commands::command_spec!(
+        "at+fwrun",
+        "AT+FWRUN=<mode>[,<image>[,<url>]]",
+        3,
+        &[],
+        execute_fw_update_run
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+fwsend",
+        "AT+FWSEND=<length>",
+        0,
+        &[],
+        execute_fw_update_send
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+fwsenddirect",
+        "AT+FWSENDDIRECT=<length>,<image>",
+        2,
+        &[0, 1],
+        execute_fw_update_send_direct
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+fwstatus",
+        "AT+FWSTATUS",
+        0,
+        &[],
+        execute_fw_update_status
+    ),
 ];

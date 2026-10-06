@@ -5,16 +5,16 @@
 
 //! File-management AT commands owned by the files plugin.
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use log::error;
+use std::fmt::Write as _;
+use std::time::Duration;
 use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
 use summit_rcm_at::data_mode::{DataModeFinish, DataModeSession};
 use summit_rcm_at::fsm::FsmHandle;
 use summit_rcm_core::files_service::FilesService;
 #[cfg(feature = "network-manager")]
 use summit_rcm_network_manager::service::NetworkService;
-use std::fmt::Write as _;
-use log::error;
-use std::time::Duration;
 
 const FILESEXP_MAX_CHUNK_SIZE: usize = 128 * 1024;
 
@@ -170,8 +170,32 @@ async fn execute_files_export(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+filesdel", "AT+FILESDEL=<name>", 1, &[0], execute_files_delete),
-    summit_rcm_at::commands::command_spec!("at+fileslist", "AT+FILESLIST[=<type>]", 0, &[], execute_files_list),
-    summit_rcm_at::commands::command_spec!("at+filesexp", "AT+FILESEXP=<mode>,<type>[,<password>][,<chunk size>,<offset>]", 5, &[0, 1, 2, 3, 4], execute_files_export),
-    summit_rcm_at::commands::command_spec!("at+filesup", "AT+FILESUP=<type>,<name>,<length>", 3, &[0, 1], execute_files_upload),
+    summit_rcm_at::commands::command_spec!(
+        "at+filesdel",
+        "AT+FILESDEL=<name>",
+        1,
+        &[0],
+        execute_files_delete
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+fileslist",
+        "AT+FILESLIST[=<type>]",
+        0,
+        &[],
+        execute_files_list
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+filesexp",
+        "AT+FILESEXP=<mode>,<type>[,<password>][,<chunk size>,<offset>]",
+        5,
+        &[0, 1, 2, 3, 4],
+        execute_files_export
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+filesup",
+        "AT+FILESUP=<type>,<name>,<length>",
+        3,
+        &[0, 1],
+        execute_files_upload
+    ),
 ];

@@ -3,18 +3,18 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
+use crate::INVALID_RSSI;
 use anyhow::Result;
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use summit_rcm_core::utils::frequency_to_channel;
 use summit_rcm_core::{config::ServerConfig, dbus};
 use summit_rcm_network::service::NetworkService as RawNetworkService;
-use crate::INVALID_RSSI;
-use summit_rcm_core::utils::frequency_to_channel;
-use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
 use zbus::zvariant::OwnedObjectPath;
 
 use super::super::{
-    NetworkManagerService, NM_ACCESS_POINT_IFACE, NM_BUS_NAME, NM_DEVICE_IFACE,
-    NM_DEVICE_WIRELESS_IFACE, NM_IFACE, NM_MAIN_OBJ,
+    NM_ACCESS_POINT_IFACE, NM_BUS_NAME, NM_DEVICE_IFACE, NM_DEVICE_WIRELESS_IFACE, NM_IFACE,
+    NM_MAIN_OBJ, NetworkManagerService,
 };
 
 use std::sync::LazyLock;
@@ -104,7 +104,10 @@ impl NetworkManagerService {
         wireless_properties: &serde_json::Map<String, Value>,
     ) -> serde_json::Map<String, Value> {
         serde_json::Map::from_iter([
-            ("Bitrate".to_string(), json!(Self::map_u32(wireless_properties, "Bitrate", 0))),
+            (
+                "Bitrate".to_string(),
+                json!(Self::map_u32(wireless_properties, "Bitrate", 0)),
+            ),
             (
                 "HwAddress".to_string(),
                 json!(Self::map_string(wireless_properties, "HwAddress", "")),
@@ -113,14 +116,22 @@ impl NetworkManagerService {
                 "PermHwAddress".to_string(),
                 json!(Self::map_string(wireless_properties, "PermHwAddress", "")),
             ),
-            ("Mode".to_string(), json!(Self::map_i32(wireless_properties, "Mode", 0))),
+            (
+                "Mode".to_string(),
+                json!(Self::map_i32(wireless_properties, "Mode", 0)),
+            ),
             (
                 "RegDomain".to_string(),
-                json!(RawNetworkService::get_reg_domain_info()
-                    .await
-                    .unwrap_or_else(|_| "WW".to_string())),
+                json!(
+                    RawNetworkService::get_reg_domain_info()
+                        .await
+                        .unwrap_or_else(|_| "WW".to_string())
+                ),
             ),
-            ("LastScan".to_string(), json!(Self::map_i64(wireless_properties, "LastScan", -1))),
+            (
+                "LastScan".to_string(),
+                json!(Self::map_i64(wireless_properties, "LastScan", -1)),
+            ),
         ])
     }
 
@@ -132,9 +143,18 @@ impl NetworkManagerService {
         let frequency = Self::map_u32(ap_properties, "Frequency", 0);
         let strength = Self::map_u32(ap_properties, "Strength", 0);
 
-        let _ = result.insert("Ssid".to_string(), json!(Self::ssid_from_json(ap_properties.get("Ssid"))));
-        let _ = result.insert("HwAddress".to_string(), json!(Self::map_string(ap_properties, "HwAddress", "")));
-        let _ = result.insert("MaxBitrate".to_string(), json!(Self::map_u32(ap_properties, "MaxBitrate", 0)));
+        let _ = result.insert(
+            "Ssid".to_string(),
+            json!(Self::ssid_from_json(ap_properties.get("Ssid"))),
+        );
+        let _ = result.insert(
+            "HwAddress".to_string(),
+            json!(Self::map_string(ap_properties, "HwAddress", "")),
+        );
+        let _ = result.insert(
+            "MaxBitrate".to_string(),
+            json!(Self::map_u32(ap_properties, "MaxBitrate", 0)),
+        );
 
         let flags = Self::map_u32(ap_properties, "Flags", 0);
         let _ = result.insert("Flags".to_string(), json!(flags));
@@ -142,13 +162,22 @@ impl NetworkManagerService {
 
         let wpa_flags = Self::map_u32(ap_properties, "WpaFlags", 0);
         let _ = result.insert("WpaFlags".to_string(), json!(wpa_flags));
-        let _ = result.insert("WpaFlagsList".to_string(), json!(Self::ap_security_flags_list(wpa_flags)));
+        let _ = result.insert(
+            "WpaFlagsList".to_string(),
+            json!(Self::ap_security_flags_list(wpa_flags)),
+        );
 
         let rsn_flags = Self::map_u32(ap_properties, "RsnFlags", 0);
         let _ = result.insert("RsnFlags".to_string(), json!(rsn_flags));
-        let _ = result.insert("RsnFlagsList".to_string(), json!(Self::ap_security_flags_list(rsn_flags)));
+        let _ = result.insert(
+            "RsnFlagsList".to_string(),
+            json!(Self::ap_security_flags_list(rsn_flags)),
+        );
 
-        let _ = result.insert("Bandwidth".to_string(), json!(Self::map_u32(ap_properties, "Bandwidth", 0)));
+        let _ = result.insert(
+            "Bandwidth".to_string(),
+            json!(Self::map_u32(ap_properties, "Bandwidth", 0)),
+        );
         let _ = result.insert(
             "Strength".to_string(),
             json!(if mode == 3 { 100 } else { strength }),
@@ -162,7 +191,10 @@ impl NetworkManagerService {
                 ((strength as i32 / 2) - 100) as f64
             }),
         );
-        let _ = result.insert("Channel".to_string(), json!(frequency_to_channel(frequency)));
+        let _ = result.insert(
+            "Channel".to_string(),
+            json!(frequency_to_channel(frequency)),
+        );
 
         result
     }
@@ -244,10 +276,15 @@ impl NetworkManagerService {
 
     async fn get_device_paths() -> Result<Vec<OwnedObjectPath>> {
         let manager_properties = Self::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
-        Ok(dbus::property::<Vec<OwnedObjectPath>>(&manager_properties, "Devices").unwrap_or_default())
+        Ok(
+            dbus::property::<Vec<OwnedObjectPath>>(&manager_properties, "Devices")
+                .unwrap_or_default(),
+        )
     }
 
-    async fn get_wireless_device_paths(iface: Option<&str>) -> Result<Vec<(String, OwnedObjectPath)>> {
+    async fn get_wireless_device_paths(
+        iface: Option<&str>,
+    ) -> Result<Vec<(String, OwnedObjectPath)>> {
         let devices = Self::get_device_paths().await?;
         let mut device_paths = Vec::with_capacity(devices.len());
 
@@ -270,9 +307,10 @@ impl NetworkManagerService {
         }
 
         if let Some(iface) = iface
-            && device_paths.is_empty() {
-                anyhow::bail!("Wireless interface '{}' not found", iface);
-            }
+            && device_paths.is_empty()
+        {
+            anyhow::bail!("Wireless interface '{}' not found", iface);
+        }
 
         Ok(device_paths)
     }
@@ -298,8 +336,13 @@ impl NetworkManagerService {
     }
 
     pub(crate) async fn get_last_scan_millis_dbus(iface: Option<&str>) -> Result<i64> {
-        if let Some((_, device_path)) = Self::get_wireless_device_paths(iface).await?.into_iter().next() {
-            let wireless_properties = Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
+        if let Some((_, device_path)) = Self::get_wireless_device_paths(iface)
+            .await?
+            .into_iter()
+            .next()
+        {
+            let wireless_properties =
+                Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             return Ok(dbus::property::<i64>(&wireless_properties, "LastScan").unwrap_or(-1));
         }
 
@@ -310,14 +353,17 @@ impl NetworkManagerService {
         let mut access_points = Vec::new();
 
         for (_interface_name, device_path) in Self::get_wireless_device_paths(iface).await? {
-            let wireless_properties = Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
+            let wireless_properties =
+                Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             let mode = dbus::property::<i32>(&wireless_properties, "Mode").unwrap_or_default();
             let access_point_paths =
-                dbus::property::<Vec<OwnedObjectPath>>(&wireless_properties, "AccessPoints").unwrap_or_default();
+                dbus::property::<Vec<OwnedObjectPath>>(&wireless_properties, "AccessPoints")
+                    .unwrap_or_default();
             access_points.reserve(access_point_paths.len());
 
             for access_point_path in access_point_paths {
-                let access_point_properties = Self::get_properties(access_point_path.as_str(), NM_ACCESS_POINT_IFACE).await?;
+                let access_point_properties =
+                    Self::get_properties(access_point_path.as_str(), NM_ACCESS_POINT_IFACE).await?;
                 let access_point_json = Self::properties_to_json(&access_point_properties);
                 let mut formatted = Self::get_ap_properties(mode, &access_point_json);
 
@@ -357,19 +403,16 @@ impl NetworkManagerService {
             let wireless_properties =
                 Self::get_properties(device_path.as_str(), NM_DEVICE_WIRELESS_IFACE).await?;
             let mode = dbus::property::<i32>(&wireless_properties, "Mode").unwrap_or_default();
-            let access_point_paths = dbus::property::<Vec<OwnedObjectPath>>(
-                &wireless_properties,
-                "AccessPoints",
-            )
-            .unwrap_or_default();
+            let access_point_paths =
+                dbus::property::<Vec<OwnedObjectPath>>(&wireless_properties, "AccessPoints")
+                    .unwrap_or_default();
             access_points.reserve(access_point_paths.len());
 
             for access_point_path in access_point_paths {
                 let access_point_properties =
                     Self::get_properties(access_point_path.as_str(), NM_ACCESS_POINT_IFACE).await?;
                 let access_point_json = Self::properties_to_json(&access_point_properties);
-                let mut formatted =
-                    Self::get_ap_properties(mode, &access_point_json);
+                let mut formatted = Self::get_ap_properties(mode, &access_point_json);
 
                 let ssid = formatted.remove("Ssid").unwrap_or_else(|| json!(""));
                 let hw_address = formatted.remove("HwAddress").unwrap_or_else(|| json!(""));

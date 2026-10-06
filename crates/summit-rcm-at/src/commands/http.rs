@@ -5,14 +5,17 @@
 
 //! HTTP AT commands
 
-use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::commands::params::CsvParams;
+use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::fsm::FsmHandle;
 use crate::http_service::HttpService;
 use crate::ssl::AtSslConfig;
 use log::error;
 
-pub async fn execute_http_configure_transaction(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_http_configure_transaction(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let host = params.trimmed(0);
     let Some(port) = params.parse_value::<u16>(1) else {
         return CommandOutcome::Error;
@@ -26,7 +29,10 @@ pub async fn execute_http_configure_transaction(_fsm: &FsmHandle, params: &CsvPa
     CommandOutcome::Ok
 }
 
-pub async fn execute_http_execute_transaction(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_http_execute_transaction(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let Some(length) = params.parse_value::<usize>(0) else {
         return CommandOutcome::Error;
     };
@@ -61,7 +67,10 @@ pub async fn execute_http_add_header(_fsm: &FsmHandle, params: &CsvParams<'_>) -
     CommandOutcome::Ok
 }
 
-pub async fn execute_http_enable_response_header(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_http_enable_response_header(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let Some(flag) = params.parse_value::<i32>(0) else {
         return CommandOutcome::Error;
     };
@@ -72,13 +81,19 @@ pub async fn execute_http_enable_response_header(_fsm: &FsmHandle, params: &CsvP
     CommandOutcome::Ok
 }
 
-pub async fn execute_http_clear_configuration(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_http_clear_configuration(
+    _fsm: &FsmHandle,
+    _params: &CsvParams<'_>,
+) -> CommandOutcome {
     let mut svc = HttpService::instance().lock().await;
     svc.clear_configuration();
     CommandOutcome::Ok
 }
 
-pub async fn execute_http_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_http_configure_ssl(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     match params.parameter_count() {
         1 | 2 | 4 | 5 => {
             let Some(auth_mode) = params.parse_value::<i32>(0) else {
@@ -143,10 +158,34 @@ pub(crate) const COMMANDS: &[PublishedCommand] = &[
         &[],
         execute_http_configure_transaction
     ),
-    crate::commands::command_spec!("at+httpexe", "AT+HTTPEXE=<length>", 1, &[], execute_http_execute_transaction),
-    crate::commands::command_spec!("at+httpaddhdr", "AT+HTTPADDHDR=<key>,<value>", 2, &[0], execute_http_add_header),
-    crate::commands::command_spec!("at+httprshdr", "AT+HTTPRSHDR=<0|1>", 1, &[], execute_http_enable_response_header),
-    crate::commands::command_spec!("at+httpclr", "AT+HTTPCLR", 0, &[], execute_http_clear_configuration),
+    crate::commands::command_spec!(
+        "at+httpexe",
+        "AT+HTTPEXE=<length>",
+        1,
+        &[],
+        execute_http_execute_transaction
+    ),
+    crate::commands::command_spec!(
+        "at+httpaddhdr",
+        "AT+HTTPADDHDR=<key>,<value>",
+        2,
+        &[0],
+        execute_http_add_header
+    ),
+    crate::commands::command_spec!(
+        "at+httprshdr",
+        "AT+HTTPRSHDR=<0|1>",
+        1,
+        &[],
+        execute_http_enable_response_header
+    ),
+    crate::commands::command_spec!(
+        "at+httpclr",
+        "AT+HTTPCLR",
+        0,
+        &[],
+        execute_http_clear_configuration
+    ),
     crate::commands::command_spec!(
         "at+httpssl",
         "AT+HTTPSSL=<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",

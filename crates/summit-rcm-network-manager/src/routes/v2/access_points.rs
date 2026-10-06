@@ -38,12 +38,15 @@ pub(crate) struct AccessPointScanRequested {
     pub scan_requested: bool,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/accessPoints",
-    tag = "network",
-    responses(ListAccessPointsResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/accessPoints",
+        tag = "network",
+        responses(ListAccessPointsResponses)
+    )
+)]
 pub(crate) async fn list_access_points() -> ListAccessPointsResponses {
     match NetworkService::get_access_points_model(None).await {
         Ok(value) => value.into(),
@@ -54,12 +57,15 @@ pub(crate) async fn list_access_points() -> ListAccessPointsResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/accessPoints/scan",
-    tag = "network",
-    responses(AccessPointScanAgeResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/accessPoints/scan",
+        tag = "network",
+        responses(AccessPointScanAgeResponses)
+    )
+)]
 pub(crate) async fn get_access_points_scan() -> AccessPointScanAgeResponses {
     match NetworkService::get_seconds_since_last_scan().await {
         Ok(seconds_since_last_scan) => AccessPointScanAge {
@@ -70,15 +76,21 @@ pub(crate) async fn get_access_points_scan() -> AccessPointScanAgeResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/network/accessPoints/scan",
-    tag = "network",
-    responses(AccessPointScanRequestedResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/network/accessPoints/scan",
+        tag = "network",
+        responses(AccessPointScanRequestedResponses)
+    )
+)]
 pub(crate) async fn put_access_points_scan() -> AccessPointScanRequestedResponses {
     match NetworkService::request_ap_scan().await {
-        Ok(()) => AccessPointScanRequested { scan_requested: true }.into(),
+        Ok(()) => AccessPointScanRequested {
+            scan_requested: true,
+        }
+        .into(),
         Err(_) => AccessPointScanRequestedResponses::InternalError,
     }
 }

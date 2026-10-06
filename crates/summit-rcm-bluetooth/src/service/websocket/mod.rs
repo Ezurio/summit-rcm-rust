@@ -61,19 +61,25 @@ async fn ensure_observers() {
 
     let mut observers = dbus::SignalObservers::new(BLUEZ_SERVICE, SIGNAL_BUFFER);
     observers
-        .add(OBJECT_MANAGER_IFACE, "InterfacesAdded", |message| async move {
-            observers::on_interfaces_added(message).await
-        })
+        .add(
+            OBJECT_MANAGER_IFACE,
+            "InterfacesAdded",
+            |message| async move { observers::on_interfaces_added(message).await },
+        )
         .await;
     observers
-        .add(OBJECT_MANAGER_IFACE, "InterfacesRemoved", |message| async move {
-            observers::on_interfaces_removed(message).await
-        })
+        .add(
+            OBJECT_MANAGER_IFACE,
+            "InterfacesRemoved",
+            |message| async move { observers::on_interfaces_removed(message).await },
+        )
         .await;
     observers
-        .add(dbus::DBUS_PROP_IFACE, "PropertiesChanged", |message| async move {
-            observers::on_properties_changed(message).await
-        })
+        .add(
+            dbus::DBUS_PROP_IFACE,
+            "PropertiesChanged",
+            |message| async move { observers::on_properties_changed(message).await },
+        )
         .await;
     let tasks = observers.into_tasks();
 

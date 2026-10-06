@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_core::systemd_unit::SystemdUnit;
 use anyhow::Result;
+use summit_rcm_core::systemd_unit::SystemdUnit;
 
 const STUNNEL_SERVICE_FILE: &str = "stunnel.service";
 
@@ -19,7 +19,9 @@ impl Default for StunnelService {
 
 impl StunnelService {
     pub(crate) fn new() -> Self {
-        Self { unit: SystemdUnit::new(STUNNEL_SERVICE_FILE) }
+        Self {
+            unit: SystemdUnit::new(STUNNEL_SERVICE_FILE),
+        }
     }
 
     #[cfg(feature = "api-v2")]

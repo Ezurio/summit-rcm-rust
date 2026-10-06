@@ -5,11 +5,11 @@
 
 //! System AT commands owned by the system plugin.
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::{PowerState, SystemService, VersionService};
 use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_version(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
     let ver = VersionService::get_version_info()
@@ -51,7 +51,18 @@ async fn execute_factory_reset(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> Com
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     summit_rcm_at::commands::command_spec!("at+ver", "AT+VER", 0, &[], execute_version),
-    summit_rcm_at::commands::command_spec!("at+power", "AT+POWER=<state>  (0=on, 1=off, 2=suspend, 3=reboot)", 1, &[], execute_power),
-    summit_rcm_at::commands::command_spec!("at+factreset", "AT+FACTRESET", 0, &[], execute_factory_reset),
+    summit_rcm_at::commands::command_spec!(
+        "at+power",
+        "AT+POWER=<state>  (0=on, 1=off, 2=suspend, 3=reboot)",
+        1,
+        &[],
+        execute_power
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+factreset",
+        "AT+FACTRESET",
+        0,
+        &[],
+        execute_factory_reset
+    ),
 ];
-

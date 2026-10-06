@@ -5,13 +5,13 @@
 //! Shared certificate utilities.
 
 use anyhow::Result;
-use summit_rcm_core::utils::path_exists;
-use summit_rcm_core::certificates::CertificatesService as CoreCertificatesService;
 use openssl::x509::{X509, X509NameRef};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "at-interface")]
 use serde_json::Value;
 use std::path::Path;
+use summit_rcm_core::certificates::CertificatesService as CoreCertificatesService;
+use summit_rcm_core::utils::path_exists;
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -71,7 +71,8 @@ impl CertificatesService {
             }
 
             let trimmed = line.trim_end();
-            let is_header = line.starts_with("            ") && !line.starts_with("                ");
+            let is_header =
+                line.starts_with("            ") && !line.starts_with("                ");
             let is_value = line.starts_with("                ");
 
             if is_header {
@@ -126,9 +127,16 @@ impl CertificatesService {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid certificate name: {}", cert_name))?;
-        let cert_path = format!("{}{}", summit_rcm_core::definition::NETWORKMANAGER_CERT_DIR, safe_name);
+        let cert_path = format!(
+            "{}{}",
+            summit_rcm_core::definition::NETWORKMANAGER_CERT_DIR,
+            safe_name
+        );
         if !path_exists(&cert_path).await {
-            return Err(anyhow::anyhow!("Cannot find certificate with name {}", safe_name));
+            return Err(anyhow::anyhow!(
+                "Cannot find certificate with name {}",
+                safe_name
+            ));
         }
         let data = tokio::fs::read(&cert_path).await?;
         let cert = Self::parse_certificate_bytes(&data, password)?;
@@ -142,7 +150,10 @@ impl CertificatesService {
         serde_json::to_value(&info).map_err(Into::into)
     }
 
-    pub(crate) async fn get_cert_info_model(cert_name: &str, password: Option<&str>) -> Result<CertificateInfo> {
+    pub(crate) async fn get_cert_info_model(
+        cert_name: &str,
+        password: Option<&str>,
+    ) -> Result<CertificateInfo> {
         Self::load_cert(cert_name, password).await
     }
 }

@@ -44,7 +44,8 @@ fn read_boot_mode() -> BootMode {
 
 /// Returns the boot-time daemon mode. Computed once on first call and cached.
 pub fn current_boot_mode() -> BootMode {
-    if !summit_rcm_core::config::env_or_trimmed("SUMMIT_RCM_PROVISIONING_STATE_FILE", "").is_empty() {
+    if !summit_rcm_core::config::env_or_trimmed("SUMMIT_RCM_PROVISIONING_STATE_FILE", "").is_empty()
+    {
         return read_boot_mode();
     }
 

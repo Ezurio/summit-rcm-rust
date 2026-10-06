@@ -3,11 +3,11 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
+use crate::routes::shared::{DEFAULT_SCAN_ATTEMPTS, current_scan_attempts};
 use crate::service::AwmConfigService;
-use crate::routes::shared::{current_scan_attempts, DEFAULT_SCAN_ATTEMPTS};
-use summit_rcm_web::axum::Json;
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::Json;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -42,17 +42,19 @@ fn legacy_awm_response(
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/awm",
-    tag = "awm",
-    responses(GetAwmLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(get, path = "/awm", tag = "awm", responses(GetAwmLegacyResponses))
+)]
 pub(crate) async fn get_awm_legacy() -> GetAwmLegacyResponses {
     if AwmConfigService::get_scan_attempts().await.is_ok() {
         legacy_awm_response(ok_response(""), current_scan_attempts().await).into()
     } else {
-        legacy_awm_response(ok_response("AWM configuration only supported in LITE mode"), DEFAULT_SCAN_ATTEMPTS).into()
+        legacy_awm_response(
+            ok_response("AWM configuration only supported in LITE mode"),
+            DEFAULT_SCAN_ATTEMPTS,
+        )
+        .into()
     }
 }
 
@@ -77,6 +79,10 @@ pub(crate) async fn put_awm_legacy(Json(body): Json<AwmLegacyPut>) -> PutAwmLega
     if AwmConfigService::set_scan_attempts(enable).await.is_ok() {
         legacy_awm_response(ok_response(""), enable).into()
     } else {
-        legacy_awm_response(fail_response("No writable configuration file found"), DEFAULT_SCAN_ATTEMPTS).into()
+        legacy_awm_response(
+            fail_response("No writable configuration file found"),
+            DEFAULT_SCAN_ATTEMPTS,
+        )
+        .into()
     }
 }

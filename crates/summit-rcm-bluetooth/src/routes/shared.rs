@@ -112,47 +112,151 @@ pub struct BluetoothControlResponse {
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 pub struct BluetoothDeviceModel {
-    #[serde(rename = "AutoConnect", alias = "auto_connect", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "AutoConnect",
+        alias = "auto_connect",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub auto_connect: Option<i32>,
-    #[serde(rename = "AutoConnectAutoDisable", alias = "auto_connect_auto_disable", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "AutoConnectAutoDisable",
+        alias = "auto_connect_auto_disable",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub auto_connect_auto_disable: Option<i32>,
-    #[serde(rename = "Address", alias = "address", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Address",
+        alias = "address",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub address: Option<String>,
-    #[serde(rename = "AddressType", alias = "address_type", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "AddressType",
+        alias = "address_type",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub address_type: Option<String>,
-    #[serde(rename = "Name", alias = "name", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Name",
+        alias = "name",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub name: Option<String>,
-    #[serde(rename = "Alias", alias = "alias", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Alias",
+        alias = "alias",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub alias: Option<String>,
-    #[serde(rename = "Paired", alias = "paired", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Paired",
+        alias = "paired",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub paired: Option<i32>,
-    #[serde(rename = "Bonded", alias = "bonded", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Bonded",
+        alias = "bonded",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub bonded: Option<i32>,
-    #[serde(rename = "Trusted", alias = "trusted", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Trusted",
+        alias = "trusted",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub trusted: Option<i32>,
-    #[serde(rename = "Blocked", alias = "blocked", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Blocked",
+        alias = "blocked",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub blocked: Option<i32>,
-    #[serde(rename = "LegacyPairing", alias = "legacy_pairing", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "LegacyPairing",
+        alias = "legacy_pairing",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub legacy_pairing: Option<i32>,
-    #[serde(rename = "RSSI", alias = "rssi", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "RSSI",
+        alias = "rssi",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub rssi: Option<i32>,
-    #[serde(rename = "Connected", alias = "connected", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Connected",
+        alias = "connected",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub connected: Option<i32>,
-    #[serde(rename = "UUIDs", alias = "uuids", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "UUIDs",
+        alias = "uuids",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub uuids: Option<Vec<String>>,
-    #[serde(rename = "Adapter", alias = "adapter", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "Adapter",
+        alias = "adapter",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub adapter: Option<String>,
-    #[serde(rename = "AdvertisingFlags", alias = "advertising_flags", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "AdvertisingFlags",
+        alias = "advertising_flags",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub advertising_flags: Option<Vec<u8>>,
-    #[serde(rename = "CablePairing", alias = "cable_pairing", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "CablePairing",
+        alias = "cable_pairing",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cable_pairing: Option<i32>,
-    #[serde(rename = "ManufacturerData", alias = "manufacturer_data", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ManufacturerData",
+        alias = "manufacturer_data",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub manufacturer_data: Option<BTreeMap<String, Vec<u8>>>,
-    #[serde(rename = "ServiceData", alias = "service_data", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ServiceData",
+        alias = "service_data",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub service_data: Option<BTreeMap<String, Vec<u8>>>,
-    #[serde(rename = "TxPower", alias = "tx_power", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "TxPower",
+        alias = "tx_power",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tx_power: Option<i32>,
-    #[serde(rename = "ServicesResolved", alias = "services_resolved", default, deserialize_with = "deserialize_optional_intish", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ServicesResolved",
+        alias = "services_resolved",
+        default,
+        deserialize_with = "deserialize_optional_intish",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub services_resolved: Option<i32>,
     #[cfg_attr(feature = "api-docs", schema(value_type = Object))]
     #[serde(flatten)]
@@ -188,13 +292,16 @@ pub fn include_filter(filters: Option<&[String]>, name: &str) -> bool {
 
 impl BluetoothQuery {
     pub fn filters(&self) -> Option<Vec<String>> {
-        self.filter_csv.as_ref().map(|raw| {
-            raw.split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        }).filter(|filters| !filters.is_empty())
+        self.filter_csv
+            .as_ref()
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|filters| !filters.is_empty())
     }
 }
 
@@ -209,9 +316,9 @@ pub(crate) async fn bluetooth_websocket_upgrade_response(
         summit_rcm_web::axum::extract::ws::rejection::WebSocketUpgradeRejection,
     >,
 ) -> Option<summit_rcm_web::notifications::NotificationWebsocketResponse> {
-    use summit_rcm_web::notifications::NotificationWebsocketResponse;
     use crate::service::BluetoothService;
     use summit_rcm_web::axum::response::IntoResponse;
+    use summit_rcm_web::notifications::NotificationWebsocketResponse;
 
     if !BluetoothService::websocket_notifications_enabled() {
         return Some(NotificationWebsocketResponse::NotFound);

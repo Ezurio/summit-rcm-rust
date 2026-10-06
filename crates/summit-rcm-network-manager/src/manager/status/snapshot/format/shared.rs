@@ -7,7 +7,7 @@
 //! produce canonical fragments; all v2/legacy shaping lives in the sibling
 //! `v2` and `legacy` modules.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::manager::{NMConnectivityState, NetworkManagerService};
 
@@ -115,8 +115,14 @@ impl NetworkManagerService {
         let device_type = Self::map_i32(dev_properties, "DeviceType", 0);
         serde_json::Map::from_iter([
             ("State".to_string(), json!(state)),
-            ("StateText".to_string(), json!(Self::summit_state_text(state))),
-            ("Mtu".to_string(), json!(Self::map_u32(dev_properties, "Mtu", 0))),
+            (
+                "StateText".to_string(),
+                json!(Self::summit_state_text(state)),
+            ),
+            (
+                "Mtu".to_string(),
+                json!(Self::map_u32(dev_properties, "Mtu", 0)),
+            ),
             ("DeviceType".to_string(), json!(device_type)),
             (
                 "DeviceTypeText".to_string(),
@@ -130,13 +136,22 @@ impl NetworkManagerService {
     ) -> serde_json::Map<String, Value> {
         let mut properties = serde_json::Map::with_capacity(5);
         properties.extend([
-            ("HwAddress".to_string(), json!(Self::map_string(wired_properties, "HwAddress", ""))),
+            (
+                "HwAddress".to_string(),
+                json!(Self::map_string(wired_properties, "HwAddress", "")),
+            ),
             (
                 "PermHwAddress".to_string(),
                 json!(Self::map_string(wired_properties, "PermHwAddress", "")),
             ),
-            ("Speed".to_string(), json!(Self::map_u32(wired_properties, "Speed", 0))),
-            ("Carrier".to_string(), json!(Self::map_bool(wired_properties, "Carrier", false))),
+            (
+                "Speed".to_string(),
+                json!(Self::map_u32(wired_properties, "Speed", 0)),
+            ),
+            (
+                "Carrier".to_string(),
+                json!(Self::map_bool(wired_properties, "Carrier", false)),
+            ),
         ]);
 
         let s390 = wired_properties
@@ -189,10 +204,7 @@ impl NetworkManagerService {
         }
 
         for key in ["Capabilities", "InterfaceFlags"] {
-            let _ = details.insert(
-                key.to_string(),
-                json!(Self::map_u32(status_props, key, 0)),
-            );
+            let _ = details.insert(key.to_string(), json!(Self::map_u32(status_props, key, 0)));
         }
 
         let state_reason = Self::map_array(status_props, "StateReason")
@@ -203,7 +215,10 @@ impl NetworkManagerService {
 
         let metered = Self::map_u32(status_props, "Metered", 0);
         let _ = details.insert("Metered".to_string(), json!(metered));
-        let _ = details.insert("MeteredText".to_string(), json!(Self::metered_text(metered)));
+        let _ = details.insert(
+            "MeteredText".to_string(),
+            json!(Self::metered_text(metered)),
+        );
 
         let ip4_connectivity = Self::map_u32(status_props, "Ip4Connectivity", 0);
         let _ = details.insert("Ip4Connectivity".to_string(), json!(ip4_connectivity));
@@ -234,7 +249,14 @@ impl NetworkManagerService {
         };
 
         let mut legacy = serde_json::Map::with_capacity(if include_details { 8 } else { 6 });
-        for key in ["id", "interface-name", "permissions", "type", "uuid", "zone"] {
+        for key in [
+            "id",
+            "interface-name",
+            "permissions",
+            "type",
+            "uuid",
+            "zone",
+        ] {
             if let Some(value) = connection.get(key) {
                 let normalized = if (key == "zone" || key == "interface-name") && value.is_null() {
                     json!("")

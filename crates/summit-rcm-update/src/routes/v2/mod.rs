@@ -8,15 +8,11 @@
 //! PUT  /api/v2/system/update – start or cancel an update
 //! POST /api/v2/system/update/updateFile – upload the update image
 
-use crate::{FirmwareUpdateService, SummitRcmUpdateStatus};
 use crate::firmware_update_service::UpdateStreamError;
 use crate::routes::shared::upload_update_stream;
-use summit_rcm_web::axum::{
-    body::Body,
-    http::Request,
-    Json,
-};
+use crate::{FirmwareUpdateService, SummitRcmUpdateStatus};
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::{Json, body::Body, http::Request};
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(
@@ -73,30 +69,40 @@ fn current_update_status() -> UpdateStatusResponse {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/update",
-    tag = "system",
-    responses(GetUpdateStatusResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/update",
+        tag = "system",
+        responses(GetUpdateStatusResponses)
+    )
+)]
 pub(crate) async fn get_update_status() -> GetUpdateStatusResponses {
     current_update_status().into()
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/system/update",
-    tag = "system",
-    responses(SetUpdateStatusResponses)
-))]
-pub(crate) async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> SetUpdateStatusResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/system/update",
+        tag = "system",
+        responses(SetUpdateStatusResponses)
+    )
+)]
+pub(crate) async fn set_update_status(
+    Json(body): Json<UpdateStatusRequest>,
+) -> SetUpdateStatusResponses {
     let url = body.url.unwrap_or_default();
     let image = body.image.unwrap_or_else(|| "full".to_string());
     if url.contains(' ') {
         return SetUpdateStatusResponses::BadRequest;
     }
 
-    match body.status.unwrap_or(SummitRcmUpdateStatus::NotUpdating as i32)
+    match body
+        .status
+        .unwrap_or(SummitRcmUpdateStatus::NotUpdating as i32)
         .try_into()
         .unwrap_or(SummitRcmUpdateStatus::NotUpdating)
     {
@@ -106,7 +112,7 @@ pub(crate) async fn set_update_status(Json(body): Json<UpdateStatusRequest>) -> 
             }
             match FirmwareUpdateService::start_update(&url, &image).await {
                 Ok(_) => current_update_status().into(),
-                Err(_) => SetUpdateStatusResponses::InternalError
+                Err(_) => SetUpdateStatusResponses::InternalError,
             }
         }
         SummitRcmUpdateStatus::NotUpdating => {

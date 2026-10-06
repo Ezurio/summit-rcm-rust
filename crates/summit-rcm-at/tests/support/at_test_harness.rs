@@ -7,14 +7,13 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
-use rustix::io::{read, write, Errno};
-use rustix::termios::{tcgetattr, tcsetattr, OptionalActions};
+use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
+use rustix::io::{Errno, read, write};
+use rustix::termios::{OptionalActions, tcgetattr, tcsetattr};
 use rustix_openpty::openpty;
 use summit_rcm_at::fsm::AtInterface;
 
-static TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> =
-    LazyLock::new(|| tokio::sync::Mutex::new(()));
+static TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 pub(crate) async fn lock_test() -> tokio::sync::MutexGuard<'static, ()> {
     TEST_LOCK.lock().await
@@ -32,8 +31,7 @@ impl AtHarness {
 
         let mut tty = tcgetattr(&pty.user).expect("tcgetattr should succeed");
         tty.make_raw();
-        tcsetattr(&pty.user, OptionalActions::Now, &tty)
-            .expect("tcsetattr should succeed");
+        tcsetattr(&pty.user, OptionalActions::Now, &tty).expect("tcsetattr should succeed");
 
         let slave_path = std::fs::read_link(format!("/proc/self/fd/{}", pty.user.as_raw_fd()))
             .expect("slave PTY path should resolve")
@@ -44,12 +42,13 @@ impl AtHarness {
         drop(pty.user);
 
         let flags = fcntl_getfl(&master_fd).expect("F_GETFL should succeed");
-        fcntl_setfl(&master_fd, flags | OFlags::NONBLOCK)
-            .expect("F_SETFL should succeed");
+        fcntl_setfl(&master_fd, flags | OFlags::NONBLOCK).expect("F_SETFL should succeed");
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let at_task =
-            tokio::spawn(async move { AtInterface::start(slave_path, baud_rate, shutdown_rx).await });
+            tokio::spawn(
+                async move { AtInterface::start(slave_path, baud_rate, shutdown_rx).await },
+            );
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         if at_task.is_finished() {

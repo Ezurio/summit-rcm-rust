@@ -3,10 +3,10 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::service::{FirewallService, ForwardedPort};
-use summit_rcm_web::axum::{extract::Path, Json};
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::{Json, extract::Path};
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -34,7 +34,8 @@ summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum GetFirewallLegacyResponses(LegacyFirewallListResponse);
 }
 
-pub(crate) type PutFirewallLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutFirewallLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortResponse {
     LegacyForwardedPortResponse {
@@ -46,12 +47,15 @@ fn legacy_forwarded_port_response(port: ForwardedPort) -> LegacyForwardedPortRes
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/firewall",
-    tag = "firewall",
-    responses(GetFirewallLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/firewall",
+        tag = "firewall",
+        responses(GetFirewallLegacyResponses)
+    )
+)]
 pub(crate) async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
     let ports = FirewallService::get_forwarded_ports()
         .await
@@ -72,7 +76,9 @@ pub(crate) async fn get_firewall_legacy() -> GetFirewallLegacyResponses {
     params(("command" = String, Path, description = "Firewall command")),
     responses(GetFirewallLegacyResponses)
 ))]
-pub(crate) async fn get_firewall_legacy_with_command(Path(_command): Path<String>) -> GetFirewallLegacyResponses {
+pub(crate) async fn get_firewall_legacy_with_command(
+    Path(_command): Path<String>,
+) -> GetFirewallLegacyResponses {
     get_firewall_legacy().await
 }
 
@@ -98,7 +104,7 @@ pub(crate) async fn put_firewall_legacy(
     Path(command): Path<String>,
     Json(body): Json<LegacyForwardedPort>,
 ) -> PutFirewallLegacyResponses {
-    use crate::service::{IPV4, PORT_COMMANDS, IP_VERSIONS};
+    use crate::service::{IP_VERSIONS, IPV4, PORT_COMMANDS};
 
     if !PORT_COMMANDS.contains(&command.as_str()) {
         return fail_response(format!(
@@ -136,6 +142,8 @@ pub(crate) async fn put_firewall_legacy(
     request_body = LegacyForwardedPort,
     responses(PutFirewallLegacyResponses)
 ))]
-pub(crate) async fn put_firewall_legacy_default(Json(_body): Json<LegacyForwardedPort>) -> PutFirewallLegacyResponses {
+pub(crate) async fn put_firewall_legacy_default(
+    Json(_body): Json<LegacyForwardedPort>,
+) -> PutFirewallLegacyResponses {
     fail_response("No command specified").into()
 }

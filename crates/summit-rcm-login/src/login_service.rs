@@ -4,13 +4,13 @@
 //
 //! Session login management service
 
-use summit_rcm_core::config::SystemSettingsManage;
-use summit_rcm_core::config::ServerConfig;
-use summit_rcm_core::utils::{boottime, elapsed_timespec};
 use rustix::time::Timespec;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_core::config::SystemSettingsManage;
+use summit_rcm_core::utils::{boottime, elapsed_timespec};
 
 #[derive(Clone, Debug)]
 struct TrackedSession {
@@ -31,8 +31,9 @@ impl LoginServiceState {
         last_activity_at: Timespec,
         timeout: Duration,
     ) {
-        self.tracked_sessions
-            .retain(|_, session| elapsed_timespec(last_activity_at, session.last_activity_at) < timeout);
+        self.tracked_sessions.retain(|_, session| {
+            elapsed_timespec(last_activity_at, session.last_activity_at) < timeout
+        });
         let _ = self.tracked_sessions.insert(
             session_id,
             TrackedSession {
@@ -77,9 +78,10 @@ pub(crate) struct LoginService;
 
 impl LoginService {
     fn session_timeout() -> Duration {
-        summit_rcm_core::cached_config!(Duration, Duration::from_secs(
-            SystemSettingsManage::get_int("session_timeout", 10) as u64 * 60
-        ))
+        summit_rcm_core::cached_config!(
+            Duration,
+            Duration::from_secs(SystemSettingsManage::get_int("session_timeout", 10) as u64 * 60)
+        )
     }
 
     pub(crate) fn default_username() -> String {
@@ -91,14 +93,19 @@ impl LoginService {
     }
 
     pub(crate) fn allow_multiple_user_sessions() -> bool {
-        summit_rcm_core::cached_config!(bool, ServerConfig::get_bool("summit-rcm", "allow_multiple_user_sessions", false))
+        summit_rcm_core::cached_config!(
+            bool,
+            ServerConfig::get_bool("summit-rcm", "allow_multiple_user_sessions", false)
+        )
     }
 
     /// Return true if the user is blocked due to too many failed login attempts
     pub(crate) fn is_user_blocked(username: &str) -> bool {
         let (retry_times_raw, tamper_timeout_raw) = SystemSettingsManage::get_two_ints(
-            "login_retry_times", 5,
-            "tamper_protection_timeout", 600,
+            "login_retry_times",
+            5,
+            "tamper_protection_timeout",
+            600,
         );
         let retry_times = retry_times_raw as usize;
         let tamper_timeout = Duration::from_secs(tamper_timeout_raw as u64);
@@ -118,9 +125,8 @@ impl LoginService {
 
     /// Record a failed login attempt
     pub(crate) fn login_failed(username: &str) {
-        let window = Duration::from_secs(
-            SystemSettingsManage::get_int("login_retry_window", 600) as u64,
-        );
+        let window =
+            Duration::from_secs(SystemSettingsManage::get_int("login_retry_window", 600) as u64);
         let mut state = LOGIN_STATE.lock().unwrap();
         let now = current_boottime();
         let times = state.failed_logins.entry(username.to_string()).or_default();
@@ -149,7 +155,9 @@ impl LoginService {
         let now = current_boottime();
         let timeout = Self::session_timeout();
         let state = LOGIN_STATE.lock().unwrap();
-        state.tracked_sessions.get(&session_id)
+        state
+            .tracked_sessions
+            .get(&session_id)
             .map(|session| elapsed_timespec(now, session.last_activity_at) < timeout)
             .unwrap_or(false)
     }
@@ -159,24 +167,28 @@ impl LoginService {
     pub(crate) fn check_and_refresh_session(session_id: i128) -> bool {
         let now = current_boottime();
         let timeout = Self::session_timeout();
-        LOGIN_STATE.lock().unwrap().check_and_refresh(session_id, now, timeout)
+        LOGIN_STATE
+            .lock()
+            .unwrap()
+            .check_and_refresh(session_id, now, timeout)
     }
 
     pub(crate) fn track_session(session_id: i128, username: &str) {
         let now = current_boottime();
         let timeout = Self::session_timeout();
-        LOGIN_STATE.lock().unwrap().track_session(
-            session_id,
-            username,
-            now,
-            timeout,
-        );
+        LOGIN_STATE
+            .lock()
+            .unwrap()
+            .track_session(session_id, username, now, timeout);
     }
 
     pub(crate) fn remove_session(session_id: i128) {
-        let _ = LOGIN_STATE.lock().unwrap().tracked_sessions.remove(&session_id);
+        let _ = LOGIN_STATE
+            .lock()
+            .unwrap()
+            .tracked_sessions
+            .remove(&session_id);
     }
-
 }
 
 #[cfg(any(test, feature = "test-support"))]

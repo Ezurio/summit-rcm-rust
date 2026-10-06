@@ -6,27 +6,19 @@
 //! v2 JSON shape.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::manager::{NetworkManagerService, NETWORK_STATUS_CACHE};
+use crate::manager::{NETWORK_STATUS_CACHE, NetworkManagerService};
 
 impl NetworkManagerService {
-    fn insert_v2_converted(
-        device: &mut serde_json::Map<String, Value>,
-        key: &str,
-        value: Value,
-    ) {
+    fn insert_v2_converted(device: &mut serde_json::Map<String, Value>, key: &str, value: Value) {
         let _ = device.insert(
             Self::convert_nm_property_name(key, false),
             Self::convert_property_names(value, false),
         );
     }
 
-    fn insert_v2_raw(
-        device: &mut serde_json::Map<String, Value>,
-        key: &str,
-        value: Value,
-    ) {
+    fn insert_v2_raw(device: &mut serde_json::Map<String, Value>, key: &str, value: Value) {
         let _ = device.insert(Self::convert_nm_property_name(key, false), value);
     }
 
@@ -50,9 +42,11 @@ impl NetworkManagerService {
             return Ok(json!({}));
         };
 
-        Ok(Self::format_device_status_v2(target_interface_name, raw_device, true)
-            .await
-            .unwrap_or_else(|| json!({})))
+        Ok(
+            Self::format_device_status_v2(target_interface_name, raw_device, true)
+                .await
+                .unwrap_or_else(|| json!({})),
+        )
     }
 
     fn get_ip4config_properties_v2(
@@ -72,21 +66,25 @@ impl NetworkManagerService {
         let nameserver_data = Self::map_array(props, "NameserverData");
         let _ = ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(nameserver_data
-                .iter()
-                .filter_map(Value::as_object)
-                .filter_map(|value| value.get("address"))
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()),
+            json!(
+                nameserver_data
+                    .iter()
+                    .filter_map(Value::as_object)
+                    .filter_map(|value| value.get("address"))
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         let wins_server_data = Self::map_array(props, "WinsServerData");
         let _ = ipconfig_properties.insert(
             "WinsServerData".to_string(),
-            json!(wins_server_data
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()),
+            json!(
+                wins_server_data
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         ipconfig_properties
@@ -109,10 +107,12 @@ impl NetworkManagerService {
         let nameservers = Self::map_array(props, "Nameservers");
         let _ = ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(nameservers
-                .iter()
-                .filter_map(Self::ipv6_string_from_json)
-                .collect::<Vec<_>>()),
+            json!(
+                nameservers
+                    .iter()
+                    .filter_map(Self::ipv6_string_from_json)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         ipconfig_properties
@@ -247,7 +247,11 @@ impl NetworkManagerService {
         if device_type == 1
             && let Some(wired) = Self::value_as_object(raw_device.get("wired"))
         {
-            Self::insert_v2_converted(&mut device, "wired", Value::Object(Self::get_wired_properties(wired)));
+            Self::insert_v2_converted(
+                &mut device,
+                "wired",
+                Value::Object(Self::get_wired_properties(wired)),
+            );
         }
 
         if device_type == 2
@@ -259,12 +263,16 @@ impl NetworkManagerService {
                 Value::Object(Self::get_wifi_properties(wireless).await),
             );
             if state == 100
-                && let Some(access_point) = Self::value_as_object(raw_device.get("ActiveAccessPoint"))
+                && let Some(access_point) =
+                    Self::value_as_object(raw_device.get("ActiveAccessPoint"))
             {
                 let mode = Self::map_i32(wireless, "Mode", 0);
-                let access_point =
-                    Self::get_ap_properties(mode, access_point);
-                Self::insert_v2_converted(&mut device, "ActiveAccessPoint", Value::Object(access_point));
+                let access_point = Self::get_ap_properties(mode, access_point);
+                Self::insert_v2_converted(
+                    &mut device,
+                    "ActiveAccessPoint",
+                    Value::Object(access_point),
+                );
             }
         }
 
@@ -312,5 +320,3 @@ impl NetworkManagerService {
 #[cfg(test)]
 #[path = "../../../../../tests/manager/status/snapshot/format/v2/tests.rs"]
 mod tests;
-
-

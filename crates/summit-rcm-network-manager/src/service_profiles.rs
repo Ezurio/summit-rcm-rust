@@ -44,13 +44,15 @@ impl NetworkService {
     }
 
     fn connection_value_to_json(section: &str, key: &str, value: &OwnedValue) -> Value {
-        if section == "802-11-wireless" && key == "ssid"
-            && let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value) {
-                return match String::from_utf8(bytes) {
-                    Ok(ssid) => json!(ssid),
-                    Err(error) => json!(error.into_bytes()),
-                };
-            }
+        if section == "802-11-wireless"
+            && key == "ssid"
+            && let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value)
+        {
+            return match String::from_utf8(bytes) {
+                Ok(ssid) => json!(ssid),
+                Err(error) => json!(error.into_bytes()),
+            };
+        }
 
         if section == "802-1x"
             && [
@@ -63,16 +65,19 @@ impl NetworkService {
             ]
             .contains(&key)
             && let Some(bytes) = dbus::try_from_owned_value::<Vec<u8>>(value)
-                && let Ok(text) = String::from_utf8(bytes) {
-                    let text = text.trim_end_matches('\0');
-                    let text = text.strip_prefix("file://").unwrap_or(text);
-                    return json!(text.strip_prefix(FILEDIR_CERT).unwrap_or(text));
-                }
+            && let Ok(text) = String::from_utf8(bytes)
+        {
+            let text = text.trim_end_matches('\0');
+            let text = text.strip_prefix("file://").unwrap_or(text);
+            return json!(text.strip_prefix(FILEDIR_CERT).unwrap_or(text));
+        }
 
-        if section == "802-1x" && key == "pac-file"
-            && let Some(path) = dbus::try_from_owned_value::<String>(value) {
-                return json!(path.strip_prefix(FILEDIR_CERT).unwrap_or(&path));
-            }
+        if section == "802-1x"
+            && key == "pac-file"
+            && let Some(path) = dbus::try_from_owned_value::<String>(value)
+        {
+            return json!(path.strip_prefix(FILEDIR_CERT).unwrap_or(&path));
+        }
 
         Self::owned_value_to_json(value)
     }
@@ -82,22 +87,26 @@ impl NetworkService {
             return None;
         }
 
-        if section == "ipv6" && key == "dns"
-            && let Some(values) = dbus::try_from_owned_value::<Vec<Vec<u8>>>(value) {
-                let mut parsed = Vec::with_capacity(values.len());
-                for bytes in values {
-                    let Ok(bytes) = <[u8; 16]>::try_from(bytes) else {
-                        return Some(Self::owned_value_to_json(value));
-                    };
-                    parsed.push(Ipv6Addr::from(bytes).to_string());
-                }
-                return Some(json!(parsed));
+        if section == "ipv6"
+            && key == "dns"
+            && let Some(values) = dbus::try_from_owned_value::<Vec<Vec<u8>>>(value)
+        {
+            let mut parsed = Vec::with_capacity(values.len());
+            for bytes in values {
+                let Ok(bytes) = <[u8; 16]>::try_from(bytes) else {
+                    return Some(Self::owned_value_to_json(value));
+                };
+                parsed.push(Ipv6Addr::from(bytes).to_string());
             }
+            return Some(json!(parsed));
+        }
 
         Some(Self::connection_value_to_json(section, key, value))
     }
 
-    pub(super) fn structured_connection_settings(settings: &NmConnectionSettings) -> serde_json::Map<String, Value> {
+    pub(super) fn structured_connection_settings(
+        settings: &NmConnectionSettings,
+    ) -> serde_json::Map<String, Value> {
         let mut structured = serde_json::Map::with_capacity(settings.len());
         for (section, values) in settings {
             let mut section_map = serde_json::Map::with_capacity(values.len());
@@ -116,14 +125,22 @@ impl NetworkService {
         match value {
             Value::Bool(v) => Some(*v),
             Value::Number(v) => Some(v.as_i64().unwrap_or_default() != 0),
-            Value::String(v) if v == "1"
-                || v.eq_ignore_ascii_case("true")
-                || v.eq_ignore_ascii_case("yes")
-                || v.eq_ignore_ascii_case("on") => Some(true),
-            Value::String(v) if v == "0"
-                || v.eq_ignore_ascii_case("false")
-                || v.eq_ignore_ascii_case("no")
-                || v.eq_ignore_ascii_case("off") => Some(false),
+            Value::String(v)
+                if v == "1"
+                    || v.eq_ignore_ascii_case("true")
+                    || v.eq_ignore_ascii_case("yes")
+                    || v.eq_ignore_ascii_case("on") =>
+            {
+                Some(true)
+            }
+            Value::String(v)
+                if v == "0"
+                    || v.eq_ignore_ascii_case("false")
+                    || v.eq_ignore_ascii_case("no")
+                    || v.eq_ignore_ascii_case("off") =>
+            {
+                Some(false)
+            }
             Value::String(_) => None,
             _ => None,
         }
@@ -198,26 +215,34 @@ impl NetworkService {
     }
 
     pub(super) async fn get_connection_paths() -> Result<Vec<OwnedObjectPath>> {
-        let props = NetworkManagerService::get_properties(NM_SETTINGS_OBJ, NM_SETTINGS_IFACE).await?;
+        let props =
+            NetworkManagerService::get_properties(NM_SETTINGS_OBJ, NM_SETTINGS_IFACE).await?;
         let paths = props
             .get("Connections")
             .ok_or_else(|| anyhow::anyhow!("Connections property missing"))?;
-        dbus::clone_owned_value(paths)?.try_into().map_err(Into::into)
+        dbus::clone_owned_value(paths)?
+            .try_into()
+            .map_err(Into::into)
     }
 
     pub(super) async fn get_connection_profile_uuid_from_id(id: &str) -> Result<String> {
         for path in Self::get_connection_paths().await? {
-            let settings = NetworkManagerService::get_raw_connection_settings(path.as_str()).await?;
+            let settings =
+                NetworkManagerService::get_raw_connection_settings(path.as_str()).await?;
             if Self::connection_setting_string(&settings, "connection", "id").as_deref() == Some(id)
-                && let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid") {
-                    return Ok(uuid);
-                }
+                && let Some(uuid) = Self::connection_setting_string(&settings, "connection", "uuid")
+            {
+                return Ok(uuid);
+            }
         }
         anyhow::bail!("Connection '{}' not found", id)
     }
 
     pub(super) async fn resolve_connection_uuid(profile: &str) -> Result<String> {
-        if NetworkManagerService::get_connection_path_by_uuid(profile).await.is_ok() {
+        if NetworkManagerService::get_connection_path_by_uuid(profile)
+            .await
+            .is_ok()
+        {
             return Ok(profile.to_string());
         }
 
@@ -246,17 +271,25 @@ impl NetworkService {
             .map(|value| value.to_string());
 
         let existing_path = if let Some(uuid) = uuid_hint {
-            NetworkManagerService::get_connection_path_by_uuid(uuid).await.ok()
+            NetworkManagerService::get_connection_path_by_uuid(uuid)
+                .await
+                .ok()
         } else if let Some(id) = id_hint {
             if let Ok(uuid) = Self::get_connection_profile_uuid_from_id(id).await {
-                NetworkManagerService::get_connection_path_by_uuid(&uuid).await.ok()
+                NetworkManagerService::get_connection_path_by_uuid(&uuid)
+                    .await
+                    .ok()
             } else {
                 None
             }
         } else if let Some(uuid) = requested_uuid.as_deref() {
-            NetworkManagerService::get_connection_path_by_uuid(uuid).await.ok()
+            NetworkManagerService::get_connection_path_by_uuid(uuid)
+                .await
+                .ok()
         } else if let Ok(uuid) = Self::get_connection_profile_uuid_from_id(&id).await {
-            NetworkManagerService::get_connection_path_by_uuid(&uuid).await.ok()
+            NetworkManagerService::get_connection_path_by_uuid(&uuid)
+                .await
+                .ok()
         } else {
             None
         };
@@ -273,7 +306,8 @@ impl NetworkService {
             } else if let Some(uuid) = uuid_hint {
                 uuid.to_string()
             } else {
-                let current = NetworkManagerService::get_raw_connection_settings(path.as_str()).await?;
+                let current =
+                    NetworkManagerService::get_raw_connection_settings(path.as_str()).await?;
                 Self::connection_setting_string(&current, "connection", "uuid")
                     .ok_or_else(|| anyhow::anyhow!("Missing connection uuid"))?
             };

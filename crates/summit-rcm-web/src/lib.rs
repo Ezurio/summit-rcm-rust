@@ -22,13 +22,13 @@ pub use axum;
 pub use serde_json;
 
 pub mod auth;
-pub mod pkcs11;
-pub mod provisioning_hook;
-pub mod session_hook;
-pub mod security_headers;
-pub mod response;
 pub mod http;
 pub mod macros;
+pub mod pkcs11;
+pub mod provisioning_hook;
+pub mod response;
+pub mod security_headers;
+pub mod session_hook;
 pub use http::*;
 #[cfg(feature = "api-legacy")]
 pub mod legacy_response;
@@ -38,10 +38,10 @@ pub mod notifications;
 // (stunnel, log-forwarding). Gated on the interface only — interface policy is
 // broadcast from `summit-rcm-core`, so this compiles whenever an API surface is
 // active and is stripped by the linker when no plugin consumes it.
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-pub mod systemd_state;
 #[cfg(feature = "api-docs")]
 pub mod openapi;
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+pub mod systemd_state;
 
 pub const USER_PERMISSION_TYPES_LIST: &[&str] = &[
     "status_networking",
@@ -74,12 +74,13 @@ use std::{
     time::Duration,
 };
 
-use axum::{response::IntoResponse, routing::get, Router};
+use axum::{Router, response::IntoResponse, routing::get};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto::Builder as HyperBuilder,
     service::TowerToHyperService,
 };
+use log::{info, warn};
 use openssl::{
     ssl::{Ssl, SslAcceptor, SslFiletype, SslMethod, SslVerifyMode},
     x509::X509VerifyResult,
@@ -88,14 +89,11 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
-use log::{info, warn};
 
+use self::pkcs11::convert_pkcs11_uri_to_pem;
+use self::provisioning_hook::{ClientTlsInfo, WebTlsConfigInput, web_provisioning_provider};
 use axum::Extension;
 use summit_rcm_core::config::{ServerConfig, SystemSettingsManage};
-use self::provisioning_hook::{
-    web_provisioning_provider, ClientTlsInfo, WebTlsConfigInput,
-};
-use self::pkcs11::convert_pkcs11_uri_to_pem;
 use summit_rcm_core::utils::{path_exists_sync, random_token_hex};
 
 #[cfg(all(feature = "swagger-ui", not(feature = "api-docs")))]
@@ -164,7 +162,7 @@ const API_DOCS_UI_HTML: &str = r#"<!doctype html>
 
 #[cfg(feature = "swagger-ui")]
 async fn api_docs_ui() -> impl IntoResponse {
-        axum::response::Html(API_DOCS_UI_HTML)
+    axum::response::Html(API_DOCS_UI_HTML)
 }
 
 async fn index() -> impl IntoResponse {
@@ -192,16 +190,14 @@ async fn load_openapi_doc() -> Option<serde_json::Value> {
             Err(error) => {
                 warn!(
                     "OpenAPI spec file invalid ({}): {}",
-                    openapi_doc_path,
-                    error
+                    openapi_doc_path, error
                 );
             }
         },
         Err(error) => {
             warn!(
                 "OpenAPI spec file unavailable ({}): {}",
-                openapi_doc_path,
-                error
+                openapi_doc_path, error
             );
         }
     }
@@ -220,10 +216,13 @@ async fn add_openapi_docs_routes(base_router: Router) -> Router {
         }
     };
 
-    let base_router = base_router.route("/api/openapi.json", get(move || {
-        let openapi_doc = openapi_doc.clone();
-        async move { axum::Json(openapi_doc) }
-    }));
+    let base_router = base_router.route(
+        "/api/openapi.json",
+        get(move || {
+            let openapi_doc = openapi_doc.clone();
+            async move { axum::Json(openapi_doc) }
+        }),
+    );
 
     #[cfg(feature = "swagger-ui")]
     let base_router = {
@@ -349,17 +348,22 @@ async fn materialize_pkcs11_uri_as_pem(
 }
 
 async fn tls_config_for_current_mode() -> anyhow::Result<ResolvedWebTlsConfig> {
-    let mut cert_path =
-        ServerConfig::get_string("global", "server.ssl_certificate", "/etc/summit-rcm/ssl/server.crt");
-    let mut key_path =
-        ServerConfig::get_string("global", "server.ssl_private_key", "/etc/summit-rcm/ssl/server.key");
+    let mut cert_path = ServerConfig::get_string(
+        "global",
+        "server.ssl_certificate",
+        "/etc/summit-rcm/ssl/server.crt",
+    );
+    let mut key_path = ServerConfig::get_string(
+        "global",
+        "server.ssl_private_key",
+        "/etc/summit-rcm/ssl/server.key",
+    );
     let mut ca_path = ServerConfig::get_string(
         "global",
         "server.ssl_certificate_chain",
         "/etc/summit-rcm/ssl/ca.crt",
     );
-    let mut require_client_auth =
-        ServerConfig::get_bool("summit-rcm", "enable_client_auth", false);
+    let mut require_client_auth = ServerConfig::get_bool("summit-rcm", "enable_client_auth", false);
     let ignore_client_cert_time = ServerConfig::get_bool(
         "summit-rcm",
         "disable_certificate_expiry_verification",
@@ -439,7 +443,9 @@ fn build_tls_acceptor(config: &WebTlsConfig) -> anyhow::Result<Arc<SslAcceptor>>
                     return true;
                 }
 
-                if summit_rcm_core::utils::should_ignore_certificate_time_verify_error(store_ctx.error()) {
+                if summit_rcm_core::utils::should_ignore_certificate_time_verify_error(
+                    store_ctx.error(),
+                ) {
                     store_ctx.set_error(X509VerifyResult::OK);
                     return true;
                 }
@@ -528,9 +534,10 @@ async fn serve_tls_connection(
         let mut chain = Vec::new();
 
         if let Some(cert) = ssl.peer_certificate()
-            && let Ok(pem) = cert.to_pem() {
-                chain.push(String::from_utf8_lossy(&pem).to_string());
-            }
+            && let Ok(pem) = cert.to_pem()
+        {
+            chain.push(String::from_utf8_lossy(&pem).to_string());
+        }
 
         if let Some(extra_chain) = ssl.peer_cert_chain() {
             for cert in extra_chain {
@@ -574,9 +581,15 @@ fn admit_route_mode(mode: crate::RouteMode) -> bool {
     let boot_mode = provisioning_hook::boot_mode();
     match mode {
         RouteMode::Any => true,
-        RouteMode::FullyProvisioned => matches!(boot_mode, provisioning_hook::WebBootMode::FullyProvisioned),
-        RouteMode::NotFullyProvisioned => !matches!(boot_mode, provisioning_hook::WebBootMode::FullyProvisioned),
-        RouteMode::SomeProvisioning => !matches!(boot_mode, provisioning_hook::WebBootMode::Unprovisioned),
+        RouteMode::FullyProvisioned => {
+            matches!(boot_mode, provisioning_hook::WebBootMode::FullyProvisioned)
+        }
+        RouteMode::NotFullyProvisioned => {
+            !matches!(boot_mode, provisioning_hook::WebBootMode::FullyProvisioned)
+        }
+        RouteMode::SomeProvisioning => {
+            !matches!(boot_mode, provisioning_hook::WebBootMode::Unprovisioned)
+        }
     }
 }
 
@@ -620,15 +633,15 @@ pub fn build_router() -> Router {
 
     #[allow(unused_mut)]
     let mut session_api = Router::new();
-    session_api = apply_route_publications(
-        session_api,
-        crate::RouteAuthPolicy::SessionRequired,
-    );
+    session_api = apply_route_publications(session_api, crate::RouteAuthPolicy::SessionRequired);
 
     // In Unprovisioned boot mode no real session can exist yet, so the
     // session-required layer is omitted. It is applied in PartiallyProvisioned
     // and FullyProvisioned modes.
-    let session_api = if !matches!(provisioning_hook::boot_mode(), provisioning_hook::WebBootMode::Unprovisioned) {
+    let session_api = if !matches!(
+        provisioning_hook::boot_mode(),
+        provisioning_hook::WebBootMode::Unprovisioned
+    ) {
         session_api.layer(axum::middleware::from_fn(auth::require_session))
     } else {
         session_api

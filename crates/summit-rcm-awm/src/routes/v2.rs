@@ -3,11 +3,11 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::service::AwmConfigService;
 use crate::routes::shared::current_scan_attempts;
-use summit_rcm_web::axum::Json;
-use serde::{Deserialize, Serialize};
+use crate::service::AwmConfigService;
 use log::error;
+use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::Json;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -34,12 +34,15 @@ pub(crate) struct AwmPut {
     pub geolocation_scanning_enabled: Option<i32>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/wifi/awm",
-    tag = "awm",
-    responses(GetAwmResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/wifi/awm",
+        tag = "awm",
+        responses(GetAwmResponses)
+    )
+)]
 pub(crate) async fn get_awm() -> GetAwmResponses {
     AwmState {
         geolocation_scanning_enabled: current_scan_attempts().await,
@@ -57,10 +60,11 @@ pub(crate) async fn get_awm() -> GetAwmResponses {
 pub(crate) async fn put_awm(Json(body): Json<AwmPut>) -> PutAwmResponses {
     if AwmConfigService::get_lite_mode_enabled().await
         && let Some(enable) = body.geolocation_scanning_enabled
-            && let Err(error) = AwmConfigService::set_scan_attempts(enable).await {
-                error!("Failed to set AWM scan_attempts: {}", error);
-                return PutAwmResponses::InternalError;
-            }
+        && let Err(error) = AwmConfigService::set_scan_attempts(enable).await
+    {
+        error!("Failed to set AWM scan_attempts: {}", error);
+        return PutAwmResponses::InternalError;
+    }
     AwmState {
         geolocation_scanning_enabled: current_scan_attempts().await,
     }
