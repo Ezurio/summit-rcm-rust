@@ -133,13 +133,11 @@ impl NetworkManagerService {
             let devices_changed =
                 changed.contains_key("Devices") || invalidated.iter().any(|prop| prop == "Devices");
 
-            if devices_changed {
-                if let Err(error) = Self::refresh_status_cache().await {
-                    error!(
-                        "failed to refresh status cache on NetworkManager topology change: {}",
-                        error
-                    );
-                }
+            if devices_changed && let Err(error) = Self::refresh_status_cache().await {
+                error!(
+                    "failed to refresh status cache on NetworkManager topology change: {}",
+                    error
+                );
             }
             return;
         }
@@ -212,13 +210,14 @@ impl NetworkManagerService {
             Self::update_cached_device_properties(&mut cache, path, interface, changed)
         };
 
-        if !updated && interface == NM_DEVICE_IFACE {
-            if let Err(error) = Self::refresh_device_status_cache(path).await {
-                error!(
-                    "failed to refresh device status cache for new device {}: {}",
-                    path, error
-                );
-            }
+        if !updated
+            && interface == NM_DEVICE_IFACE
+            && let Err(error) = Self::refresh_device_status_cache(path).await
+        {
+            error!(
+                "failed to refresh device status cache for new device {}: {}",
+                path, error
+            );
         }
     }
 
