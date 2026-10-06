@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "ping"
-version = "0.9.0"
+version = "0.10.0"
 authors = ["An Long <aisk1988@gmail.com>"]
 build = false
 autolib = false
@@ -34,6 +34,9 @@ categories = [
 license = "MIT"
 repository = "https://github.com/aisk/rust-ping"
 
+[package.metadata.docs.rs]
+features = ["tokio"]
+
 [features]
 default = []
 tokio = ["dep:tokio"]
@@ -41,6 +44,10 @@ tokio = ["dep:tokio"]
 [lib]
 name = "ping"
 path = "src/lib.rs"
+
+[[test]]
+name = "pinger"
+path = "tests/pinger.rs"
 
 [[test]]
 name = "tests"

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14](https://github.com/rust-lang/cc-rs/compare/find-msvc-tools-v0.1.13...find-msvc-tools-v0.1.14) - 2026-09-25
+
+### Fixed
+
+- Make `windows_sys` more private and re-export types needed by cc-rs ([#1944](https://github.com/rust-lang/cc-rs/pull/1944))
+
+## [0.1.13](https://github.com/rust-lang/cc-rs/compare/find-msvc-tools-v0.1.12...find-msvc-tools-v0.1.13) - 2026-09-18
+
+### Other
+
+- Regenerate windows sys bindings ([#1926](https://github.com/rust-lang/cc-rs/pull/1926) [#1919](https://github.com/rust-lang/cc-rs/pull/1919))
+
 ## [0.1.12](https://github.com/rust-lang/cc-rs/compare/find-msvc-tools-v0.1.11...find-msvc-tools-v0.1.12) - 2026-09-04
 
 ### Other

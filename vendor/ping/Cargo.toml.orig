@@ -1,6 +1,6 @@
 [package]
 name = "ping"
-version = "0.9.0"
+version = "0.10.0"
 authors = ["An Long <aisk1988@gmail.com>"]
 license = "MIT"
 description = "Simple and naive ping implementation in Rust."
@@ -8,6 +8,9 @@ repository = "https://github.com/aisk/rust-ping"
 categories = ["network-programming", "os"]
 keywords = ["ping", "system", "ICMP"]
 edition = "2024"
+
+[package.metadata.docs.rs]
+features = ["tokio"]
 
 [features]
 default = []
