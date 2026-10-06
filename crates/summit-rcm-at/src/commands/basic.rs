@@ -44,14 +44,9 @@ async fn ping_target(target: &str, timeout_secs: u64, protocol: PingProtocol) ->
         .ok_or_else(|| anyhow!("No address found for target {target}"))?;
     let ip = address.ip();
     let timeout = Duration::from_secs(timeout_secs);
-    let result = tokio::task::spawn_blocking(move || {
-        let mut p = ping::Ping::new(ip);
-        p.timeout(timeout);
-        p.send()
-    })
-    .await
-    .context("ping task panicked")?
-    .with_context(|| format!("Failed to ping {address}"))?;
+    let result = ping::tokio::ping(ip, timeout)
+        .await
+        .with_context(|| format!("Failed to ping {address}"))?;
     Ok(result.rtt)
 }
 
