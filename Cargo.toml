@@ -237,7 +237,7 @@ hyper-util     = "0.1"
 tokio-tungstenite = "0.30"
 tokio-udev = "0.10.0"
 serial2-tokio  = "0.1"
-ping           = "0.9"
+ping           = { version = "0.10", features = ["tokio"] }
 ureq           = { version = "~3.4", default-features = false }
 rustix-openpty = "0.2"
 bindgen        = "0.73"
