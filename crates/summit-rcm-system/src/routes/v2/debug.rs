@@ -14,12 +14,15 @@ summit_rcm_web::define_zip_download_responses!(
     }
 );
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/debug/export",
-    tag = "system",
-    responses(ExportDebugResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/debug/export",
+        tag = "system",
+        responses(ExportDebugResponses)
+    )
+)]
 pub(crate) async fn get_debug_export() -> ExportDebugResponses {
     match FilesService::export_debug().await {
         Ok(archive) => archive.into(),

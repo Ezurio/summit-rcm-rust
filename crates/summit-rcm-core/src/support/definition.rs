@@ -14,11 +14,9 @@ pub const CURRENT_PROCESS_LOG_IDENTIFIER: &str = env!("CARGO_PKG_NAME");
 
 pub const NETWORKMANAGER_DIR: &str = "/etc/NetworkManager/";
 pub const NETWORKMANAGER_CERT_DIR: &str = "/etc/NetworkManager/certs/";
-pub const NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR: &str =
-    "/etc/NetworkManager/system-connections";
+pub const NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR: &str = "/etc/NetworkManager/system-connections";
 
 /// Convert an absolute system path to a path relative to '/'.
 pub fn relative_system_path(path: &str) -> &str {
     path.strip_prefix('/').unwrap_or(path)
 }
-

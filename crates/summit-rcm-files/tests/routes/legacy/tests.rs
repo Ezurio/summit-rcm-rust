@@ -1,12 +1,12 @@
 use super::{put_files_legacy, validate_legacy_upload_request};
 use summit_rcm_web::axum::{
-    body::{to_bytes, Body},
+    Router,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
     routing::put,
-    Router,
 };
-use tower::ServiceExt;
 use summit_rcm_web::serde_json;
+use tower::ServiceExt;
 
 #[test]
 fn legacy_upload_rejects_missing_type_with_python_message() {

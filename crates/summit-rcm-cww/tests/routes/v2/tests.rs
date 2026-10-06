@@ -5,13 +5,13 @@
 
 use super::put_interface_cww;
 use summit_rcm_web::axum::{
-    body::{to_bytes, Body},
+    Router,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
     routing::put,
-    Router,
 };
-use tower::ServiceExt;
 use summit_rcm_web::serde_json;
+use tower::ServiceExt;
 
 #[tokio::test]
 async fn v2_cww_false_request_returns_noop_response() {

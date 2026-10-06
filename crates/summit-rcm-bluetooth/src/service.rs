@@ -4,22 +4,22 @@
 //
 //! Bluetooth service – uses BlueZ via zbus D-Bus calls.
 
-use summit_rcm_core::dbus;
 use crate::routes::shared::{
     BluetoothCommandRequest, BluetoothControlResponse, BluetoothControllerState,
     BluetoothDeviceModel, BluetoothGattOperation,
 };
 use core::{future::Future, result::Result as StdResult};
+use log::error;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
     sync::{Arc, LazyLock, Mutex},
 };
-use log::error;
+use summit_rcm_core::dbus;
 use summit_rcm_web::serde_json;
 use zbus::{
-    zvariant::{OwnedObjectPath, OwnedValue, Value},
     Connection,
+    zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
 
 #[cfg(feature = "bluetooth-websocket")]
@@ -48,8 +48,7 @@ const ADAPTER_FILTER_NAMES: &[&str] = &[
     "discoverable",
 ];
 
-pub type ManagedObjects =
-    HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+pub type ManagedObjects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
 
 /// Event-fed cache of BlueZ managed objects used to build Bluetooth REST
 /// snapshots. It is seeded from `GetManagedObjects` once and then updated from
@@ -113,7 +112,9 @@ impl BluetoothCommandRouteError {
     pub fn status(&self) -> BluetoothCommandRouteStatus {
         match self {
             Self::NoBluetoothAdapter => BluetoothCommandRouteStatus::NotFound,
-            Self::UnknownCommand(_) | Self::BadRequest(_) => BluetoothCommandRouteStatus::BadRequest,
+            Self::UnknownCommand(_) | Self::BadRequest(_) => {
+                BluetoothCommandRouteStatus::BadRequest
+            }
             Self::Failed(_) => BluetoothCommandRouteStatus::InternalError,
         }
     }
@@ -140,7 +141,8 @@ impl fmt::Display for BluetoothCommandRouteError {
 
 impl std::error::Error for BluetoothCommandRouteError {}
 
-pub type BluetoothCommandV2Result = Result<(BluetoothControlResponse, String), BluetoothCommandRouteError>;
+pub type BluetoothCommandV2Result =
+    Result<(BluetoothControlResponse, String), BluetoothCommandRouteError>;
 
 pub struct BluetoothCommandOutcome {
     response: BluetoothControlResponse,
@@ -180,9 +182,8 @@ pub struct BluetoothCommandContext<'a> {
 }
 
 /// Callback signature for a Bluetooth plugin's custom command.
-pub type BluetoothCommandHandlerFn = for<'a> fn(
-    ctx: BluetoothCommandContext<'a>,
-) -> BluetoothCommandFuture<'a>;
+pub type BluetoothCommandHandlerFn =
+    for<'a> fn(ctx: BluetoothCommandContext<'a>) -> BluetoothCommandFuture<'a>;
 
 /// Self-registration handle for a Bluetooth device command callback.
 ///
@@ -199,10 +200,7 @@ inventory::collect!(BluetoothCommandHandlerRegistration);
 /// Registry of Bluetooth device command callbacks, collected once from every
 /// registered device plugin.
 static BLUETOOTH_COMMAND_HANDLERS: LazyLock<Vec<&'static BluetoothCommandHandlerRegistration>> =
-    LazyLock::new(|| {
-        inventory::iter::<BluetoothCommandHandlerRegistration>()
-            .collect()
-    });
+    LazyLock::new(|| inventory::iter::<BluetoothCommandHandlerRegistration>().collect());
 
 #[derive(Clone, Debug, Default)]
 struct BluetoothSnapshot {
@@ -287,35 +285,49 @@ impl BluetoothService {
         let objects = Self::get_managed_objects(conn).await?;
         let mut observers = dbus::SignalObservers::new(BLUEZ_SERVICE, STATE_SIGNAL_BUFFER);
         observers
-            .add(OBJECT_MANAGER_IFACE, "InterfacesAdded", |message| async move {
-                let Ok((path, interfaces)) = message
-                    .body()
-                    .deserialize::<(OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>)>()
-                else {
-                    return;
-                };
+            .add(
+                OBJECT_MANAGER_IFACE,
+                "InterfacesAdded",
+                |message| async move {
+                    let Ok((path, interfaces)) = message.body().deserialize::<(
+                        OwnedObjectPath,
+                        HashMap<String, HashMap<String, OwnedValue>>,
+                    )>() else {
+                        return;
+                    };
 
-                BluetoothService::cache_interfaces_added(path, interfaces);
-            })
+                    BluetoothService::cache_interfaces_added(path, interfaces);
+                },
+            )
             .await;
         observers
-            .add(OBJECT_MANAGER_IFACE, "InterfacesRemoved", |message| async move {
-                let Ok((path, interfaces)) = message.body().deserialize::<(OwnedObjectPath, Vec<String>)>()
-                else {
-                    return;
-                };
+            .add(
+                OBJECT_MANAGER_IFACE,
+                "InterfacesRemoved",
+                |message| async move {
+                    let Ok((path, interfaces)) = message
+                        .body()
+                        .deserialize::<(OwnedObjectPath, Vec<String>)>()
+                    else {
+                        return;
+                    };
 
-                BluetoothService::cache_interfaces_removed(path.as_str(), &interfaces);
-            })
+                    BluetoothService::cache_interfaces_removed(path.as_str(), &interfaces);
+                },
+            )
             .await;
         observers
-            .add(dbus::DBUS_PROP_IFACE, "PropertiesChanged", |message| async move {
-                let Some(signal) = dbus::parse_properties_changed(&message) else {
-                    return;
-                };
+            .add(
+                dbus::DBUS_PROP_IFACE,
+                "PropertiesChanged",
+                |message| async move {
+                    let Some(signal) = dbus::parse_properties_changed(&message) else {
+                        return;
+                    };
 
-                BluetoothService::cache_properties_changed(signal);
-            })
+                    BluetoothService::cache_properties_changed(signal);
+                },
+            )
             .await;
         let tasks = observers.into_tasks();
 
@@ -381,7 +393,9 @@ impl BluetoothService {
         }
 
         if remove_path {
-            state.objects.retain(|object_path, _| object_path.as_str() != path);
+            state
+                .objects
+                .retain(|object_path, _| object_path.as_str() != path);
         }
     }
 
@@ -460,7 +474,8 @@ impl BluetoothService {
     pub async fn get_controller_state_legacy_response(
         controller: Option<&str>,
         filters: Option<Vec<String>>,
-    ) -> anyhow::Result<BTreeMap<String, crate::routes::legacy::LegacyBluetoothControllerModel>> {
+    ) -> anyhow::Result<BTreeMap<String, crate::routes::legacy::LegacyBluetoothControllerModel>>
+    {
         let matched_filters = Self::validate_and_match_filters(filters)?;
         let conn = Self::get_conn().await?;
         let state = Self::get_controller_state_data_with_conn(conn.as_ref(), controller).await?;
@@ -536,13 +551,15 @@ impl BluetoothService {
         controller: &str,
         device: &str,
     ) -> StdResult<BluetoothDeviceModel, BluetoothDeviceStateError> {
-        let conn = Self::get_conn().await.map_err(|_| BluetoothDeviceStateError::Internal)?;
+        let conn = Self::get_conn()
+            .await
+            .map_err(|_| BluetoothDeviceStateError::Internal)?;
         let objects = Self::cached_managed_objects(conn.as_ref())
             .await
             .map_err(|_| BluetoothDeviceStateError::Internal)?;
 
-        let snapshot = Self::snapshot_from_objects(&objects, Some(controller), false)
-            .map_err(|error| {
+        let snapshot =
+            Self::snapshot_from_objects(&objects, Some(controller), false).map_err(|error| {
                 if error.to_string().contains("No Bluetooth adapter found") {
                     BluetoothDeviceStateError::ControllerNotFound
                 } else {
@@ -559,7 +576,6 @@ impl BluetoothService {
         Ok(Self::device_model_from_snapshot(device_snapshot))
     }
 }
-
 
 #[cfg(test)]
 #[path = "../tests/service/test_support.rs"]

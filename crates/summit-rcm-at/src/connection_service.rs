@@ -5,8 +5,8 @@
 
 //! AT-interface connection service – manages up to 6 TCP/UDP/SSL connections.
 
-use crate::ssl::AtSslConfig;
 use crate::data_mode::{DataModeFinish, DataModeSession};
+use crate::ssl::AtSslConfig;
 use anyhow::Result;
 use log::error;
 use std::collections::HashMap;
@@ -88,13 +88,15 @@ impl ConnectionService {
 
                         if kind == ConnectionKind::Ssl {
                             match ssl_config.as_ref() {
-                                Some(config) => match Self::upgrade_tcp_to_tls(s, addr, config).await {
-                                    Ok(stream) => Some(stream),
-                                    Err(error) => {
-                                        error!("CIP start TLS connect error: {}", error);
-                                        return false;
+                                Some(config) => {
+                                    match Self::upgrade_tcp_to_tls(s, addr, config).await {
+                                        Ok(stream) => Some(stream),
+                                        Err(error) => {
+                                            error!("CIP start TLS connect error: {}", error);
+                                            return false;
+                                        }
                                     }
-                                },
+                                }
                                 None => Some(ConnStream::Tcp(s)),
                             }
                         } else {
@@ -140,11 +142,20 @@ impl ConnectionService {
     }
 
     pub fn close_connection(id: usize) -> bool {
-        Self::instance().lock().unwrap().connections.remove(&id).is_some()
+        Self::instance()
+            .lock()
+            .unwrap()
+            .connections
+            .remove(&id)
+            .is_some()
     }
 
     pub fn has_connection(id: usize) -> bool {
-        Self::instance().lock().unwrap().connections.contains_key(&id)
+        Self::instance()
+            .lock()
+            .unwrap()
+            .connections
+            .contains_key(&id)
     }
 
     pub async fn send_data(id: usize, length: usize) -> (bool, i32) {
@@ -159,31 +170,35 @@ impl ConnectionService {
         };
 
         let sent = match &mut connection.stream {
-                Some(ConnStream::Tcp(stream)) => match stream.write_all(&body.data).await {
-                    Ok(_) => body.data.len() as i32,
-                    Err(error) => {
-                        error!("CIP send TCP error: {}", error);
-                        0
-                    }
-                },
-                Some(ConnStream::Tls(stream)) => match stream.write_all(&body.data).await {
-                    Ok(_) => body.data.len() as i32,
-                    Err(error) => {
-                        error!("CIP send TLS error: {}", error);
-                        0
-                    }
-                },
-                Some(ConnStream::Udp(stream)) => match stream.send(&body.data).await {
-                    Ok(n) => n as i32,
-                    Err(error) => {
-                        error!("CIP send UDP error: {}", error);
-                        0
-                    }
-                },
-                None => 0,
-            };
+            Some(ConnStream::Tcp(stream)) => match stream.write_all(&body.data).await {
+                Ok(_) => body.data.len() as i32,
+                Err(error) => {
+                    error!("CIP send TCP error: {}", error);
+                    0
+                }
+            },
+            Some(ConnStream::Tls(stream)) => match stream.write_all(&body.data).await {
+                Ok(_) => body.data.len() as i32,
+                Err(error) => {
+                    error!("CIP send TLS error: {}", error);
+                    0
+                }
+            },
+            Some(ConnStream::Udp(stream)) => match stream.send(&body.data).await {
+                Ok(n) => n as i32,
+                Err(error) => {
+                    error!("CIP send UDP error: {}", error);
+                    0
+                }
+            },
+            None => 0,
+        };
 
-        Self::instance().lock().unwrap().connections.insert(id, connection);
+        Self::instance()
+            .lock()
+            .unwrap()
+            .connections
+            .insert(id, connection);
         (true, sent)
     }
 
@@ -202,41 +217,64 @@ impl ConnectionService {
         let ssl_config = AtSslConfig::new(auth_mode, check_hostname, key, cert, ca)?;
         ssl_config.build_openssl_connector()?;
 
-        let mut connection = Self::instance().lock().unwrap().connections.remove(&id).unwrap_or_else(|| Connection {
-            kind: ConnectionKind::Ssl,
-            addr: String::new(),
-            ssl_config: None,
-            stream: None,
-        });
+        let mut connection = Self::instance()
+            .lock()
+            .unwrap()
+            .connections
+            .remove(&id)
+            .unwrap_or_else(|| Connection {
+                kind: ConnectionKind::Ssl,
+                addr: String::new(),
+                ssl_config: None,
+                stream: None,
+            });
 
         connection.ssl_config = Some(ssl_config.clone());
 
         if connection.kind != ConnectionKind::Ssl {
-            Self::instance().lock().unwrap().connections.insert(id, connection);
+            Self::instance()
+                .lock()
+                .unwrap()
+                .connections
+                .insert(id, connection);
             return Ok(());
         }
 
         if connection.addr.is_empty() {
-            Self::instance().lock().unwrap().connections.insert(id, connection);
+            Self::instance()
+                .lock()
+                .unwrap()
+                .connections
+                .insert(id, connection);
             return Ok(());
         }
 
         let stream = connection.stream.take();
         connection.stream = match stream {
-            Some(ConnStream::Tcp(stream)) => match Self::upgrade_tcp_to_tls(stream, &connection.addr, &ssl_config).await {
-                Ok(stream) => Some(stream),
-                Err(error) => {
-                    connection.ssl_config = None;
-                    Self::instance().lock().unwrap().connections.insert(id, connection);
-                    error!("CIP configure SSL handshake error: {}", error);
-                    return Err(error);
+            Some(ConnStream::Tcp(stream)) => {
+                match Self::upgrade_tcp_to_tls(stream, &connection.addr, &ssl_config).await {
+                    Ok(stream) => Some(stream),
+                    Err(error) => {
+                        connection.ssl_config = None;
+                        Self::instance()
+                            .lock()
+                            .unwrap()
+                            .connections
+                            .insert(id, connection);
+                        error!("CIP configure SSL handshake error: {}", error);
+                        return Err(error);
+                    }
                 }
-            },
+            }
             Some(other) => Some(other),
             None => None,
         };
 
-        Self::instance().lock().unwrap().connections.insert(id, connection);
+        Self::instance()
+            .lock()
+            .unwrap()
+            .connections
+            .insert(id, connection);
         Ok(())
     }
 

@@ -4,10 +4,10 @@
 //
 //! AWM (Adaptive Wi-Fi Management) configuration service
 
-use anyhow::{bail, Context, Result};
-use summit_rcm_core::utils::{path_exists, read_text};
+use anyhow::{Context, Result, bail};
 use configparser::ini::Ini;
 use std::path::Path;
+use summit_rcm_core::utils::{path_exists, read_text};
 
 const ADAPTIVE_WW_CONFIG_FILE: &str = "/etc/default/adaptive_ww";
 const SUMMIT_RCM_AWM_PLUGIN_INI_FILE: &str = "/etc/summit-rcm-awm.ini";
@@ -17,7 +17,8 @@ pub(crate) struct AwmConfigService;
 impl AwmConfigService {
     async fn load_ini(path: &str) -> Result<Ini> {
         let mut ini = Ini::new();
-        let _ = ini.load_async(path)
+        let _ = ini
+            .load_async(path)
             .await
             .map_err(|error| anyhow::anyhow!(error))?;
         Ok(ini)

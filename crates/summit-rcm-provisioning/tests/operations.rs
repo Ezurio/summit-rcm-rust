@@ -1,8 +1,8 @@
 #![cfg(all(feature = "provisioning", feature = "api-v2"))]
 
+use std::time::{SystemTime, UNIX_EPOCH};
 use summit_rcm_core::config::test_support as config_test_support;
 use summit_rcm_provisioning::{CertificateProvisioningService, ClientTlsInfo, ProvisioningState};
-use std::time::{SystemTime, UNIX_EPOCH};
 use time::macros::format_description;
 
 macro_rules! test_env {
@@ -18,10 +18,14 @@ struct ProvisioningOperationTestCleanup;
 impl Drop for ProvisioningOperationTestCleanup {
     fn drop(&mut self) {
         config_test_support::clear_server_overrides();
-        if let Some(state_path) = config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE") {
+        if let Some(state_path) =
+            config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE")
+        {
             let _ = std::fs::remove_file(&state_path);
         }
-        if let Some(device_cert_path) = config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT") {
+        if let Some(device_cert_path) =
+            config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT")
+        {
             let _ = std::fs::remove_file(&device_cert_path);
         }
         config_test_support::clear_env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE");
@@ -98,22 +102,19 @@ async fn generate_test_certificate(cert_path: &std::path::Path, common_name: &st
             "-subj",
         ])
         .arg(format!("/CN={common_name}"))
-        .args([
-            "-set_serial",
-            "1",
-            "-days",
-        ])
+        .args(["-set_serial", "1", "-days"])
         .arg(days.to_string())
-        .args([
-            "-keyout",
-        ])
+        .args(["-keyout"])
         .arg(&key_path)
         .args(["-out"])
         .arg(cert_path)
         .status()
         .await
         .expect("openssl should run for provisioning operation test");
-    assert!(status.success(), "openssl should generate a test certificate");
+    assert!(
+        status.success(),
+        "openssl should generate a test certificate"
+    );
     let _ = tokio::fs::remove_file(key_path).await;
 }
 
@@ -131,7 +132,7 @@ fn assert_validity_string(value: Option<&str>) {
         value,
         format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
     )
-        .expect("validity field should match summit timestamp format");
+    .expect("validity field should match summit timestamp format");
 }
 
 #[tokio::test]
@@ -141,13 +142,17 @@ async fn partially_provisioned_uses_uploaded_device_cert_validity_window() {
     let cert_path = set_test_device_server_cert_path().await;
     generate_test_device_certificate(&cert_path).await;
 
-    let payload = CertificateProvisioningService::timestamp_validity_payload(&test_tls_info()).await;
+    let payload =
+        CertificateProvisioningService::timestamp_validity_payload(&test_tls_info()).await;
 
     assert_validity_string(payload.not_before.as_deref());
     assert_validity_string(payload.not_after.as_deref());
 
     let not_before = time::PrimitiveDateTime::parse(
-        payload.not_before.as_deref().expect("notBefore should be present"),
+        payload
+            .not_before
+            .as_deref()
+            .expect("notBefore should be present"),
         format_description!("[year]-[month]-[day] [hour]:[minute]:[second]"),
     )
     .expect("notBefore should parse")
@@ -157,7 +162,9 @@ async fn partially_provisioned_uses_uploaded_device_cert_validity_window() {
     let before = (not_before - 60) * 1_000_000;
 
     assert!(CertificateProvisioningService::validate_new_timestamp(inside, &test_tls_info()).await);
-    assert!(!CertificateProvisioningService::validate_new_timestamp(before, &test_tls_info()).await);
+    assert!(
+        !CertificateProvisioningService::validate_new_timestamp(before, &test_tls_info()).await
+    );
 }
 
 #[tokio::test]
@@ -165,7 +172,8 @@ async fn unprovisioned_without_uploaded_device_cert_has_no_validity_payload() {
     test_env!();
     set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
 
-    let payload = CertificateProvisioningService::timestamp_validity_payload(&test_tls_info()).await;
+    let payload =
+        CertificateProvisioningService::timestamp_validity_payload(&test_tls_info()).await;
 
     assert!(payload.not_before.is_none());
     assert!(payload.not_after.is_none());

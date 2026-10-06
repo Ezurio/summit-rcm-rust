@@ -4,11 +4,11 @@
 //
 
 use crate::certificates::{CertificateInfo, CertificatesService};
-use summit_rcm_core::files_service::FilesService;
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use summit_rcm_web::axum::extract::Query;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use summit_rcm_core::files_service::FilesService;
+use summit_rcm_web::axum::extract::Query;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum GetCertificatesLegacyResponses(LegacyCertificateInfoResponse);
@@ -41,13 +41,18 @@ pub(crate) struct LegacyCertificateInfoResponse {
     pub count: Option<usize>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/certificates",
-    tag = "legacy",
-    responses(GetCertificatesLegacyResponses)
-))]
-pub(crate) async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery>) -> GetCertificatesLegacyResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/certificates",
+        tag = "legacy",
+        responses(GetCertificatesLegacyResponses)
+    )
+)]
+pub(crate) async fn get_certificates_legacy(
+    Query(q): Query<CertificateInfoQuery>,
+) -> GetCertificatesLegacyResponses {
     if let Some(name) = q.name.as_deref().filter(|name| !name.is_empty()) {
         return match CertificatesService::get_cert_info_model(name, q.password.as_deref()).await {
             Ok(cert_info) => LegacyCertificateInfoResponse {
@@ -59,7 +64,10 @@ pub(crate) async fn get_certificates_legacy(Query(q): Query<CertificateInfoQuery
             .into(),
             Err(error) => LegacyCertificateInfoResponse {
                 operation: fail_response(error.to_string()),
-                cert_info: if error.to_string().starts_with("Cannot find certificate with name ") {
+                cert_info: if error
+                    .to_string()
+                    .starts_with("Cannot find certificate with name ")
+                {
                     Some(LegacyCertificateInfoField::Empty(BTreeMap::new()))
                 } else {
                     None

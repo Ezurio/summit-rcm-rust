@@ -4,12 +4,10 @@
 //
 
 use crate::routes::connection_profile::ConnectionProfile;
-use crate::routes::shared::{
-    AddressData, DhcpLeasesResponse, NetworkConnectionReference,
-};
-use summit_rcm_web::legacy_response::LegacyOperationResponse;
+use crate::routes::shared::{AddressData, DhcpLeasesResponse, NetworkConnectionReference};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use summit_rcm_web::legacy_response::LegacyOperationResponse;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]

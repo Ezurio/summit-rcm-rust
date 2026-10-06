@@ -177,7 +177,8 @@ pub const fn derive_route_doc_policies<const N: usize>(
     while route_index < route_publications.len() {
         let publication = &route_publications[route_index];
         if !publication.routes.is_empty() {
-            policies[policy_index] = RouteDocPolicy::new(publication.routes[0].path, publication.policy.auth);
+            policies[policy_index] =
+                RouteDocPolicy::new(publication.routes[0].path, publication.policy.auth);
             policy_index += 1;
         }
         route_index += 1;

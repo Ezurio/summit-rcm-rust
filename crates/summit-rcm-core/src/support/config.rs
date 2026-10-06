@@ -4,12 +4,12 @@
 //
 //! INI-based configuration management (port of Python SummitRCMConfigManage / SystemSettingsManage)
 
+use crate::utils::path_exists_sync;
 use anyhow::Context;
 use configparser::ini::Ini;
-use crate::utils::path_exists_sync;
+use log::warn;
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
-use log::warn;
 
 pub const SUMMIT_RCM_SERVER_CONF_FILE: &str = "/etc/summit-rcm.ini";
 pub const SUMMIT_RCM_SETTINGS_FILE: &str = "/etc/summit-rcm/summit-rcm-settings.ini";
@@ -75,7 +75,11 @@ static SETTINGS_CONFIG: LazyLock<RwLock<Ini>> = LazyLock::new(|| {
     if path_exists_sync(SETTINGS_CONFIG_PATH.as_str())
         && let Err(e) = ini.load(SETTINGS_CONFIG_PATH.as_str())
     {
-        warn!("Could not load settings file {}: {}", SETTINGS_CONFIG_PATH.as_str(), e);
+        warn!(
+            "Could not load settings file {}: {}",
+            SETTINGS_CONFIG_PATH.as_str(),
+            e
+        );
     }
     RwLock::new(ini)
 });
@@ -283,7 +287,11 @@ macro_rules! cached_config {
 static SERVER_CONFIG: LazyLock<Ini> = LazyLock::new(|| {
     let mut ini = Ini::new();
     if let Err(e) = ini.load(SERVER_CONFIG_PATH.as_str()) {
-        warn!("Could not load server config {}: {}", SERVER_CONFIG_PATH.as_str(), e);
+        warn!(
+            "Could not load server config {}: {}",
+            SERVER_CONFIG_PATH.as_str(),
+            e
+        );
     }
     ini
 });

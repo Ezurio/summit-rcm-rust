@@ -4,12 +4,12 @@
 //
 //! User management service
 
-use summit_rcm_core::config::{ServerConfig, SummitRcmConfigManage};
+use openssl::hash::{MessageDigest, hash};
+use std::collections::HashMap;
 #[cfg(feature = "api-v2")]
 use summit_rcm_core::config::SystemSettingsManage;
+use summit_rcm_core::config::{ServerConfig, SummitRcmConfigManage};
 use summit_rcm_core::utils::random_token_hex;
-use openssl::hash::{hash, MessageDigest};
-use std::collections::HashMap;
 
 fn hash_password(password: &str) -> Option<(String, String)> {
     let salt = random_token_hex(16).ok()?;
@@ -23,7 +23,8 @@ pub(crate) struct UserService;
 impl UserService {
     /// Verify username + password against stored hash
     pub(crate) fn verify(username: &str, password: &str) -> bool {
-        let Some((salt, stored)) = SummitRcmConfigManage::get_two(username, "salt", "password") else {
+        let Some((salt, stored)) = SummitRcmConfigManage::get_two(username, "salt", "password")
+        else {
             return false;
         };
         let data = [salt.as_bytes(), password.as_bytes()].concat();
@@ -64,7 +65,10 @@ impl UserService {
                 return false;
             };
 
-            let _ = SummitRcmConfigManage::set_many(username, &[("salt", &salt), ("password", &hashed)]);
+            let _ = SummitRcmConfigManage::set_many(
+                username,
+                &[("salt", &salt), ("password", &hashed)],
+            );
             return SummitRcmConfigManage::save().is_ok();
         }
         false

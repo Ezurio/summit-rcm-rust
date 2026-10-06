@@ -3,18 +3,24 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_core::dbus;
 use serde_json::Value;
 use std::net::Ipv6Addr;
+use summit_rcm_core::dbus;
 
 use super::super::{NetworkManagerService, NmProperties};
 
 impl NetworkManagerService {
-    pub(crate) fn value_as_object(value: Option<&Value>) -> Option<&serde_json::Map<String, Value>> {
+    pub(crate) fn value_as_object(
+        value: Option<&Value>,
+    ) -> Option<&serde_json::Map<String, Value>> {
         value.and_then(Value::as_object)
     }
 
-    pub(crate) fn map_string(map: &serde_json::Map<String, Value>, key: &str, default: &str) -> String {
+    pub(crate) fn map_string(
+        map: &serde_json::Map<String, Value>,
+        key: &str,
+        default: &str,
+    ) -> String {
         map.get(key)
             .and_then(Value::as_str)
             .unwrap_or(default)
@@ -91,5 +97,4 @@ impl NetworkManagerService {
             .map(|(key, value)| (key.clone(), dbus::owned_value_to_json(value)))
             .collect()
     }
-
 }

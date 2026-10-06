@@ -4,16 +4,16 @@
 //
 //! Radio SISO mode AT command: at+sisomode
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::service::{RadioSISOMode, RadioSISOModeService};
 use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_siso_mode(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let val = params.trimmed(0);
     if val.is_empty() {
-            match RadioSISOModeService::get_current_siso_mode().await {
+        match RadioSISOModeService::get_current_siso_mode().await {
             Ok(mode) => CommandOutcome::WithData(format!("+SISOMODE: {}", i32::from(mode))),
             Err(e) => {
                 error!("SISO mode get error: {}", e);
@@ -39,13 +39,10 @@ async fn execute_siso_mode(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandO
     }
 }
 
-pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!(
-        "at+sisomode",
-        "AT+SISOMODE[=<-1|0|1|2>]  (-1=system default, 0=MIMO, 1=ANT0, 2=ANT1)",
-        1,
-        &[],
-        execute_siso_mode
-    ),
-];
-
+pub(crate) const COMMANDS: &[PublishedCommand] = &[summit_rcm_at::commands::command_spec!(
+    "at+sisomode",
+    "AT+SISOMODE[=<-1|0|1|2>]  (-1=system default, 0=MIMO, 1=ANT0, 2=ANT1)",
+    1,
+    &[],
+    execute_siso_mode
+)];

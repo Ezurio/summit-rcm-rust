@@ -8,9 +8,9 @@
 //! PUT /api/v2/system/power
 
 use crate::{PowerState, SystemService};
-use summit_rcm_web::axum::Json;
-use serde::{Deserialize, Serialize};
 use log::error;
+use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::Json;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -33,12 +33,15 @@ summit_rcm_web::define_ok_bad_request_internal_json_response_family! {
     pub enum SetPowerResponses(PowerStateResponse);
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/power",
-    tag = "system",
-    responses(GetPowerResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/power",
+        tag = "system",
+        responses(GetPowerResponses)
+    )
+)]
 pub(crate) async fn get_power() -> GetPowerResponses {
     PowerStateResponse {
         state: SystemService::power_state(),

@@ -4,10 +4,10 @@
 //
 //! Miscellaneous utility functions ported from utils.py
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use openssl::x509::X509VerifyResult;
 use rustix::rand::{GetRandomFlags, getrandom};
-use rustix::time::{clock_gettime, ClockId, Timespec};
+use rustix::time::{ClockId, Timespec, clock_gettime};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Output;
@@ -27,7 +27,10 @@ pub fn boottime() -> Timespec {
 }
 
 pub fn timespec_duration(value: Timespec) -> Duration {
-    Duration::new(value.tv_sec.try_into().unwrap_or(0), value.tv_nsec.try_into().unwrap_or(0))
+    Duration::new(
+        value.tv_sec.try_into().unwrap_or(0),
+        value.tv_nsec.try_into().unwrap_or(0),
+    )
 }
 
 pub fn elapsed_timespec(now: Timespec, earlier: Timespec) -> Duration {
@@ -46,7 +49,11 @@ pub fn random_token_hex(byte_len: usize) -> anyhow::Result<String> {
     Ok(hex::encode(bytes))
 }
 
-async fn command_output_impl<S>(program: &str, args: &[S], current_dir: Option<&Path>) -> Result<Output>
+async fn command_output_impl<S>(
+    program: &str,
+    args: &[S],
+    current_dir: Option<&Path>,
+) -> Result<Output>
 where
     S: AsRef<OsStr>,
 {
@@ -65,7 +72,11 @@ where
     command_output_impl(program, args, None).await
 }
 
-pub async fn command_output_in_dir<S>(program: &str, args: &[S], cwd: impl AsRef<Path>) -> Result<Output>
+pub async fn command_output_in_dir<S>(
+    program: &str,
+    args: &[S],
+    cwd: impl AsRef<Path>,
+) -> Result<Output>
 where
     S: AsRef<OsStr>,
 {
@@ -95,27 +106,23 @@ where
     let output = command_output(program, args).await?;
     if !output.status.success() {
         let message = command_failure_message(&output);
-        bail!(
-            "{} failed: {}",
-            program,
-            message
-        );
+        bail!("{} failed: {}", program, message);
     }
     Ok(output)
 }
 
-pub async fn command_output_checked_in_dir<S>(program: &str, args: &[S], cwd: impl AsRef<Path>) -> Result<Output>
+pub async fn command_output_checked_in_dir<S>(
+    program: &str,
+    args: &[S],
+    cwd: impl AsRef<Path>,
+) -> Result<Output>
 where
     S: AsRef<OsStr>,
 {
     let output = command_output_in_dir(program, args, cwd).await?;
     if !output.status.success() {
         let message = command_failure_message(&output);
-        bail!(
-            "{} failed: {}",
-            program,
-            message
-        );
+        bail!("{} failed: {}", program, message);
     }
     Ok(output)
 }
@@ -228,8 +235,10 @@ fn parse_boot_rootfs_info(output: &str) -> Result<BootRootfsInfo> {
     }
 
     Ok(BootRootfsInfo {
-        root_dev_type: root_dev_type.ok_or_else(|| anyhow!("boot-rootfs.sh output missing rootDevType"))?,
-        current_side: current_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing currentSide"))?,
+        root_dev_type: root_dev_type
+            .ok_or_else(|| anyhow!("boot-rootfs.sh output missing rootDevType"))?,
+        current_side: current_side
+            .ok_or_else(|| anyhow!("boot-rootfs.sh output missing currentSide"))?,
         next_side: next_side.ok_or_else(|| anyhow!("boot-rootfs.sh output missing nextSide"))?,
         base_hw_part_number: base_hw_part_number
             .ok_or_else(|| anyhow!("boot-rootfs.sh output missing baseHwPartNumber"))?,

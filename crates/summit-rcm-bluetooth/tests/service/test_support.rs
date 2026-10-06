@@ -6,14 +6,13 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
-        Arc as StdArc,
-        Mutex as StdMutex,
+        Arc as StdArc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
 };
-use zbus::{connection::Builder, fdo::ObjectManager};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
+use zbus::{connection::Builder, fdo::ObjectManager};
 
 pub(super) const TEST_DEVICE_ADDRESS: &str = "AA:BB:CC:DD:EE:FF";
 
@@ -77,10 +76,7 @@ impl MockAdapter {
         }
     }
 
-    fn set_discovery_filter(
-        &self,
-        filter: HashMap<String, OwnedValue>,
-    ) {
+    fn set_discovery_filter(&self, filter: HashMap<String, OwnedValue>) {
         let mut keys: Vec<String> = filter.keys().cloned().collect();
         keys.sort();
         *self
@@ -119,22 +115,38 @@ pub(super) struct MockDevice {
 
 impl MockDevice {
     fn snapshot(&self) -> MockDeviceState {
-        self.state.device.lock().expect("device mutex poisoned").clone()
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .clone()
     }
 }
 
 #[zbus::interface(name = "org.bluez.Device1")]
 impl MockDevice {
     fn connect(&self) {
-        self.state.device.lock().expect("device mutex poisoned").connected = true;
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .connected = true;
     }
 
     fn disconnect(&self) {
-        self.state.device.lock().expect("device mutex poisoned").connected = false;
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .connected = false;
     }
 
     fn pair(&self) {
-        self.state.device.lock().expect("device mutex poisoned").paired = true;
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .paired = true;
     }
 
     fn get_conn_info(&self) -> (i16, i16, i16) {
@@ -173,7 +185,11 @@ impl MockDevice {
 
     #[zbus(property)]
     fn set_trusted(&self, value: bool) {
-        self.state.device.lock().expect("device mutex poisoned").trusted = value;
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .trusted = value;
     }
 
     #[zbus(property)]
@@ -183,7 +199,11 @@ impl MockDevice {
 
     #[zbus(property)]
     fn set_auto_connect(&self, value: bool) {
-        self.state.device.lock().expect("device mutex poisoned").auto_connect = value;
+        self.state
+            .device
+            .lock()
+            .expect("device mutex poisoned")
+            .auto_connect = value;
     }
 
     #[zbus(property)]
@@ -272,13 +292,19 @@ impl TestBus {
             .stderr(Stdio::null())
             .spawn()?;
 
-        let stdout = daemon.stdout.take().expect("dbus-daemon stdout unavailable");
+        let stdout = daemon
+            .stdout
+            .take()
+            .expect("dbus-daemon stdout unavailable");
         let mut reader = BufReader::new(stdout);
         let mut printed_address = String::new();
         let bytes_read = reader.read_line(&mut printed_address)?;
         anyhow::ensure!(bytes_read > 0, "dbus-daemon did not print an address line");
         let printed_address = printed_address.trim().to_string();
-        anyhow::ensure!(!printed_address.is_empty(), "dbus-daemon did not print an address");
+        anyhow::ensure!(
+            !printed_address.is_empty(),
+            "dbus-daemon did not print an address"
+        );
 
         Ok(Self {
             address: printed_address,

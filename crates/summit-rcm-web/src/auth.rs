@@ -8,16 +8,10 @@
 //! Reads the `session` cookie and validates it against LoginService.
 //! Restricted paths return HTTP 401 if the session is missing or invalid.
 
-use summit_rcm_core::config::ServerConfig;
 use crate::session_hook::session_validator;
+use summit_rcm_core::config::ServerConfig;
 
-use axum::{
-    body::Body,
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, http::StatusCode, middleware::Next, response::Response};
 use tower_sessions::Session;
 
 fn sessions_enabled() -> bool {

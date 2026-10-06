@@ -1,6 +1,6 @@
 use super::{NetworkInterfaceResponse, V2NetworkConnectionReference};
-use summit_rcm_web::serde_json::json;
 use summit_rcm_web::serde_json;
+use summit_rcm_web::serde_json::json;
 
 #[test]
 fn v2_network_connection_reference_round_trips_unknown_nm_properties() {

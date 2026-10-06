@@ -6,8 +6,7 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
-        Arc as StdArc,
-        Mutex as StdMutex,
+        Arc as StdArc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -27,11 +26,17 @@ pub(super) struct MockBluezState {
 
 impl MockBluezState {
     pub(super) fn record_vsp_write(&self, value: Vec<u8>) {
-        self.vsp_writes.lock().expect("vsp writes mutex poisoned").push(value);
+        self.vsp_writes
+            .lock()
+            .expect("vsp writes mutex poisoned")
+            .push(value);
     }
 
     pub(super) fn vsp_writes(&self) -> Vec<Vec<u8>> {
-        self.vsp_writes.lock().expect("vsp writes mutex poisoned").clone()
+        self.vsp_writes
+            .lock()
+            .expect("vsp writes mutex poisoned")
+            .clone()
     }
 }
 
@@ -193,13 +198,19 @@ impl TestBus {
             .stderr(Stdio::null())
             .spawn()?;
 
-        let stdout = daemon.stdout.take().expect("dbus-daemon stdout unavailable");
+        let stdout = daemon
+            .stdout
+            .take()
+            .expect("dbus-daemon stdout unavailable");
         let mut reader = BufReader::new(stdout);
         let mut printed_address = String::new();
         let bytes_read = reader.read_line(&mut printed_address)?;
         anyhow::ensure!(bytes_read > 0, "dbus-daemon did not print an address line");
         let printed_address = printed_address.trim().to_string();
-        anyhow::ensure!(!printed_address.is_empty(), "dbus-daemon did not print an address");
+        anyhow::ensure!(
+            !printed_address.is_empty(),
+            "dbus-daemon did not print an address"
+        );
 
         Ok(Self {
             address: printed_address,

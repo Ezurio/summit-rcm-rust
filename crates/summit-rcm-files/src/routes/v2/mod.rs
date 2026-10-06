@@ -4,15 +4,18 @@
 //
 //! System config import/export endpoints
 
-use summit_rcm_web::axum::{extract::{Multipart, multipart::MultipartRejection}, http::StatusCode};
-use summit_rcm_web::axum;
-use serde::{Deserialize, Serialize};
 use log::error;
+use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum;
+use summit_rcm_web::axum::{
+    extract::{Multipart, multipart::MultipartRejection},
+    http::StatusCode,
+};
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
-	crate::routes::v2::export_config,
-	crate::routes::v2::import_config_zip_put,
+    crate::routes::v2::export_config,
+    crate::routes::v2::import_config_zip_put,
 ))]
 pub(crate) struct ApiDoc;
 
@@ -100,14 +103,21 @@ async fn parse_import_config_request(
     })
 }
 
-async fn import_config_zip(multipart: Result<Multipart, MultipartRejection>) -> ImportConfigResponses {
+async fn import_config_zip(
+    multipart: Result<Multipart, MultipartRejection>,
+) -> ImportConfigResponses {
     let request = match parse_import_config_request(multipart).await {
         Ok(request) => request,
         Err(StatusCode::BAD_REQUEST) => return ImportConfigResponses::BadRequest,
         Err(_) => return ImportConfigResponses::InternalError,
     };
 
-    match summit_rcm_core::files_service::FilesService::import_system_config(&request.archive, &request.password).await {
+    match summit_rcm_core::files_service::FilesService::import_system_config(
+        &request.archive,
+        &request.password,
+    )
+    .await
+    {
         Ok(()) => ImportConfigResponses::Ok,
         Err(e) => {
             error!("import_config: {}", e);
@@ -123,7 +133,9 @@ async fn import_config_zip(multipart: Result<Multipart, MultipartRejection>) -> 
     request_body(content = ConfigImportRequest, content_type = "multipart/form-data"),
     responses(ImportConfigResponses)
 ))]
-pub(crate) async fn import_config_zip_put(multipart: Result<Multipart, MultipartRejection>) -> ImportConfigResponses {
+pub(crate) async fn import_config_zip_put(
+    multipart: Result<Multipart, MultipartRejection>,
+) -> ImportConfigResponses {
     import_config_zip(multipart).await
 }
 

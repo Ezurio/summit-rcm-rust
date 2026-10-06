@@ -6,14 +6,14 @@
 //! bounded write queue.
 //! The helper expects the image mode without any side suffix.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use log::{error, warn};
 use std::process::Stdio;
 use tokio::process::Command;
-use log::{error, warn};
 
-use super::{STATE, FW_UPDATE_SCRIPT};
-use super::stream;
 use super::spawn_child_watcher;
+use super::stream;
+use super::{FW_UPDATE_SCRIPT, STATE};
 
 const FW_UPDATE_PIPE_SOURCE: &str = "-";
 
@@ -25,11 +25,17 @@ pub(super) async fn start(image_mode: &str, _inactive_side: Option<&str>) -> Res
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound { warn!("fw_update script not found"); }
-            else { error!("start_update: {}", e); }
+            if e.kind() == std::io::ErrorKind::NotFound {
+                warn!("fw_update script not found");
+            } else {
+                error!("start_update: {}", e);
+            }
             e
         })?;
-    let stdin = child.stdin.take().ok_or_else(|| anyhow!("failed to open fw_update stdin"))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("failed to open fw_update stdin"))?;
     stream::install(stdin);
     STATE.write().unwrap().url = "pipe://stdin".to_string();
     spawn_child_watcher(child, "pipe mode");

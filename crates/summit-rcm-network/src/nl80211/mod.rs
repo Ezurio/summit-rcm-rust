@@ -28,11 +28,10 @@ use self::parsing::parse_station_info;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use self::parsing::{RegulatoryRule, parse_regulatory_rules, parse_supported_frequencies};
 use self::protocol::{
-    NL_80211_GENL_NAME, Nl80211Attr, Nl80211Cmd, Nl80211Iftype, Nl80211RawPayload,
-    Nl80211StaInfo, build_genl_message, c_string_bytes,
-    format_mac, genl_buffer, get_optional_attr_raw, get_required_attr_bytes_raw, get_required_attr_raw, nlattr,
-    nl80211_attrs, nl80211_commands, nl80211_iftype,
-    nl80211_attr, nl80211_cmd, trim_c_string,
+    NL_80211_GENL_NAME, Nl80211Attr, Nl80211Cmd, Nl80211Iftype, Nl80211RawPayload, Nl80211StaInfo,
+    build_genl_message, c_string_bytes, format_mac, genl_buffer, get_optional_attr_raw,
+    get_required_attr_bytes_raw, get_required_attr_raw, nl80211_attr, nl80211_attrs, nl80211_cmd,
+    nl80211_commands, nl80211_iftype, nlattr, trim_c_string,
 };
 
 const NL_80211_RECV_TIMEOUT: Duration = Duration::from_secs(10);
@@ -94,9 +93,13 @@ pub(crate) struct Nl80211Client {
 
 impl Nl80211Client {
     pub(crate) async fn connect() -> Result<Self> {
-        let (router, _) =
-            NlRouter::connect(NlFamily::Generic, None, Groups::empty()).await.map_err(|error| anyhow!(error))?;
-        let family_id = router.resolve_genl_family(NL_80211_GENL_NAME).await.map_err(|error| anyhow!(error))?;
+        let (router, _) = NlRouter::connect(NlFamily::Generic, None, Groups::empty())
+            .await
+            .map_err(|error| anyhow!(error))?;
+        let family_id = router
+            .resolve_genl_family(NL_80211_GENL_NAME)
+            .await
+            .map_err(|error| anyhow!(error))?;
         Ok(Self { router, family_id })
     }
 
@@ -131,7 +134,11 @@ impl Nl80211Client {
         )?;
         let mut recv: Nl80211RecvHandle = self
             .router
-            .send(self.family_id, NlmF::REQUEST | NlmF::DUMP, NlPayload::Payload(genl))
+            .send(
+                self.family_id,
+                NlmF::REQUEST | NlmF::DUMP,
+                NlPayload::Payload(genl),
+            )
             .await
             .map_err(|error| anyhow!(error))?;
 
@@ -194,16 +201,11 @@ impl Nl80211Client {
     }
 
     pub(crate) async fn get_reg_domain_primary(&mut self) -> Result<String> {
-        let attrs = genl_buffer(vec![
-            nlattr(
-                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
-                PRIMARY_WIPHY,
-            )?,
-        ]);
-        let genl = build_genl_message(
-            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG),
-            attrs,
-        )?;
+        let attrs = genl_buffer(vec![nlattr(
+            nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+            PRIMARY_WIPHY,
+        )?]);
+        let genl = build_genl_message(nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG), attrs)?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST, NlPayload::Payload(genl))
@@ -219,12 +221,11 @@ impl Nl80211Client {
                 continue;
             };
             let handle = payload.attrs().get_attr_handle();
-            if let Ok(alpha2) =
-                get_required_attr_bytes_raw(
-                    &handle,
-                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_ALPHA2),
-                )
-                .and_then(trim_c_string)
+            if let Ok(alpha2) = get_required_attr_bytes_raw(
+                &handle,
+                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_ALPHA2),
+            )
+            .and_then(trim_c_string)
             {
                 return Ok(alpha2);
             }
@@ -248,21 +249,26 @@ impl Nl80211Client {
             .ok_or_else(|| anyhow!("station signal not found"))
     }
 
-    pub(crate) async fn get_station_dump(&mut self, ifname: &str) -> Result<BTreeMap<String, StationInfo>> {
+    pub(crate) async fn get_station_dump(
+        &mut self,
+        ifname: &str,
+    ) -> Result<BTreeMap<String, StationInfo>> {
         let interface = self.get_interface(ifname).await?;
-        let attrs = genl_buffer(vec![
-            nlattr(
-                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
-                interface.ifindex,
-            )?,
-        ]);
+        let attrs = genl_buffer(vec![nlattr(
+            nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
+            interface.ifindex,
+        )?]);
         let genl = build_genl_message(
             nl80211_cmd(nl80211_commands::NL80211_CMD_GET_STATION),
             attrs,
         )?;
         let mut recv: Nl80211RecvHandle = self
             .router
-            .send(self.family_id, NlmF::REQUEST | NlmF::DUMP, NlPayload::Payload(genl))
+            .send(
+                self.family_id,
+                NlmF::REQUEST | NlmF::DUMP,
+                NlPayload::Payload(genl),
+            )
             .await
             .map_err(|error| anyhow!(error))?;
 
@@ -287,13 +293,13 @@ impl Nl80211Client {
                     &handle,
                     nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_MAC),
                 )
-                    .context("GET_STATION missing NL80211_ATTR_MAC")?,
+                .context("GET_STATION missing NL80211_ATTR_MAC")?,
             );
 
             let sta_attr = handle
-                .get_attribute(
-                    nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_STA_INFO),
-                )
+                .get_attribute(nl80211_attr::<Nl80211Attr>(
+                    nl80211_attrs::NL80211_ATTR_STA_INFO,
+                ))
                 .context("GET_STATION missing NL80211_ATTR_STA_INFO")?;
             let sta_handle: AttrHandle<
                 '_,
@@ -308,12 +314,20 @@ impl Nl80211Client {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub(crate) async fn get_available_ap_channels(&mut self, ifname: &str) -> Result<Vec<AvailableApChannel>> {
+    pub(crate) async fn get_available_ap_channels(
+        &mut self,
+        ifname: &str,
+    ) -> Result<Vec<AvailableApChannel>> {
         let interface = self.get_interface(ifname).await?;
         let mut supported = self
             .get_supported_frequencies(interface.wiphy)
             .await
-            .with_context(|| format!("GET_WIPHY supported frequencies for wiphy {}", interface.wiphy))?;
+            .with_context(|| {
+                format!(
+                    "GET_WIPHY supported frequencies for wiphy {}",
+                    interface.wiphy
+                )
+            })?;
         let reg_rules = self
             .get_regulatory_rules(interface.wiphy)
             .await
@@ -348,8 +362,7 @@ impl Nl80211Client {
             )?,
             nlattr(
                 nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFTYPE),
-                nl80211_attr::<Nl80211Iftype>(nl80211_iftype::NL80211_IFTYPE_STATION)
-                    as u32,
+                nl80211_attr::<Nl80211Iftype>(nl80211_iftype::NL80211_IFTYPE_STATION) as u32,
             )?,
         ]);
         self.send_ack_command(
@@ -364,12 +377,10 @@ impl Nl80211Client {
             Ok(interface) => interface,
             Err(_) => return Ok(false),
         };
-        let attrs = genl_buffer(vec![
-            nlattr(
-                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
-                interface.ifindex,
-            )?,
-        ]);
+        let attrs = genl_buffer(vec![nlattr(
+            nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_IFINDEX),
+            interface.ifindex,
+        )?]);
         self.send_ack_command(
             nl80211_cmd(nl80211_commands::NL80211_CMD_DEL_INTERFACE),
             attrs,
@@ -380,16 +391,11 @@ impl Nl80211Client {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supported_frequencies(&mut self, wiphy: u32) -> Result<Vec<u32>> {
-        let attrs = genl_buffer(vec![
-            nlattr(
-                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_SPLIT_WIPHY_DUMP),
-                (),
-            )?,
-        ]);
-        let genl = build_genl_message(
-            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_WIPHY),
-            attrs,
-        )?;
+        let attrs = genl_buffer(vec![nlattr(
+            nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_SPLIT_WIPHY_DUMP),
+            (),
+        )?]);
+        let genl = build_genl_message(nl80211_cmd(nl80211_commands::NL80211_CMD_GET_WIPHY), attrs)?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(
@@ -433,16 +439,11 @@ impl Nl80211Client {
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_regulatory_rules(&mut self, wiphy: u32) -> Result<Vec<RegulatoryRule>> {
-        let attrs = genl_buffer(vec![
-            nlattr(
-                nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
-                wiphy,
-            )?,
-        ]);
-        let genl = build_genl_message(
-            nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG),
-            attrs,
-        )?;
+        let attrs = genl_buffer(vec![nlattr(
+            nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_WIPHY),
+            wiphy,
+        )?]);
+        let genl = build_genl_message(nl80211_cmd(nl80211_commands::NL80211_CMD_GET_REG), attrs)?;
         let mut recv: Nl80211RecvHandle = self
             .router
             .send(self.family_id, NlmF::REQUEST, NlPayload::Payload(genl))
@@ -472,7 +473,11 @@ impl Nl80211Client {
         let genl = build_genl_message(cmd, attrs)?;
         let mut recv: Nl80211RecvHandle = self
             .router
-            .send(self.family_id, NlmF::REQUEST | NlmF::ACK, NlPayload::Payload(genl))
+            .send(
+                self.family_id,
+                NlmF::REQUEST | NlmF::ACK,
+                NlPayload::Payload(genl),
+            )
             .await
             .map_err(|error| anyhow!(error))?;
 

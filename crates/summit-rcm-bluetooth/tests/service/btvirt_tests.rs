@@ -21,8 +21,7 @@ use tokio::{sync::broadcast, time::timeout};
 
 #[cfg(feature = "bluetooth-websocket")]
 use std::sync::{
-    Arc as StdArc,
-    Mutex as StdMutex,
+    Arc as StdArc, Mutex as StdMutex,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -65,7 +64,10 @@ fn current_controllers() -> anyhow::Result<BTreeSet<String>> {
         let name = name.to_string_lossy();
         if name.starts_with("hci") {
             let controller_name = name.into_owned();
-            anyhow::ensure!(controllers.insert(controller_name.clone()), "duplicate bluetooth controller name {controller_name}");
+            anyhow::ensure!(
+                controllers.insert(controller_name.clone()),
+                "duplicate bluetooth controller name {controller_name}"
+            );
         }
     }
     Ok(controllers)
@@ -114,7 +116,9 @@ fn system_bluez_available() -> bool {
 fn skip_reason() -> Option<String> {
     for binary in ["btvirt", "hciconfig"] {
         if find_binary(binary).is_none() {
-            return Some(format!("requires {binary} in PATH or a standard system bin directory"));
+            return Some(format!(
+                "requires {binary} in PATH or a standard system bin directory"
+            ));
         }
     }
 
@@ -143,7 +147,8 @@ fn build_privileged_command(program: &Path, args: &[String]) -> anyhow::Result<C
         return Ok(command);
     }
 
-    let sudo = find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
+    let sudo =
+        find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
     let mut command = Command::new(sudo);
     {
         let command_ref = command.arg("-n").arg(program).args(args);
@@ -157,16 +162,31 @@ fn run_privileged_output(program: &Path, args: &[String]) -> anyhow::Result<Outp
         let mut command = Command::new(timeout);
         {
             let command_ref = command.args(["--signal=KILL", "8"]);
-            debug_assert!(command_ref.get_program().to_string_lossy().contains("timeout"));
+            debug_assert!(
+                command_ref
+                    .get_program()
+                    .to_string_lossy()
+                    .contains("timeout")
+            );
         }
         if running_as_root() {
             let command_ref = command.arg(program).args(args);
-            debug_assert!(command_ref.get_program().to_string_lossy().contains("timeout"));
+            debug_assert!(
+                command_ref
+                    .get_program()
+                    .to_string_lossy()
+                    .contains("timeout")
+            );
         } else {
             let sudo = find_binary("sudo")
                 .context("sudo should be available for privileged Bluetooth tests")?;
             let command_ref = command.arg(sudo).arg("-n").arg(program).args(args);
-            debug_assert!(command_ref.get_program().to_string_lossy().contains("timeout"));
+            debug_assert!(
+                command_ref
+                    .get_program()
+                    .to_string_lossy()
+                    .contains("timeout")
+            );
         }
         command
     } else {
@@ -184,16 +204,23 @@ fn kill_privileged_match(pattern: &str) -> anyhow::Result<()> {
             .args(["-f", pattern])
             .status()
             .context("failed to invoke pkill")?;
-        anyhow::ensure!(status.success() || status.code() == Some(1), "pkill failed for pattern {pattern}");
+        anyhow::ensure!(
+            status.success() || status.code() == Some(1),
+            "pkill failed for pattern {pattern}"
+        );
         return Ok(());
     }
 
-    let sudo = find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
+    let sudo =
+        find_binary("sudo").context("sudo should be available for privileged Bluetooth tests")?;
     let status = Command::new(sudo)
         .args(["-n", "pkill", "-f", pattern])
         .status()
         .context("failed to invoke sudo pkill")?;
-    anyhow::ensure!(status.success() || status.code() == Some(1), "sudo pkill failed for pattern {pattern}");
+    anyhow::ensure!(
+        status.success() || status.code() == Some(1),
+        "sudo pkill failed for pattern {pattern}"
+    );
     Ok(())
 }
 
@@ -253,8 +280,12 @@ impl LoggedChild {
             program.to_path_buf()
         } else {
             let path = work_dir.join(format!("{name}-exec"));
-            symlink(program, &path)
-                .with_context(|| format!("failed to create symlink launcher for {}", program.display()))?;
+            symlink(program, &path).with_context(|| {
+                format!(
+                    "failed to create symlink launcher for {}",
+                    program.display()
+                )
+            })?;
             path
         };
 
@@ -292,7 +323,10 @@ impl Drop for LoggedChild {
     }
 }
 
-fn wait_for_new_controllers(existing: &BTreeSet<String>, expected: usize) -> anyhow::Result<Vec<String>> {
+fn wait_for_new_controllers(
+    existing: &BTreeSet<String>,
+    expected: usize,
+) -> anyhow::Result<Vec<String>> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let current = current_controllers()?;
@@ -411,12 +445,18 @@ async fn wait_for_discovering(controller: &str, expected: bool) -> anyhow::Resul
     }
 }
 
-async fn wait_for_device_model(controller: &str, device: &str) -> anyhow::Result<BluetoothDeviceModel> {
+async fn wait_for_device_model(
+    controller: &str,
+    device: &str,
+) -> anyhow::Result<BluetoothDeviceModel> {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         match BluetoothService::get_device_state_typed(controller, device).await {
             Ok(model) => return Ok(model),
-            Err(BluetoothDeviceStateError::ControllerNotFound | BluetoothDeviceStateError::DeviceNotFound) => {
+            Err(
+                BluetoothDeviceStateError::ControllerNotFound
+                | BluetoothDeviceStateError::DeviceNotFound,
+            ) => {
                 anyhow::ensure!(
                     Instant::now() < deadline,
                     "timed out waiting for {device} to appear under {controller}"
@@ -434,7 +474,10 @@ async fn wait_for_device_model(controller: &str, device: &str) -> anyhow::Result
     }
 }
 
-async fn wait_for_paired_device(controller: &str, device: &str) -> anyhow::Result<BluetoothDeviceModel> {
+async fn wait_for_paired_device(
+    controller: &str,
+    device: &str,
+) -> anyhow::Result<BluetoothDeviceModel> {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let model = wait_for_device_model(controller, device).await?;
@@ -479,8 +522,14 @@ async fn start_discovery(controller: &str) -> anyhow::Result<()> {
     )
     .await?
     .expect("bleStartDiscovery should not return a route error");
-    anyhow::ensure!(info_msg.is_empty(), "bleStartDiscovery returned info: {info_msg}");
-    anyhow::ensure!(response.started.is_none(), "bleStartDiscovery unexpectedly set started");
+    anyhow::ensure!(
+        info_msg.is_empty(),
+        "bleStartDiscovery returned info: {info_msg}"
+    );
+    anyhow::ensure!(
+        response.started.is_none(),
+        "bleStartDiscovery unexpectedly set started"
+    );
     wait_for_discovering(controller, true).await
 }
 
@@ -492,8 +541,14 @@ async fn stop_discovery(controller: &str) -> anyhow::Result<()> {
     )
     .await?
     .expect("bleStopDiscovery should not return a route error");
-    anyhow::ensure!(info_msg.is_empty(), "bleStopDiscovery returned info: {info_msg}");
-    anyhow::ensure!(response.started.is_none(), "bleStopDiscovery unexpectedly set started");
+    anyhow::ensure!(
+        info_msg.is_empty(),
+        "bleStopDiscovery returned info: {info_msg}"
+    );
+    anyhow::ensure!(
+        response.started.is_none(),
+        "bleStopDiscovery unexpectedly set started"
+    );
     wait_for_discovering(controller, false).await
 }
 
@@ -505,8 +560,14 @@ async fn pair_device(controller: &str, device: &str) -> anyhow::Result<Bluetooth
     )
     .await?
     .expect("pair request should not return a route error");
-    anyhow::ensure!(info_msg.is_empty(), "pair request returned info: {info_msg}");
-    anyhow::ensure!(response.started.is_none(), "pair request unexpectedly set started");
+    anyhow::ensure!(
+        info_msg.is_empty(),
+        "pair request returned info: {info_msg}"
+    );
+    anyhow::ensure!(
+        response.started.is_none(),
+        "pair request unexpectedly set started"
+    );
     let model = wait_for_paired_device(controller, device).await?;
     sleep(Duration::from_secs(1)).await;
     Ok(model)
@@ -532,19 +593,18 @@ async fn connect_device(controller: &str, device: &str) -> anyhow::Result<Blueto
         }
 
         if let Ok(model) = wait_for_device_model(controller, device).await
-            && model.connected == Some(1) {
+            && model.connected == Some(1)
+        {
             return Ok(model);
         }
 
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "{info_msg}"
-        );
-        let retry_delay = if info_msg.contains("connection-abort") || info_msg.contains("connection-refused") {
-            Duration::from_secs(1)
-        } else {
-            Duration::from_millis(250)
-        };
+        anyhow::ensure!(Instant::now() < deadline, "{info_msg}");
+        let retry_delay =
+            if info_msg.contains("connection-abort") || info_msg.contains("connection-refused") {
+                Duration::from_secs(1)
+            } else {
+                Duration::from_millis(250)
+            };
         sleep(retry_delay).await;
     }
 }
@@ -596,7 +656,10 @@ impl LiveGattState {
     }
 
     fn value(&self) -> Vec<u8> {
-        self.value.lock().expect("live gatt value mutex poisoned").clone()
+        self.value
+            .lock()
+            .expect("live gatt value mutex poisoned")
+            .clone()
     }
 
     fn set_value(&self, value: Vec<u8>) {
@@ -611,7 +674,10 @@ impl LiveGattState {
     }
 
     fn writes(&self) -> Vec<Vec<u8>> {
-        self.writes.lock().expect("live gatt writes mutex poisoned").clone()
+        self.writes
+            .lock()
+            .expect("live gatt writes mutex poisoned")
+            .clone()
     }
 }
 
@@ -694,7 +760,11 @@ impl LiveGattCharacteristic {
 
     #[zbus(property, name = "Flags")]
     fn flags(&self) -> Vec<String> {
-        vec!["read".to_string(), "write".to_string(), "notify".to_string()]
+        vec![
+            "read".to_string(),
+            "write".to_string(),
+            "notify".to_string(),
+        ]
     }
 
     #[zbus(property, name = "Notifying")]
@@ -728,19 +798,28 @@ impl LiveGattApplication {
 
         let state = LiveGattState::with_initial_value(&hex::decode(TEST_GATT_READ_HEX)?);
         let conn = Connection::system().await?;
-        let _ = conn.object_server().at(root_path.as_str(), ObjectManager).await?;
+        let _ = conn
+            .object_server()
+            .at(root_path.as_str(), ObjectManager)
+            .await?;
         let _ = conn
             .object_server()
             .at(advertisement_path.as_str(), LiveGattAdvertisement)
             .await?;
-        let _ = conn.object_server().at(service_path.as_str(), LiveGattService).await?;
-        let _ = conn.object_server().at(
-            char_path.as_str(),
-            LiveGattCharacteristic {
-                service_path: OwnedObjectPath::try_from(service_path.as_str())?,
-                state: state.clone(),
-            },
-        ).await?;
+        let _ = conn
+            .object_server()
+            .at(service_path.as_str(), LiveGattService)
+            .await?;
+        let _ = conn
+            .object_server()
+            .at(
+                char_path.as_str(),
+                LiveGattCharacteristic {
+                    service_path: OwnedObjectPath::try_from(service_path.as_str())?,
+                    state: state.clone(),
+                },
+            )
+            .await?;
 
         let adapter_path = format!("/org/bluez/{controller}");
         let _ = dbus::call_method(
@@ -874,7 +953,8 @@ impl BtvirtBluezHarness {
         let btvirt_path = find_binary("btvirt").context("btvirt should be available")?;
         let btvirt_args = vec![format!("-l{virtual_controller_count}")];
         eprintln!("btvirt harness: launching btvirt with {:?}", btvirt_args);
-        let mut btvirt = LoggedChild::spawn_privileged("btvirt", &btvirt_path, &btvirt_args, &work_dir)?;
+        let mut btvirt =
+            LoggedChild::spawn_privileged("btvirt", &btvirt_path, &btvirt_args, &work_dir)?;
         let controllers = wait_for_new_controllers(&existing, virtual_controller_count)?;
         eprintln!("btvirt harness: new controllers {:?}", controllers);
         btvirt.ensure_running()?;
@@ -887,7 +967,10 @@ impl BtvirtBluezHarness {
         for controller in &controllers {
             eprintln!("btvirt harness: waiting for system BlueZ controller state {controller}");
             let state = wait_for_controller_state(controller).await?;
-            anyhow::ensure!(state.controller_name.starts_with("controller"), "unexpected controller name for {controller}");
+            anyhow::ensure!(
+                state.controller_name.starts_with("controller"),
+                "unexpected controller name for {controller}"
+            );
         }
 
         Ok(Self {
@@ -1002,8 +1085,7 @@ async fn live_btvirt_pair_request_pairs_discovered_virtual_device() {
     let (response, info_msg) = BluetoothService::handle_command_v2(
         Some(local.as_str()),
         Some(remote_addr.as_str()),
-        serde_json::from_value(json!({"paired": 1}))
-            .expect("pair request should deserialize"),
+        serde_json::from_value(json!({"paired": 1})).expect("pair request should deserialize"),
     )
     .await
     .expect("pair request should complete against btvirt-backed system BlueZ")
@@ -1094,7 +1176,11 @@ async fn live_btvirt_ble_connect_and_disconnect_toggle_connected_state() {
             let model = wait_for_device_model(&local, &remote_addr)
                 .await
                 .expect("device should remain queryable after live bleConnect failure");
-            assert_ne!(model.connected, Some(1), "live bleConnect reported failure but the device became connected");
+            assert_ne!(
+                model.connected,
+                Some(1),
+                "live bleConnect reported failure but the device became connected"
+            );
             None
         }
     };
@@ -1186,9 +1272,18 @@ async fn live_btvirt_get_conn_info_reports_real_bluez_behavior() {
     .expect("getConnInfo should not return a route error");
 
     if connected_for_info && info_msg.is_empty() {
-        assert!(response.rssi.is_some(), "successful getConnInfo should include RSSI");
-        assert!(response.tx_power.is_some(), "successful getConnInfo should include tx_power");
-        assert!(response.max_tx_power.is_some(), "successful getConnInfo should include max_tx_power");
+        assert!(
+            response.rssi.is_some(),
+            "successful getConnInfo should include RSSI"
+        );
+        assert!(
+            response.tx_power.is_some(),
+            "successful getConnInfo should include tx_power"
+        );
+        assert!(
+            response.max_tx_power.is_some(),
+            "successful getConnInfo should include max_tx_power"
+        );
     } else if connected_for_info {
         assert_eq!(info_msg, "Unable to get connection info");
         assert!(response.rssi.is_none());
@@ -1252,13 +1347,14 @@ async fn live_btvirt_websocket_observers_publish_discovery_frames() {
     start_discovery(&local)
         .await
         .expect("local controller should enter discovery before websocket observer test");
-    let discovery_notification = wait_for_notification(&mut notifications, "discovery", |message| {
-        message.contains("\"discovery\"")
-            && message.contains(remote_addr.as_str())
-            && message.contains("\"Address\"")
-    })
-    .await
-    .expect("observer should publish a discovery notification");
+    let discovery_notification =
+        wait_for_notification(&mut notifications, "discovery", |message| {
+            message.contains("\"discovery\"")
+                && message.contains(remote_addr.as_str())
+                && message.contains("\"Address\"")
+        })
+        .await
+        .expect("observer should publish a discovery notification");
     assert!(discovery_notification.contains("\"timestamp\":"));
 
     let _ = wait_for_device_model(&local, &remote_addr)

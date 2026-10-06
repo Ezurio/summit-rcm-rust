@@ -5,22 +5,22 @@
 
 //! Raw network helpers that do not depend on NetworkManager.
 
-use anyhow::Result;
 use super::nl80211::Nl80211Client;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use super::nl80211::{StationInfo as NlStationInfo, StationRateInfo as NlStationRateInfo};
-use summit_rcm_core::dbus;
-use summit_rcm_core::utils::{path_exists, path_exists_sync, read_sysfs};
-use crate::types::{InterfaceDriverInfo, InterfaceStats};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use crate::types::{AvailableApChannel, Station, StationRateInfo, SummitStatus};
+use crate::types::{InterfaceDriverInfo, InterfaceStats};
+use anyhow::Result;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::BTreeMap;
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::HashMap;
-use zbus::zvariant::{Value as DbusValue};
+use summit_rcm_core::dbus;
+use summit_rcm_core::utils::{path_exists, path_exists_sync, read_sysfs};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use zbus::zvariant::OwnedObjectPath;
+use zbus::zvariant::Value as DbusValue;
 
 pub struct NetworkService;
 
@@ -102,15 +102,8 @@ impl NetworkService {
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
     async fn get_supplicant_interfaces() -> Result<Vec<OwnedObjectPath>> {
         let conn = dbus::system_bus().await?;
-        dbus::get_property_with_timeout(
-            &conn,
-            WPA_IFACE,
-            WPA_OBJ,
-            WPA_IFACE,
-            "Interfaces",
-            None,
-        )
-        .await
+        dbus::get_property_with_timeout(&conn, WPA_IFACE, WPA_OBJ, WPA_IFACE, "Interfaces", None)
+            .await
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
@@ -129,15 +122,8 @@ impl NetworkService {
 
     pub async fn get_supplicant_debug_level() -> Result<String> {
         let conn = dbus::system_bus().await?;
-        dbus::get_property_with_timeout(
-            &conn,
-            WPA_IFACE,
-            WPA_OBJ,
-            WPA_IFACE,
-            "DebugLevel",
-            None,
-        )
-        .await
+        dbus::get_property_with_timeout(&conn, WPA_IFACE, WPA_OBJ, WPA_IFACE, "DebugLevel", None)
+            .await
     }
 
     #[cfg(any(feature = "api-v2", feature = "at-interface"))]
@@ -183,7 +169,9 @@ impl NetworkService {
     async fn read_interface_stat(base: &str, file_name: &str) -> Result<i64> {
         let path = format!("{}/{}", base, file_name);
         let content = read_sysfs(&path).await?;
-        content.parse::<i64>().map_err(|error| anyhow::anyhow!(error))
+        content
+            .parse::<i64>()
+            .map_err(|error| anyhow::anyhow!(error))
     }
 
     pub async fn get_interface_statistics(name: &str) -> Result<InterfaceStats> {
@@ -274,7 +262,9 @@ impl NetworkService {
     }
 
     #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-    pub async fn get_interface_available_ap_channels(ifname: &str) -> Result<Vec<AvailableApChannel>> {
+    pub async fn get_interface_available_ap_channels(
+        ifname: &str,
+    ) -> Result<Vec<AvailableApChannel>> {
         let ifname = ifname.to_string();
         let mut client = Nl80211Client::connect().await?;
         let channels = client.get_available_ap_channels(&ifname).await?;

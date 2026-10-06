@@ -5,13 +5,13 @@
 //! GET /definitions — legacy endpoint returning SDK definitions (SDCERR codes,
 //! permission types, loaded plugin list, session timeout).
 
-use summit_rcm_core::config::{ServerConfig, SystemSettingsManage};
-use summit_rcm_web::legacy_response as legacy;
-use summit_rcm_web::legacy_response::{ok_response, LegacyOperationResponse};
-use summit_rcm_web::USER_PERMISSION_TYPES_LIST;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
+use summit_rcm_core::config::{ServerConfig, SystemSettingsManage};
+use summit_rcm_web::USER_PERMISSION_TYPES_LIST;
+use summit_rcm_web::legacy_response as legacy;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, ok_response};
 
 fn sessions_enabled() -> bool {
     ServerConfig::get_bool("/", "tools.sessions.on", true)
@@ -138,8 +138,8 @@ const LEGACY_PERMISSION_ATTR_ROWS: &[(&str, &str, &str)] = &[
     ("", "", ""),
 ];
 
-static LEGACY_PERMISSION_DEFINITIONS: LazyLock<LegacyPermissionDefinitions> = LazyLock::new(|| {
-    LegacyPermissionDefinitions {
+static LEGACY_PERMISSION_DEFINITIONS: LazyLock<LegacyPermissionDefinitions> =
+    LazyLock::new(|| LegacyPermissionDefinitions {
         user_permission_types: USER_PERMISSION_TYPES_LIST
             .iter()
             .map(|s| s.to_string())
@@ -147,22 +147,28 @@ static LEGACY_PERMISSION_DEFINITIONS: LazyLock<LegacyPermissionDefinitions> = La
         user_permission_attrs: LEGACY_PERMISSION_ATTR_ROWS
             .iter()
             .map(|(name, selected, disabled)| {
-                vec![(*name).to_string(), (*selected).to_string(), (*disabled).to_string()]
+                vec![
+                    (*name).to_string(),
+                    (*selected).to_string(),
+                    (*disabled).to_string(),
+                ]
             })
             .collect(),
-    }
-});
+    });
 
 fn permissions() -> LegacyPermissionDefinitions {
     LEGACY_PERMISSION_DEFINITIONS.clone()
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/definitions",
-    tag = "legacy",
-    responses(GetDefinitionsLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/definitions",
+        tag = "legacy",
+        responses(GetDefinitionsLegacyResponses)
+    )
+)]
 pub(crate) async fn get_definitions() -> GetDefinitionsLegacyResponses {
     let session_timeout = if sessions_enabled() {
         SystemSettingsManage::get_int("session_timeout", 10)

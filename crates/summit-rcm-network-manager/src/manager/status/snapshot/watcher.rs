@@ -6,20 +6,19 @@
 //! up to date in response to D-Bus PropertiesChanged and systemd state changes.
 
 use anyhow::Result;
+use log::error;
+use serde_json::json;
+use std::sync::atomic::Ordering;
 use summit_rcm_core::dbus;
 use summit_rcm_core::dbus::DBUS_PROP_IFACE;
 use summit_rcm_core::systemd_unit::SystemdUnit;
 use summit_rcm_core::systemd_unit::{SYSTEMD_BUS_NAME, SYSTEMD_UNIT_IFACE};
-use log::error;
-use serde_json::json;
-use std::sync::atomic::Ordering;
 
 use super::super::super::{
-    NetworkManagerService, NmProperties, NM_ACCESS_POINT_IFACE, NM_BUS_NAME,
-    NM_DEVICE_IFACE, NM_DEVICE_WIRED_IFACE, NM_DEVICE_WIRELESS_IFACE,
-    NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE, NM_SETTINGS_IFACE,
     NETWORK_STATUS_CACHE, NETWORK_STATUS_INIT_STARTED, NETWORK_STATUS_SIGNAL_TASK,
-    NETWORK_STATUS_WATCHER,
+    NETWORK_STATUS_WATCHER, NM_ACCESS_POINT_IFACE, NM_BUS_NAME, NM_DEVICE_IFACE,
+    NM_DEVICE_WIRED_IFACE, NM_DEVICE_WIRELESS_IFACE, NM_IFACE, NM_MAIN_OBJ,
+    NM_SETTINGS_CONNECTION_IFACE, NM_SETTINGS_IFACE, NetworkManagerService, NmProperties,
 };
 
 const NETWORKMANAGER_SERVICE_FILE: &str = "NetworkManager.service";
@@ -45,15 +44,23 @@ impl NetworkManagerService {
                 continue;
             };
 
-            let is_match = raw_device.get("path").and_then(serde_json::Value::as_str) == Some(object_path)
+            let is_match = raw_device.get("path").and_then(serde_json::Value::as_str)
+                == Some(object_path)
                 || raw_device
                     .get("status")
                     .and_then(serde_json::Value::as_object)
-                    .is_some_and(|status| status.values().any(|val| val.as_str() == Some(object_path)))
+                    .is_some_and(|status| {
+                        status.values().any(|val| val.as_str() == Some(object_path))
+                    })
                 || raw_device
                     .get("wireless")
                     .and_then(serde_json::Value::as_object)
-                    .is_some_and(|wireless| wireless.get("ActiveAccessPoint").and_then(serde_json::Value::as_str) == Some(object_path));
+                    .is_some_and(|wireless| {
+                        wireless
+                            .get("ActiveAccessPoint")
+                            .and_then(serde_json::Value::as_str)
+                            == Some(object_path)
+                    });
 
             if !is_match {
                 continue;
@@ -63,10 +70,18 @@ impl NetworkManagerService {
 
             // Route properties directly to the appropriate sub-map based on the D-Bus interface
             let submap = match interface {
-                NM_DEVICE_IFACE => raw_device.get_mut("status").and_then(serde_json::Value::as_object_mut),
-                NM_DEVICE_WIRED_IFACE => raw_device.get_mut("wired").and_then(serde_json::Value::as_object_mut),
-                NM_DEVICE_WIRELESS_IFACE => raw_device.get_mut("wireless").and_then(serde_json::Value::as_object_mut),
-                NM_ACCESS_POINT_IFACE => raw_device.get_mut("ActiveAccessPoint").and_then(serde_json::Value::as_object_mut),
+                NM_DEVICE_IFACE => raw_device
+                    .get_mut("status")
+                    .and_then(serde_json::Value::as_object_mut),
+                NM_DEVICE_WIRED_IFACE => raw_device
+                    .get_mut("wired")
+                    .and_then(serde_json::Value::as_object_mut),
+                NM_DEVICE_WIRELESS_IFACE => raw_device
+                    .get_mut("wireless")
+                    .and_then(serde_json::Value::as_object_mut),
+                NM_ACCESS_POINT_IFACE => raw_device
+                    .get_mut("ActiveAccessPoint")
+                    .and_then(serde_json::Value::as_object_mut),
                 _ => {
                     // For interface types like "org.freedesktop.NetworkManager.IP4Config",
                     // the submap key matches the interface's trailing component (e.g. "IP4Config" -> "Ip4Config")
@@ -88,11 +103,15 @@ impl NetworkManagerService {
             }
 
             if interface == NM_DEVICE_IFACE {
-                let Some(interface_name) = raw_device.get("interface").and_then(serde_json::Value::as_str) else {
+                let Some(interface_name) = raw_device
+                    .get("interface")
+                    .and_then(serde_json::Value::as_str)
+                else {
                     continue;
                 };
                 let interface_name = interface_name.to_string();
-                let details = Self::interface_detail_fields(&interface_name, object_path, raw_device);
+                let details =
+                    Self::interface_detail_fields(&interface_name, object_path, raw_device);
                 raw_device.extend(details);
             }
         }
@@ -111,22 +130,30 @@ impl NetworkManagerService {
         }
 
         if interface == NM_IFACE && path == NM_MAIN_OBJ {
-            let devices_changed = changed.contains_key("Devices")
-                || invalidated.iter().any(|prop| prop == "Devices");
+            let devices_changed =
+                changed.contains_key("Devices") || invalidated.iter().any(|prop| prop == "Devices");
 
             if devices_changed {
                 if let Err(error) = Self::refresh_status_cache().await {
-                    error!("failed to refresh status cache on NetworkManager topology change: {}", error);
+                    error!(
+                        "failed to refresh status cache on NetworkManager topology change: {}",
+                        error
+                    );
                 }
             }
             return;
         }
 
         if interface == NM_SETTINGS_CONNECTION_IFACE
-            || (interface == NM_SETTINGS_IFACE && (changed.contains_key("Connections") || invalidated.iter().any(|p| p == "Connections")))
+            || (interface == NM_SETTINGS_IFACE
+                && (changed.contains_key("Connections")
+                    || invalidated.iter().any(|p| p == "Connections")))
         {
             if let Err(error) = Self::refresh_status_cache().await {
-                error!("failed to refresh status cache on connection settings change: {}", error);
+                error!(
+                    "failed to refresh status cache on connection settings change: {}",
+                    error
+                );
             }
             return;
         }
@@ -150,11 +177,18 @@ impl NetworkManagerService {
                 cache.as_object().and_then(|devices| {
                     devices.values().find_map(|dev| {
                         let obj = dev.as_object()?;
-                        let is_match = obj.get("path").and_then(serde_json::Value::as_str) == Some(path)
-                            || obj.get("status").and_then(serde_json::Value::as_object)
-                                .is_some_and(|status| status.values().any(|val| val.as_str() == Some(path)));
+                        let is_match = obj.get("path").and_then(serde_json::Value::as_str)
+                            == Some(path)
+                            || obj
+                                .get("status")
+                                .and_then(serde_json::Value::as_object)
+                                .is_some_and(|status| {
+                                    status.values().any(|val| val.as_str() == Some(path))
+                                });
                         if is_match {
-                            obj.get("path").and_then(serde_json::Value::as_str).map(ToString::to_string)
+                            obj.get("path")
+                                .and_then(serde_json::Value::as_str)
+                                .map(ToString::to_string)
                         } else {
                             None
                         }
@@ -164,7 +198,10 @@ impl NetworkManagerService {
 
             if let Some(dev_path) = target_path {
                 if let Err(error) = Self::refresh_device_status_cache(&dev_path).await {
-                    error!("failed to refresh device status cache for pointer change {}: {}", path, error);
+                    error!(
+                        "failed to refresh device status cache for pointer change {}: {}",
+                        path, error
+                    );
                 }
                 return;
             }
@@ -177,7 +214,10 @@ impl NetworkManagerService {
 
         if !updated && interface == NM_DEVICE_IFACE {
             if let Err(error) = Self::refresh_device_status_cache(path).await {
-                error!("failed to refresh device status cache for new device {}: {}", path, error);
+                error!(
+                    "failed to refresh device status cache for new device {}: {}",
+                    path, error
+                );
             }
         }
     }
@@ -240,10 +280,16 @@ impl NetworkManagerService {
         match new_state {
             "active" => {
                 if let Err(error) = Self::refresh_status_cache().await {
-                    error!("failed to refresh NetworkManager status cache on service activation: {}", error);
+                    error!(
+                        "failed to refresh NetworkManager status cache on service activation: {}",
+                        error
+                    );
                 }
                 if let Err(error) = Self::ensure_nm_status_watcher().await {
-                    error!("failed to start NetworkManager status watcher on service activation: {}", error);
+                    error!(
+                        "failed to start NetworkManager status watcher on service activation: {}",
+                        error
+                    );
                 }
             }
             "deactivating" | "inactive" | "failed" => {
@@ -330,7 +376,10 @@ impl NetworkManagerService {
         let init_task = handle.spawn(async {
             if let Err(error) = Self::initialize_status_cache().await {
                 NETWORK_STATUS_INIT_STARTED.store(false, Ordering::Release);
-                error!("failed to initialize NetworkManager status cache: {}", error);
+                error!(
+                    "failed to initialize NetworkManager status cache: {}",
+                    error
+                );
             }
         });
         drop(init_task);

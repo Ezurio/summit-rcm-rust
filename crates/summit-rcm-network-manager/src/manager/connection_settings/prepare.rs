@@ -10,7 +10,9 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use super::super::{NetworkManagerService, NmConnectionSettings};
 
 impl NetworkManagerService {
-    pub(crate) fn prepare_connection_settings_dbus(connection: &Value) -> Result<NmConnectionSettings> {
+    pub(crate) fn prepare_connection_settings_dbus(
+        connection: &Value,
+    ) -> Result<NmConnectionSettings> {
         let root = connection
             .as_object()
             .ok_or_else(|| anyhow::anyhow!("connection profile must be a JSON object"))?;
@@ -18,7 +20,10 @@ impl NetworkManagerService {
 
         Self::prepare_setting("connection", root, &mut new_connection)?;
 
-        if let Some(wireless) = root.get("802-11-wireless").and_then(|value| value.as_object()) {
+        if let Some(wireless) = root
+            .get("802-11-wireless")
+            .and_then(|value| value.as_object())
+        {
             let target = new_connection
                 .entry("802-11-wireless".to_string())
                 .or_default();
@@ -35,10 +40,7 @@ impl NetworkManagerService {
                     }
                     continue;
                 }
-                let _ = target.insert(
-                    key.clone(),
-                    Self::json_scalar_to_owned_value(value)?,
-                );
+                let _ = target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
             }
             if !wireless.contains_key("mode") {
                 let _ = target.insert(
@@ -70,16 +72,10 @@ impl NetworkManagerService {
                     } else {
                         Vec::new()
                     };
-                    let _ = target.insert(
-                        key.clone(),
-                        Self::into_owned_value(values)?,
-                    );
+                    let _ = target.insert(key.clone(), Self::into_owned_value(values)?);
                     continue;
                 }
-                let _ = target.insert(
-                    key.clone(),
-                    Self::json_scalar_to_owned_value(value)?,
-                );
+                let _ = target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
             }
         }
 
@@ -107,10 +103,7 @@ impl NetworkManagerService {
                     } else {
                         Vec::new()
                     };
-                    let _ = target.insert(
-                        key.clone(),
-                        Self::into_owned_value(values)?,
-                    );
+                    let _ = target.insert(key.clone(), Self::into_owned_value(values)?);
                     continue;
                 }
 
@@ -126,7 +119,9 @@ impl NetworkManagerService {
                     if let Some(cert_name) = value.as_str() {
                         let _ = target.insert(
                             key.clone(),
-                            Self::into_owned_value(Self::convert_cert_to_nm_path_scheme(cert_name))?,
+                            Self::into_owned_value(Self::convert_cert_to_nm_path_scheme(
+                                cert_name,
+                            ))?,
                         );
                     }
                     continue;
@@ -142,10 +137,7 @@ impl NetworkManagerService {
                     continue;
                 }
 
-                let _ = target.insert(
-                    key.clone(),
-                    Self::json_scalar_to_owned_value(value)?,
-                );
+                let _ = target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
             }
         }
 
@@ -175,14 +167,13 @@ impl NetworkManagerService {
                                     .get("address")
                                     .and_then(|value| value.as_str())
                                     .and_then(|value| value.parse::<Ipv4Addr>().ok())?;
-                                let prefix = entry.get("prefix").and_then(|value| value.as_u64())? as u32;
+                                let prefix =
+                                    entry.get("prefix").and_then(|value| value.as_u64())? as u32;
                                 Some(vec![u32::from_ne_bytes(address.octets()), prefix, gateway])
                             })
                             .collect::<Vec<_>>();
-                        let _ = target.insert(
-                            "addresses".to_string(),
-                            Self::into_owned_value(addresses)?,
-                        );
+                        let _ = target
+                            .insert("addresses".to_string(), Self::into_owned_value(addresses)?);
                     }
                     "dns" => {
                         let dns = value
@@ -193,17 +184,12 @@ impl NetworkManagerService {
                             .filter_map(|entry| entry.parse::<Ipv4Addr>().ok())
                             .map(|entry| u32::from_ne_bytes(entry.octets()))
                             .collect::<Vec<_>>();
-                        let _ = target.insert(
-                            "dns".to_string(),
-                            Self::into_owned_value(dns)?,
-                        );
+                        let _ = target.insert("dns".to_string(), Self::into_owned_value(dns)?);
                     }
                     "gateway" => {}
                     _ => {
-                        let _ = target.insert(
-                            key.clone(),
-                            Self::json_scalar_to_owned_value(value)?,
-                        );
+                        let _ =
+                            target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
                     }
                 }
             }
@@ -233,14 +219,13 @@ impl NetworkManagerService {
                                     .get("address")
                                     .and_then(|value| value.as_str())
                                     .and_then(|value| value.parse::<Ipv6Addr>().ok())?;
-                                let prefix = entry.get("prefix").and_then(|value| value.as_u64())? as u32;
+                                let prefix =
+                                    entry.get("prefix").and_then(|value| value.as_u64())? as u32;
                                 Some((address.octets().to_vec(), prefix, gateway.clone()))
                             })
                             .collect::<Vec<_>>();
-                        let _ = target.insert(
-                            "addresses".to_string(),
-                            Self::into_owned_value(addresses)?,
-                        );
+                        let _ = target
+                            .insert("addresses".to_string(), Self::into_owned_value(addresses)?);
                     }
                     "dns" => {
                         let dns = value
@@ -251,17 +236,12 @@ impl NetworkManagerService {
                             .filter_map(|entry| entry.parse::<Ipv6Addr>().ok())
                             .map(|entry| entry.octets().to_vec())
                             .collect::<Vec<_>>();
-                        let _ = target.insert(
-                            "dns".to_string(),
-                            Self::into_owned_value(dns)?,
-                        );
+                        let _ = target.insert("dns".to_string(), Self::into_owned_value(dns)?);
                     }
                     "gateway" => {}
                     _ => {
-                        let _ = target.insert(
-                            key.clone(),
-                            Self::json_scalar_to_owned_value(value)?,
-                        );
+                        let _ =
+                            target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
                     }
                 }
             }

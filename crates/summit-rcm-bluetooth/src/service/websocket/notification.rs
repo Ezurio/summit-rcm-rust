@@ -12,9 +12,9 @@
 //! order. Nested service maps use [`BTreeMap`], which is inherently sorted.
 
 use serde::Serialize;
-use summit_rcm_web::serde_json::Value;
 use std::collections::BTreeMap;
 use summit_rcm_web::serde_json;
+use summit_rcm_web::serde_json::Value;
 
 /// One BLE notification frame. Serialized as an externally tagged object so the
 /// variant name becomes the topic key (`{"discovery": {…}}`, `{"connect": {…}}`,

@@ -8,13 +8,13 @@
 //! service pipeline for legacy compatibility.
 
 use crate::routes::shared::{
-    gatt_connections_response, BluetoothVspCommandRequest, BluetoothVspControlResponse,
+    BluetoothVspCommandRequest, BluetoothVspControlResponse, gatt_connections_response,
 };
 use crate::service::list_vsp_connections;
 use summit_rcm_bluetooth::service::{
     BluetoothCommandRouteError, BluetoothCommandRouteStatus, BluetoothService,
 };
-use summit_rcm_web::axum::{extract::Path, Json};
+use summit_rcm_web::axum::{Json, extract::Path};
 use summit_rcm_web::serde_json;
 
 summit_rcm_web::define_json_response_family! {
@@ -55,7 +55,13 @@ async fn run_vsp_command(
         "command".to_string(),
         serde_json::Value::String(command.to_string()),
     );
-    match BluetoothService::run_command_value_v2(Some(controller), device, serde_json::Value::Object(body)).await {
+    match BluetoothService::run_command_value_v2(
+        Some(controller),
+        device,
+        serde_json::Value::Object(body),
+    )
+    .await
+    {
         Ok(Ok((_response, _info))) => BluetoothVspControlResponse::default().into(),
         Ok(Err(error)) => vsp_put_error_response(&error),
         Err(error) => {
@@ -111,7 +117,13 @@ pub(crate) async fn put_bluetooth_vsp(
 pub(crate) async fn delete_bluetooth_vsp(
     Path((controller, device)): Path<(String, String)>,
 ) -> PutBluetoothVspResponses {
-    run_vsp_command(&controller, Some(&device), serde_json::Map::new(), "gattDisconnect").await
+    run_vsp_command(
+        &controller,
+        Some(&device),
+        serde_json::Map::new(),
+        "gattDisconnect",
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -120,9 +132,5 @@ mod tests;
 
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 #[derive(utoipa::OpenApi)]
-#[openapi(paths(
-    get_bluetooth_vsp,
-    put_bluetooth_vsp,
-    delete_bluetooth_vsp,
-))]
+#[openapi(paths(get_bluetooth_vsp, put_bluetooth_vsp, delete_bluetooth_vsp,))]
 pub(crate) struct VspApiDoc;

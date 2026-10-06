@@ -12,21 +12,18 @@
 //!
 //! [`RouteMode`]: summit_rcm_plugin_api::RouteMode
 
-use summit_rcm_core::config::ServerConfig;
-use crate::service::{
-    CertificateProvisioningService, ClientTlsInfo, ProvisioningState,
-};
-use summit_rcm_web::axum::{
-    body::Body,
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::service::{CertificateProvisioningService, ClientTlsInfo, ProvisioningState};
 use log::warn;
+use std::sync::atomic::{AtomicU64, Ordering};
+use summit_rcm_core::config::ServerConfig;
+use summit_rcm_web::axum::{body::Body, extract::Request, middleware::Next, response::Response};
 
 fn disable_certificate_expiry_verification() -> bool {
-    ServerConfig::get_bool("summit-rcm", "disable_certificate_expiry_verification", true)
+    ServerConfig::get_bool(
+        "summit-rcm",
+        "disable_certificate_expiry_verification",
+        true,
+    )
 }
 
 /// 64-bit fingerprint of the last client cert seen. `0` is the unset
@@ -62,18 +59,24 @@ async fn check_for_new_fallback_timestamp(tls_info: &ClientTlsInfo) {
         return;
     }
 
-    let Ok(validity) =
-        CertificateProvisioningService::get_client_cert_validity_period(tls_info)
+    let Ok(validity) = CertificateProvisioningService::get_client_cert_validity_period(tls_info)
     else {
         return;
     };
 
-    let fallback_timestamp = CertificateProvisioningService::read_fallback_timestamp().ok().flatten();
-    if fallback_timestamp.map(|ts| validity.not_before > ts).unwrap_or(true)
+    let fallback_timestamp = CertificateProvisioningService::read_fallback_timestamp()
+        .ok()
+        .flatten();
+    if fallback_timestamp
+        .map(|ts| validity.not_before > ts)
+        .unwrap_or(true)
         && let Err(error) =
             CertificateProvisioningService::set_fallback_timestamp(validity.not_before).await
     {
-        warn!("Couldn't update fallback timestamp from client certificate: {}", error);
+        warn!(
+            "Couldn't update fallback timestamp from client certificate: {}",
+            error
+        );
     }
 }
 

@@ -15,10 +15,7 @@ static SYSTEM_BUS_ADDRESS_OVERRIDE: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
 pub fn system_bus_address_override() -> Option<String> {
-    SYSTEM_BUS_ADDRESS_OVERRIDE
-        .lock()
-        .unwrap()
-        .clone()
+    SYSTEM_BUS_ADDRESS_OVERRIDE.lock().unwrap().clone()
 }
 
 pub fn set_system_bus_address_override(address: &str) {

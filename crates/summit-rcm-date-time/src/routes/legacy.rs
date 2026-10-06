@@ -3,10 +3,10 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::service::{DateTimeService, DateTimeSnapshot};
-use summit_rcm_web::axum::Json;
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::Json;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 #[cfg(all(feature = "api-docs", feature = "api-legacy"))]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -65,21 +65,29 @@ fn legacy_datetime_get_response(dt: DateTimeSnapshot) -> LegacyDateTimeResponse 
     )
 }
 
-fn legacy_datetime_put_response(operation: LegacyOperationResponse, time: impl Into<String>) -> LegacyDateTimeResponse {
+fn legacy_datetime_put_response(
+    operation: LegacyOperationResponse,
+    time: impl Into<String>,
+) -> LegacyDateTimeResponse {
     legacy_datetime_response(operation, None, None, None, time)
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/datetime",
-    tag = "legacy",
-    responses(GetDateTimeLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/datetime",
+        tag = "legacy",
+        responses(GetDateTimeLegacyResponses)
+    )
+)]
 pub async fn get_datetime_legacy() -> GetDateTimeLegacyResponses {
     match DateTimeService::list_timezones().await {
         Ok(zones) => {
             let zone = DateTimeService::local_zone().await;
-            GetDateTimeLegacyResponses::Ok(legacy_datetime_get_response(DateTimeService::get_datetime(zones, zone)))
+            GetDateTimeLegacyResponses::Ok(legacy_datetime_get_response(
+                DateTimeService::get_datetime(zones, zone),
+            ))
         }
         Err(e) => GetDateTimeLegacyResponses::Ok(legacy_datetime_response(
             fail_response(e.to_string()),
@@ -107,13 +115,17 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
             ));
         }
     } else if body.method.as_deref() == Some("manual") {
-        if let Some(datetime) = body.datetime.as_deref().filter(|datetime| !datetime.is_empty())
-            && let Err(e) = DateTimeService::set_time_manual(datetime).await {
-                return PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
-                    fail_response(format!("Could not set datetime: {}", e)),
-                    "",
-                ));
-            }
+        if let Some(datetime) = body
+            .datetime
+            .as_deref()
+            .filter(|datetime| !datetime.is_empty())
+            && let Err(e) = DateTimeService::set_time_manual(datetime).await
+        {
+            return PutDateTimeLegacyResponses::Ok(legacy_datetime_put_response(
+                fail_response(format!("Could not set datetime: {}", e)),
+                "",
+            ));
+        }
     } else {
         match DateTimeService::list_timezones().await {
             Ok(zones) => {
@@ -148,4 +160,3 @@ pub async fn put_datetime_legacy(Json(body): Json<DateTimeBody>) -> PutDateTimeL
         )),
     }
 }
-

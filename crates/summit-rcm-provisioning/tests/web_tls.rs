@@ -1,10 +1,10 @@
 #![cfg(all(feature = "provisioning", feature = "api-v2"))]
 
+use std::time::{SystemTime, UNIX_EPOCH};
 use summit_rcm_core::config::test_support as config_test_support;
 use summit_rcm_provisioning::{
     CertificateProvisioningService, ProvisioningState, ProvisioningWebTlsConfig,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
 
 macro_rules! test_env {
     () => {
@@ -23,7 +23,9 @@ struct ProvisioningTestCleanup;
 impl Drop for ProvisioningTestCleanup {
     fn drop(&mut self) {
         config_test_support::clear_server_overrides();
-        if let Some(state_path) = config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE") {
+        if let Some(state_path) =
+            config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE")
+        {
             let _ = std::fs::remove_file(&state_path);
         }
         config_test_support::clear_env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE");
@@ -91,14 +93,15 @@ async fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
     set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
     set_test_provisioning_tls_assets().await;
 
-    let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
-        cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
-        key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
-        ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
-        require_client_auth: true,
-    })
-    .await
-    .expect("provisioning TLS config should resolve");
+    let resolved =
+        CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
+            cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
+            key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
+            ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
+            require_client_auth: true,
+        })
+        .await
+        .expect("provisioning TLS config should resolve");
 
     assert_eq!(
         resolved.config.cert_path,
@@ -111,7 +114,10 @@ async fn provisioning_tls_uses_provisioning_certificates_when_unprovisioned() {
             .expect("test provisioning key override should be set")
     );
     assert!(!resolved.config.require_client_auth);
-    assert_eq!(resolved.mode_log, Some("*** RESTRICTED PROVISIONING MODE ***"));
+    assert_eq!(
+        resolved.mode_log,
+        Some("*** RESTRICTED PROVISIONING MODE ***")
+    );
 }
 
 #[tokio::test]
@@ -119,14 +125,15 @@ async fn provisioning_tls_falls_back_when_restricted_assets_are_missing() {
     test_env!(("summit-rcm", "enable_client_pairing", "true"));
     set_test_provisioning_state(ProvisioningState::Unprovisioned).await;
 
-    let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
-        cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
-        key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
-        ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
-        require_client_auth: true,
-    })
-    .await
-    .expect("missing restricted provisioning assets should not fail TLS config resolution");
+    let resolved =
+        CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
+            cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
+            key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
+            ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
+            require_client_auth: true,
+        })
+        .await
+        .expect("missing restricted provisioning assets should not fail TLS config resolution");
 
     assert_eq!(resolved.config.cert_path, "/etc/summit-rcm/ssl/server.crt");
     assert_eq!(resolved.config.key_path, "/etc/summit-rcm/ssl/server.key");
@@ -139,15 +146,19 @@ async fn provisioning_tls_requires_client_auth_when_pairing_is_enabled() {
     test_env!(("summit-rcm", "enable_client_pairing", "true"));
     set_test_provisioning_state(ProvisioningState::PartiallyProvisioned).await;
 
-    let resolved = CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
-        cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
-        key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
-        ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
-        require_client_auth: false,
-    })
-    .await
-    .expect("provisioning TLS config should resolve");
+    let resolved =
+        CertificateProvisioningService::resolve_web_tls_config(ProvisioningWebTlsConfig {
+            cert_path: "/etc/summit-rcm/ssl/server.crt".to_string(),
+            key_path: "/etc/summit-rcm/ssl/server.key".to_string(),
+            ca_path: "/etc/summit-rcm/ssl/ca.crt".to_string(),
+            require_client_auth: false,
+        })
+        .await
+        .expect("provisioning TLS config should resolve");
 
     assert!(resolved.config.require_client_auth);
-    assert_eq!(resolved.mode_log, Some("*** PARTIALLY PROVISIONED MODE ***"));
+    assert_eq!(
+        resolved.mode_log,
+        Some("*** PARTIALLY PROVISIONED MODE ***")
+    );
 }

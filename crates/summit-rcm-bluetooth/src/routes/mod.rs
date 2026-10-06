@@ -46,11 +46,15 @@ pub mod v2;
 #[cfg(feature = "api-legacy")]
 pub mod legacy;
 
-#[cfg(all(feature = "api-docs", feature = "api-v2", feature = "bluetooth-websocket"))]
+#[cfg(all(
+    feature = "api-docs",
+    feature = "api-v2",
+    feature = "bluetooth-websocket"
+))]
 pub(crate) mod v2_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(
+    #[derive(utoipa::OpenApi)]
+    #[openapi(
 		tags((name = "bluetooth", description = "Bluetooth management")),
 		paths(
 			crate::routes::v2::get_bluetooth,
@@ -62,14 +66,18 @@ pub(crate) mod v2_openapi {
 			crate::routes::v2::get_bluetooth_websocket,
 		)
 	)]
-	pub(crate) struct ApiDoc;
+    pub(crate) struct ApiDoc;
 }
 
-#[cfg(all(feature = "api-docs", feature = "api-v2", not(feature = "bluetooth-websocket")))]
+#[cfg(all(
+    feature = "api-docs",
+    feature = "api-v2",
+    not(feature = "bluetooth-websocket")
+))]
 pub(crate) mod v2_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(
+    #[derive(utoipa::OpenApi)]
+    #[openapi(
 		tags((name = "bluetooth", description = "Bluetooth management")),
 		paths(
 			crate::routes::v2::get_bluetooth,
@@ -80,37 +88,45 @@ pub(crate) mod v2_openapi {
 			crate::routes::v2::put_bluetooth_device,
 		)
 	)]
-	pub(crate) struct ApiDoc;
+    pub(crate) struct ApiDoc;
 }
 
-#[cfg(all(feature = "api-docs", feature = "api-legacy", feature = "bluetooth-websocket"))]
+#[cfg(all(
+    feature = "api-docs",
+    feature = "api-legacy",
+    feature = "bluetooth-websocket"
+))]
 pub(crate) mod legacy_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(paths(
-		crate::routes::legacy::get_bluetooth_legacy,
-		crate::routes::legacy::put_bluetooth_legacy,
-		crate::routes::legacy::get_bluetooth_controller_legacy,
-		crate::routes::legacy::put_bluetooth_controller_legacy,
-		crate::routes::legacy::get_bluetooth_device_legacy,
-		crate::routes::legacy::put_bluetooth_device_legacy,
-		crate::routes::legacy::get_bluetooth_websocket_index_legacy,
-		crate::routes::legacy::get_bluetooth_websocket_legacy,
-	))]
-	pub(crate) struct ApiDoc;
+    #[derive(utoipa::OpenApi)]
+    #[openapi(paths(
+        crate::routes::legacy::get_bluetooth_legacy,
+        crate::routes::legacy::put_bluetooth_legacy,
+        crate::routes::legacy::get_bluetooth_controller_legacy,
+        crate::routes::legacy::put_bluetooth_controller_legacy,
+        crate::routes::legacy::get_bluetooth_device_legacy,
+        crate::routes::legacy::put_bluetooth_device_legacy,
+        crate::routes::legacy::get_bluetooth_websocket_index_legacy,
+        crate::routes::legacy::get_bluetooth_websocket_legacy,
+    ))]
+    pub(crate) struct ApiDoc;
 }
 
-#[cfg(all(feature = "api-docs", feature = "api-legacy", not(feature = "bluetooth-websocket")))]
+#[cfg(all(
+    feature = "api-docs",
+    feature = "api-legacy",
+    not(feature = "bluetooth-websocket")
+))]
 pub(crate) mod legacy_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(paths(
-		crate::routes::legacy::get_bluetooth_legacy,
-		crate::routes::legacy::put_bluetooth_legacy,
-		crate::routes::legacy::get_bluetooth_controller_legacy,
-		crate::routes::legacy::put_bluetooth_controller_legacy,
-		crate::routes::legacy::get_bluetooth_device_legacy,
-		crate::routes::legacy::put_bluetooth_device_legacy,
-	))]
-	pub(crate) struct ApiDoc;
+    #[derive(utoipa::OpenApi)]
+    #[openapi(paths(
+        crate::routes::legacy::get_bluetooth_legacy,
+        crate::routes::legacy::put_bluetooth_legacy,
+        crate::routes::legacy::get_bluetooth_controller_legacy,
+        crate::routes::legacy::put_bluetooth_controller_legacy,
+        crate::routes::legacy::get_bluetooth_device_legacy,
+        crate::routes::legacy::put_bluetooth_device_legacy,
+    ))]
+    pub(crate) struct ApiDoc;
 }

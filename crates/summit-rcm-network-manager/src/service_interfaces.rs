@@ -23,22 +23,27 @@ impl NetworkService {
     }
 
     pub async fn get_all_interfaces() -> Result<Value> {
-        let manager_properties = NetworkManagerService::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
+        let manager_properties =
+            NetworkManagerService::get_properties(NM_MAIN_OBJ, NM_IFACE).await?;
         let device_paths_value = manager_properties
             .get("Devices")
             .ok_or_else(|| anyhow::anyhow!("Devices property missing"))?;
-        let device_paths: Vec<OwnedObjectPath> = dbus::clone_owned_value(device_paths_value)?.try_into()?;
+        let device_paths: Vec<OwnedObjectPath> =
+            dbus::clone_owned_value(device_paths_value)?.try_into()?;
         let unmanaged_devices: HashSet<String> = unmanaged_hardware_devices().into_iter().collect();
 
         let mut interfaces = Vec::with_capacity(device_paths.len());
         for device_path in device_paths {
-            let device_properties = NetworkManagerService::get_properties(device_path.as_str(), NM_DEVICE_IFACE).await?;
+            let device_properties =
+                NetworkManagerService::get_properties(device_path.as_str(), NM_DEVICE_IFACE)
+                    .await?;
             let state = dbus::property::<i32>(&device_properties, "State").unwrap_or_default();
             if state == 10 {
                 continue;
             }
 
-            let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface") else {
+            let Some(interface_name) = dbus::property::<String>(&device_properties, "Interface")
+            else {
                 continue;
             };
             if unmanaged_devices.contains(&interface_name) {

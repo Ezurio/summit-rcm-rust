@@ -41,9 +41,23 @@ async fn v2_interface_detail_preserves_raw_connection_setting_names() {
     .await
     .expect("formatted device");
 
-    assert_eq!(device["activeConnection"]["autoconnect-priority"], json!(10));
-    assert!(device["activeConnection"].get("autoconnectPriority").is_none());
-    assert_eq!(device["availableConnections"][0]["autoconnect-priority"], json!(10));
-    assert!(device["availableConnections"][0].get("autoconnectPriority").is_none());
+    assert_eq!(
+        device["activeConnection"]["autoconnect-priority"],
+        json!(10)
+    );
+    assert!(
+        device["activeConnection"]
+            .get("autoconnectPriority")
+            .is_none()
+    );
+    assert_eq!(
+        device["availableConnections"][0]["autoconnect-priority"],
+        json!(10)
+    );
+    assert!(
+        device["availableConnections"][0]
+            .get("autoconnectPriority")
+            .is_none()
+    );
     assert_eq!(device["status"]["deviceType"], json!(1));
 }

@@ -9,9 +9,13 @@
 use std::sync::LazyLock;
 
 use log::error;
-use utoipa::OpenApi as _;
 use utoipa::Modify as _;
-use utoipa::openapi::{OpenApi, RefOr, path::{ParameterIn, PathItem}, response::{Response, Responses}};
+use utoipa::OpenApi as _;
+use utoipa::openapi::{
+    OpenApi, RefOr,
+    path::{ParameterIn, PathItem},
+    response::{Response, Responses},
+};
 
 #[cfg(feature = "api-docs")]
 struct ImplicitResponses;
@@ -41,11 +45,31 @@ fn apply_implicit_responses(
     apply_implicit_responses_to_operation(path, "GET", path_item.get.as_mut(), protected_routes);
     apply_implicit_responses_to_operation(path, "PUT", path_item.put.as_mut(), protected_routes);
     apply_implicit_responses_to_operation(path, "POST", path_item.post.as_mut(), protected_routes);
-    apply_implicit_responses_to_operation(path, "DELETE", path_item.delete.as_mut(), protected_routes);
-    apply_implicit_responses_to_operation(path, "PATCH", path_item.patch.as_mut(), protected_routes);
-    apply_implicit_responses_to_operation(path, "OPTIONS", path_item.options.as_mut(), protected_routes);
+    apply_implicit_responses_to_operation(
+        path,
+        "DELETE",
+        path_item.delete.as_mut(),
+        protected_routes,
+    );
+    apply_implicit_responses_to_operation(
+        path,
+        "PATCH",
+        path_item.patch.as_mut(),
+        protected_routes,
+    );
+    apply_implicit_responses_to_operation(
+        path,
+        "OPTIONS",
+        path_item.options.as_mut(),
+        protected_routes,
+    );
     apply_implicit_responses_to_operation(path, "HEAD", path_item.head.as_mut(), protected_routes);
-    apply_implicit_responses_to_operation(path, "TRACE", path_item.trace.as_mut(), protected_routes);
+    apply_implicit_responses_to_operation(
+        path,
+        "TRACE",
+        path_item.trace.as_mut(),
+        protected_routes,
+    );
 }
 
 #[cfg(feature = "api-docs")]
@@ -94,7 +118,11 @@ fn operation_has_parameter_in(
     parameter_in: ParameterIn,
 ) -> bool {
     parameters
-        .map(|parameters| parameters.iter().any(|parameter| parameter.parameter_in == parameter_in))
+        .map(|parameters| {
+            parameters
+                .iter()
+                .any(|parameter| parameter.parameter_in == parameter_in)
+        })
         .unwrap_or(false)
 }
 
@@ -114,7 +142,10 @@ fn merge_plugin_openapi_json(doc: &mut OpenApi, plugin_name: &str, json: &str) {
 
     match serde_json::from_str::<OpenApi>(json) {
         Ok(plugin_doc) => doc.merge(plugin_doc),
-        Err(err) => error!("Failed to parse OpenAPI document from plugin '{}': {}", plugin_name, err),
+        Err(err) => error!(
+            "Failed to parse OpenAPI document from plugin '{}': {}",
+            plugin_name, err
+        ),
     }
 }
 
@@ -157,7 +188,9 @@ pub fn build_openapi() -> OpenApi {
     #[allow(unused_mut)]
     let mut doc = {
         #[cfg(feature = "api-v2")]
-        { ApiDocV2::openapi() }
+        {
+            ApiDocV2::openapi()
+        }
         #[cfg(not(feature = "api-v2"))]
         {
             utoipa::openapi::OpenApiBuilder::new()

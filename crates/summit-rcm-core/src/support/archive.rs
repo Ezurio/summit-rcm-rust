@@ -7,8 +7,8 @@
 //!
 //! All functions are `async` and drive the `zip`, `unzip`, and `tar` CLI tools.
 
-use anyhow::Result;
 use crate::utils::{command_output, command_output_checked_in_dir, random_token_hex};
+use anyhow::Result;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -34,7 +34,10 @@ pub async fn zip_create(
     let archive_str = archive.to_string_lossy().into_owned();
     args.push(&archive_str);
     args.extend(sources.iter().copied());
-    if command_output_checked_in_dir("zip", &args, cwd).await.is_err() {
+    if command_output_checked_in_dir("zip", &args, cwd)
+        .await
+        .is_err()
+    {
         let _ = tokio::fs::remove_file(&archive).await;
         anyhow::bail!("zip failed");
     }
@@ -44,11 +47,7 @@ pub async fn zip_create(
 }
 
 #[doc(hidden)]
-pub async fn zip_extract(
-    data: &[u8],
-    password: &str,
-    dest: impl AsRef<Path>,
-) -> Result<()> {
+pub async fn zip_extract(data: &[u8], password: &str, dest: impl AsRef<Path>) -> Result<()> {
     let archive = temp_file("zip_import", "zip")?;
     tokio::fs::write(&archive, data).await?;
 
@@ -58,14 +57,23 @@ pub async fn zip_extract(
     }
 
     let archive_str = archive.to_string_lossy().into_owned();
-    if !crate::utils::command_status_ok("unzip", &["-P", password, "-t", archive_str.as_str()]).await? {
+    if !crate::utils::command_status_ok("unzip", &["-P", password, "-t", archive_str.as_str()])
+        .await?
+    {
         let _ = tokio::fs::remove_file(&archive).await;
         anyhow::bail!("Invalid archive or wrong password");
     }
     let dest_str = dest.as_ref().to_string_lossy().into_owned();
     let status = crate::utils::command_status_ok(
         "unzip",
-        &["-P", password, "-o", archive_str.as_str(), "-d", dest_str.as_str()],
+        &[
+            "-P",
+            password,
+            "-o",
+            archive_str.as_str(),
+            "-d",
+            dest_str.as_str(),
+        ],
     )
     .await?;
     let _ = tokio::fs::remove_file(&archive).await;

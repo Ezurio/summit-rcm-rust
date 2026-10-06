@@ -6,10 +6,10 @@
 //! AT interface finite state machine
 
 use crate::commands;
+use log::error;
+use serial2_tokio::SerialPort;
 use std::sync::Mutex;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use serial2_tokio::SerialPort;
-use log::error;
 
 #[derive(Clone, PartialEq)]
 enum FsmState {
@@ -203,9 +203,10 @@ async fn process_input_with_queue(
             }
 
             if inner.echo_enabled
-                && let Some(tx) = &inner.write_tx {
-                    let _ = tx.send(s.as_bytes().to_vec());
-                }
+                && let Some(tx) = &inner.write_tx
+            {
+                let _ = tx.send(s.as_bytes().to_vec());
+            }
 
             while let Some(pos) = inner.command_buffer.find(['\r', '\n']) {
                 let command = inner.command_buffer[..pos].trim().to_string();
@@ -264,7 +265,7 @@ async fn execute_command(cmd_str: &str) {
                 commands::CommandOutcome::WithDataError(data) => {
                     FsmHandle::at_output(with_default_error(&data).as_bytes(), true, true)
                 }
-                commands::CommandOutcome::PendingInput => {},
+                commands::CommandOutcome::PendingInput => {}
             }
         }
         None => {

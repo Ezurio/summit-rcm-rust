@@ -3,8 +3,8 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use anyhow::Result;
 use crate::FILEDIR_CERT;
+use anyhow::Result;
 use serde_json::Value;
 use zbus::zvariant::OwnedValue;
 
@@ -39,7 +39,9 @@ impl NetworkManagerService {
                     anyhow::bail!("unsupported JSON array for generic D-Bus conversion")
                 }
             }
-            Value::Object(_) => anyhow::bail!("JSON object cannot be converted to scalar D-Bus value"),
+            Value::Object(_) => {
+                anyhow::bail!("JSON object cannot be converted to scalar D-Bus value")
+            }
         }
     }
 
@@ -48,16 +50,16 @@ impl NetworkManagerService {
         connection: &serde_json::Map<String, Value>,
         new_connection: &mut NmConnectionSettings,
     ) -> Result<()> {
-        if let Some(setting) = connection.get(setting_name).and_then(|value| value.as_object()) {
+        if let Some(setting) = connection
+            .get(setting_name)
+            .and_then(|value| value.as_object())
+        {
             let target = new_connection.entry(setting_name.to_string()).or_default();
             for (key, value) in setting {
                 if value.is_null() {
                     continue;
                 }
-                let _ = target.insert(
-                    key.clone(),
-                    Self::json_scalar_to_owned_value(value)?,
-                );
+                let _ = target.insert(key.clone(), Self::json_scalar_to_owned_value(value)?);
             }
         }
         Ok(())

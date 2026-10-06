@@ -72,8 +72,8 @@ fn parses_os_release_info() {
 
 #[test]
 fn rejects_os_release_without_version() {
-    let error = super::parse_os_release_info("NAME=Summit\n")
-        .expect_err("missing VERSION should fail");
+    let error =
+        super::parse_os_release_info("NAME=Summit\n").expect_err("missing VERSION should fail");
 
     assert!(error.to_string().contains("missing VERSION"));
 }

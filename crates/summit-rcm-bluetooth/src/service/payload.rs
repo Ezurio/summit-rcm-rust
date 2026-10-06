@@ -9,8 +9,9 @@ use super::*;
 use summit_rcm_web::serde_json;
 
 impl BluetoothService {
-
-    pub(super) fn encode_command_request(body: &BluetoothCommandRequest) -> anyhow::Result<serde_json::Value> {
+    pub(super) fn encode_command_request(
+        body: &BluetoothCommandRequest,
+    ) -> anyhow::Result<serde_json::Value> {
         serde_json::to_value(body).map_err(Into::into)
     }
 

@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
+use summit_rcm_bluetooth::service::BluetoothService;
 use summit_rcm_bluetooth::service::{
     BleNotification, CharValueNotification, CharacteristicFlags, ConnectNotification,
     DiscoveryNotification, ServicesEntry,
 };
-use summit_rcm_bluetooth::service::BluetoothService;
+use summit_rcm_web::axum::Router;
 use summit_rcm_web::axum::http::StatusCode;
 use summit_rcm_web::axum::routing::get;
-use summit_rcm_web::axum::Router;
 use summit_rcm_web::serde_json::json;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
@@ -141,11 +141,10 @@ fn connect_notification_sorts_nested_service_keys() {
 }
 
 fn websocket_test_router() -> Router {
-    Router::new()
-        .route(
-            "/api/v2/bluetooth/ws",
-            get(summit_rcm_bluetooth::routes::v2::get_bluetooth_websocket),
-        )
+    Router::new().route(
+        "/api/v2/bluetooth/ws",
+        get(summit_rcm_bluetooth::routes::v2::get_bluetooth_websocket),
+    )
 }
 
 async fn websocket_test_app() -> (tokio::task::JoinHandle<()>, std::net::SocketAddr) {

@@ -1,4 +1,4 @@
-use super::{test_support, LoginService};
+use super::{LoginService, test_support};
 use summit_rcm_core::config::test_support as tests;
 
 const LOGIN_TEST_KEYS: &[&str] = &[

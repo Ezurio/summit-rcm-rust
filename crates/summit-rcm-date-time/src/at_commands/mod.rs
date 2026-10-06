@@ -4,11 +4,11 @@
 //
 //! Date/time AT commands owned by the date-time plugin.
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::service::DateTimeService;
 use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_datetime(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     match params.parameter_count() {
@@ -49,7 +49,9 @@ async fn execute_timezone_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
     match params.parameter_count() {
         0 => CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await)),
         1 => match params.trimmed(0) {
-            "" | "0" => CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await)),
+            "" | "0" => {
+                CommandOutcome::WithData(format!("+TZGET: {}", DateTimeService::local_zone().await))
+            }
             "1" => match DateTimeService::list_timezones().await {
                 Ok(zones) => {
                     let body = zones
@@ -71,8 +73,25 @@ async fn execute_timezone_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Comma
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+datetime", "AT+DATETIME[=<ISO8601>]", 0, &[], execute_datetime),
-    summit_rcm_at::commands::command_spec!("at+tzset", "AT+TZSET=<timezone>", 1, &[0], execute_timezone_set),
-    summit_rcm_at::commands::command_spec!("at+tzget", "AT+TZGET[=<scope>]", 0, &[], execute_timezone_get),
+    summit_rcm_at::commands::command_spec!(
+        "at+datetime",
+        "AT+DATETIME[=<ISO8601>]",
+        0,
+        &[],
+        execute_datetime
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+tzset",
+        "AT+TZSET=<timezone>",
+        1,
+        &[0],
+        execute_timezone_set
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+tzget",
+        "AT+TZGET[=<scope>]",
+        0,
+        &[],
+        execute_timezone_get
+    ),
 ];
-

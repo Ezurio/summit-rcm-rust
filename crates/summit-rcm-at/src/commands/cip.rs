@@ -5,10 +5,10 @@
 
 //! CIP (TCP/UDP/SSL connection) AT commands
 
-use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::commands::params::CsvParams;
-use crate::fsm::FsmHandle;
+use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::connection_service::ConnectionService;
+use crate::fsm::FsmHandle;
 use crate::ssl::AtSslConfig;
 use log::error;
 
@@ -106,9 +106,21 @@ pub async fn execute_cip_configure_ssl(_fsm: &FsmHandle, params: &CsvParams<'_>)
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    crate::commands::command_spec!("at+cipstart", "AT+CIPSTART=<id>,<type>,<addr>,<port>,<keepalive>", 5, &[2, 3], execute_cip_start),
+    crate::commands::command_spec!(
+        "at+cipstart",
+        "AT+CIPSTART=<id>,<type>,<addr>,<port>,<keepalive>",
+        5,
+        &[2, 3],
+        execute_cip_start
+    ),
     crate::commands::command_spec!("at+cipclose", "AT+CIPCLOSE=<id>", 1, &[], execute_cip_close),
-    crate::commands::command_spec!("at+cipsend", "AT+CIPSEND=<id>,<length>", 2, &[], execute_cip_send),
+    crate::commands::command_spec!(
+        "at+cipsend",
+        "AT+CIPSEND=<id>,<length>",
+        2,
+        &[],
+        execute_cip_send
+    ),
     crate::commands::command_spec!(
         "at+cipssl",
         "AT+CIPSSL=<connection_id>,<auth_mode>[,<check_hostname>][,<key>,<cert>][,<ca>]",
@@ -117,4 +129,3 @@ pub(crate) const COMMANDS: &[PublishedCommand] = &[
         execute_cip_configure_ssl
     ),
 ];
-

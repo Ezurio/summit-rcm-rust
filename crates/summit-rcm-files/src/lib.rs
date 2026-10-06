@@ -17,29 +17,29 @@ mod routes;
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 summit_rcm_web::declare_web_api! {
-	name: "files",
-	routes {
-		v2 => [
-			protected SomeProvisioning "/api/v2/system/config/export" => {
-				GET => routes::v2::export_config
-			},
-			protected SomeProvisioning "/api/v2/system/config/import" => {
-				PUT => routes::v2::import_config_zip_put
-			},
-		],
-		legacy => [
-			protected SomeProvisioning "/files" => {
-				GET => routes::legacy::get_files_legacy,
-				DELETE => routes::legacy::delete_file_legacy,
-				PUT => routes::legacy::put_files_legacy
-			},
-			protected SomeProvisioning "/file" => {
-				GET => routes::legacy::get_file_legacy,
-				POST => routes::legacy::upload_file_legacy,
-				DELETE => routes::legacy::delete_single_file_legacy
-			},
-		],
-	},
+    name: "files",
+    routes {
+        v2 => [
+            protected SomeProvisioning "/api/v2/system/config/export" => {
+                GET => routes::v2::export_config
+            },
+            protected SomeProvisioning "/api/v2/system/config/import" => {
+                PUT => routes::v2::import_config_zip_put
+            },
+        ],
+        legacy => [
+            protected SomeProvisioning "/files" => {
+                GET => routes::legacy::get_files_legacy,
+                DELETE => routes::legacy::delete_file_legacy,
+                PUT => routes::legacy::put_files_legacy
+            },
+            protected SomeProvisioning "/file" => {
+                GET => routes::legacy::get_file_legacy,
+                POST => routes::legacy::upload_file_legacy,
+                DELETE => routes::legacy::delete_single_file_legacy
+            },
+        ],
+    },
 }
 
 #[cfg(feature = "at-interface")]

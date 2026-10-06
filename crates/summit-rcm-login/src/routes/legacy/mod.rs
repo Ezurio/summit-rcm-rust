@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse, SdcerrCode};
 use crate::{LoginService, UserService};
-use summit_rcm_web::axum::{
-    extract::Path,
-    http::StatusCode,
-    Json,
-};
 use serde::{Deserialize, Serialize};
-use summit_rcm_web::serde_json::Value;
 use std::collections::HashMap;
+use summit_rcm_web::axum::{Json, extract::Path, http::StatusCode};
+use summit_rcm_web::legacy_response::{
+    LegacyOperationResponse, SdcerrCode, fail_response, ok_response,
+};
+use summit_rcm_web::serde_json::Value;
 use tower_sessions::Session;
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
@@ -74,8 +72,10 @@ summit_rcm_web::define_ok_json_response_family! {
     pub enum GetUsersLegacyResponses(LegacyUserListResponse);
 }
 
-pub(crate) type PostUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub(crate) type DeleteUserLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PostUserLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteUserLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub enum PutUserLegacyResponses(LegacyRedirectResponse);
@@ -120,7 +120,12 @@ fn empty_permission_value() -> Value {
 }
 
 fn permission_list_value(permission: &str) -> Value {
-    Value::Array(permission_list(permission).into_iter().map(Value::String).collect())
+    Value::Array(
+        permission_list(permission)
+            .into_iter()
+            .map(Value::String)
+            .collect(),
+    )
 }
 
 fn permission_string_value(permission: impl Into<String>) -> Value {
@@ -128,11 +133,17 @@ fn permission_string_value(permission: impl Into<String>) -> Value {
 }
 
 fn sessions_enabled() -> bool {
-    summit_rcm_core::cached_config!(bool, summit_rcm_core::config::ServerConfig::get_bool("/", "tools.sessions.on", true))
+    summit_rcm_core::cached_config!(
+        bool,
+        summit_rcm_core::config::ServerConfig::get_bool("/", "tools.sessions.on", true)
+    )
 }
 
 fn default_username() -> String {
-    summit_rcm_core::cached_config!(String, summit_rcm_core::config::ServerConfig::get_string("summit-rcm", "default_username", "root"))
+    summit_rcm_core::cached_config!(
+        String,
+        summit_rcm_core::config::ServerConfig::get_string("summit-rcm", "default_username", "root")
+    )
 }
 
 fn max_web_clients() -> usize {
@@ -154,12 +165,15 @@ fn effective_permission_string(username: &str) -> String {
     permission
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/users",
-    tag = "legacy",
-    responses(GetUsersLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/users",
+        tag = "legacy",
+        responses(GetUsersLegacyResponses)
+    )
+)]
 pub(crate) async fn get_users_legacy() -> GetUsersLegacyResponses {
     let users = UserService::get_users_dict();
     let (_, body) = legacy_users_response(users, default_username());
@@ -203,11 +217,16 @@ pub(crate) async fn post_user_legacy(Json(body): Json<UserBody>) -> PostUserLega
     let permission = body.permission.as_deref().unwrap_or("");
 
     if UserService::user_exists(username) {
-        return PostUserLegacyResponses::Ok(fail_response(format!("user {} already exists", username)));
+        return PostUserLegacyResponses::Ok(fail_response(format!(
+            "user {} already exists",
+            username
+        )));
     }
 
     if username.is_empty() || password.is_empty() || permission.is_empty() {
-        return PostUserLegacyResponses::Ok(fail_response("Missing user name, password, or permission"));
+        return PostUserLegacyResponses::Ok(fail_response(
+            "Missing user name, password, or permission",
+        ));
     }
 
     if UserService::get_number_of_users() >= max_web_clients() {
@@ -233,7 +252,10 @@ pub(crate) async fn delete_user_legacy(Path(username): Path<String>) -> DeleteUs
     let default_username = default_username();
 
     if username == default_username {
-        DeleteUserLegacyResponses::Ok(fail_response(format!("unable to remove {} user", default_username)))
+        DeleteUserLegacyResponses::Ok(fail_response(format!(
+            "unable to remove {} user",
+            default_username
+        )))
     } else if !UserService::user_exists(username) {
         DeleteUserLegacyResponses::Ok(fail_response(format!("user {} not found", username)))
     } else if UserService::delete_user(username) {
@@ -255,12 +277,23 @@ pub(crate) async fn put_user_legacy(Json(body): Json<UserBody>) -> PutUserLegacy
     let username_display = username.unwrap_or("None");
 
     if !UserService::user_exists(username.unwrap_or_default()) {
-        return redirect_response(fail_response(format!("user {} not found", username_display)), 0).into();
+        return redirect_response(
+            fail_response(format!("user {} not found", username_display)),
+            0,
+        )
+        .into();
     }
 
-    if let Some(new_password) = body.new_password.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(new_password) = body
+        .new_password
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
         let current_password = body.current_password.as_deref();
-        if UserService::verify(username.unwrap_or_default(), current_password.unwrap_or_default()) {
+        if UserService::verify(
+            username.unwrap_or_default(),
+            current_password.unwrap_or_default(),
+        ) {
             if UserService::update_password(username.unwrap_or_default(), new_password) {
                 return redirect_response(ok_response("password changed"), 0).into();
             } else {
@@ -307,14 +340,26 @@ pub(crate) async fn post_login_legacy(
 
     let username = match body.username.as_deref() {
         Some(u) if !u.is_empty() => u.to_string(),
-        _ => return login_response(fail_response("username required"), 0, empty_permission_value()).into(),
+        _ => {
+            return login_response(
+                fail_response("username required"),
+                0,
+                empty_permission_value(),
+            )
+            .into();
+        }
     };
     let password = body.password.as_deref().unwrap_or("");
 
     match session.get::<String>("username").await {
         Ok(Some(_)) => {
             let Some(session_id) = session.id().map(|id| id.0) else {
-                return login_response(fail_response("malformed cookie"), 0, empty_permission_value()).into();
+                return login_response(
+                    fail_response("malformed cookie"),
+                    0,
+                    empty_permission_value(),
+                )
+                .into();
             };
 
             if LoginService::is_session_active(session_id) {
@@ -322,14 +367,16 @@ pub(crate) async fn post_login_legacy(
                     LoginService::login_failed(&username);
                     LoginService::remove_session(session_id);
                     let _ = session.flush().await;
-                    return login_response(fail_response("unable to verify user/password"), 0, empty_permission_value()).into();
+                    return login_response(
+                        fail_response("unable to verify user/password"),
+                        0,
+                        empty_permission_value(),
+                    )
+                    .into();
                 }
 
                 LoginService::login_reset(&username);
-                LoginService::track_session(
-                    session_id,
-                    &username,
-                );
+                LoginService::track_session(session_id, &username);
 
                 if username == LoginService::default_username()
                     && password == LoginService::default_password()
@@ -338,7 +385,12 @@ pub(crate) async fn post_login_legacy(
                         &LoginService::default_password(),
                     )
                 {
-                    return login_response(ok_response("Password change required"), 1, empty_permission_value()).into();
+                    return login_response(
+                        ok_response("Password change required"),
+                        1,
+                        empty_permission_value(),
+                    )
+                    .into();
                 } else {
                     return login_response(
                         ok_response("User logged in"),
@@ -380,8 +432,7 @@ pub(crate) async fn post_login_legacy(
         );
     }
 
-    if !LoginService::allow_multiple_user_sessions() && LoginService::is_user_logged_in(&username)
-    {
+    if !LoginService::allow_multiple_user_sessions() && LoginService::is_user_logged_in(&username) {
         return login_response(
             operation_response(SdcerrCode::UserLogged.as_i32(), "User already logged in"),
             0,
@@ -430,7 +481,12 @@ pub(crate) async fn post_login_legacy(
     }
 
     let Some(session_id) = session.id().map(|id| id.0) else {
-        return login_response(fail_response("session id missing after save"), 0, empty_permission_value()).into();
+        return login_response(
+            fail_response("session id missing after save"),
+            0,
+            empty_permission_value(),
+        )
+        .into();
     };
 
     LoginService::track_session(session_id, &username);
@@ -444,18 +500,31 @@ pub(crate) async fn post_login_legacy(
             &LoginService::default_password(),
         )
     {
-        login_response(ok_response("Password change required"), 1, empty_permission_value()).into()
+        login_response(
+            ok_response("Password change required"),
+            1,
+            empty_permission_value(),
+        )
+        .into()
     } else {
-        login_response(ok_response("User logged in"), 0, permission_string_value(perm)).into()
+        login_response(
+            ok_response("User logged in"),
+            0,
+            permission_string_value(perm),
+        )
+        .into()
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/login",
-    tag = "legacy",
-    responses(DeleteLoginLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/login",
+        tag = "legacy",
+        responses(DeleteLoginLegacyResponses)
+    )
+)]
 pub(crate) async fn delete_login_legacy(session: Session) -> DeleteLoginLegacyResponses {
     let username = match session.get::<String>("username").await {
         Ok(value) => value,

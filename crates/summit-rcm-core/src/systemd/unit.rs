@@ -6,7 +6,7 @@
 
 use crate::dbus;
 use crate::dbus::DBUS_PROP_IFACE;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use log::error;
 use std::collections::HashMap;
 use zbus::zvariant::OwnedObjectPath;
@@ -26,7 +26,9 @@ pub struct SystemdUnit {
 
 impl SystemdUnit {
     pub fn new(unit_file: impl Into<String>) -> Self {
-        Self { unit_file: unit_file.into() }
+        Self {
+            unit_file: unit_file.into(),
+        }
     }
 
     pub async fn unit_path(&self) -> Result<OwnedObjectPath> {
@@ -76,7 +78,9 @@ impl SystemdUnit {
         dbus::property::<String>(unit_properties, "ActiveState").unwrap_or_default()
     }
 
-    fn active_state_from_properties_legacy(unit_properties: &HashMap<String, OwnedValue>) -> String {
+    fn active_state_from_properties_legacy(
+        unit_properties: &HashMap<String, OwnedValue>,
+    ) -> String {
         if dbus::property::<String>(unit_properties, "LoadState").as_deref() == Some("not-found") {
             return "unknown".to_string();
         }
@@ -145,11 +149,15 @@ impl SystemdUnit {
         let current = self.get_active_state().await;
         match requested {
             "active" => {
-                if current == "active" { bail!("already active"); }
+                if current == "active" {
+                    bail!("already active");
+                }
                 self.start().await.context("Activation failed")?;
             }
             "inactive" => {
-                if current == "inactive" { bail!("already inactive"); }
+                if current == "inactive" {
+                    bail!("already inactive");
+                }
                 self.stop().await.context("Deactivation failed")?;
             }
             _ => {}

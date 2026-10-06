@@ -23,13 +23,22 @@ macro_rules! route_doc_policy {
 #[macro_export]
 macro_rules! __route_policy_expr {
     (protected, $mode:ident) => {
-        $crate::RoutePolicy::new($crate::RouteAuthPolicy::SessionRequired, $crate::RouteMode::$mode)
+        $crate::RoutePolicy::new(
+            $crate::RouteAuthPolicy::SessionRequired,
+            $crate::RouteMode::$mode,
+        )
     };
     (public, $mode:ident) => {
-        $crate::RoutePolicy::new($crate::RouteAuthPolicy::UnauthenticatedAllowed, $crate::RouteMode::$mode)
+        $crate::RoutePolicy::new(
+            $crate::RouteAuthPolicy::UnauthenticatedAllowed,
+            $crate::RouteMode::$mode,
+        )
     };
     (unauthenticated, $mode:ident) => {
-        $crate::RoutePolicy::new($crate::RouteAuthPolicy::UnauthenticatedAllowed, $crate::RouteMode::$mode)
+        $crate::RoutePolicy::new(
+            $crate::RouteAuthPolicy::UnauthenticatedAllowed,
+            $crate::RouteMode::$mode,
+        )
     };
 }
 

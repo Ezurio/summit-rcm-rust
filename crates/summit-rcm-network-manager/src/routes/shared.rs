@@ -3,7 +3,7 @@
 //
 //! Shared API schemas for NetworkManager-backed routes.
 
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
 use summit_rcm_web::serde_json;
 
@@ -71,7 +71,11 @@ pub struct NetworkConnectionReference {
     pub autoconnect_ports: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_optional_string", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub zone: Option<String>,
 }
 
@@ -289,5 +293,9 @@ pub struct WifiStatus {
 }
 
 pub(crate) fn network_status_restricted() -> bool {
-    summit_rcm_core::config::ServerConfig::get_bool("summit-rcm", "network_status_restricted", false)
+    summit_rcm_core::config::ServerConfig::get_bool(
+        "summit-rcm",
+        "network_status_restricted",
+        false,
+    )
 }

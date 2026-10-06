@@ -16,9 +16,7 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 // Files that wrap bindgen-generated code and legitimately suppress dead_code
 // for constants that are only partially used at any given time.
-const DEAD_CODE_EXCEPTIONS: &[&str] = &[
-    "plugins/network/nl80211/protocol.rs",
-];
+const DEAD_CODE_EXCEPTIONS: &[&str] = &["plugins/network/nl80211/protocol.rs"];
 
 fn is_exception(path: &Path) -> bool {
     let path_str = path.to_string_lossy();

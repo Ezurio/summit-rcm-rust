@@ -7,9 +7,9 @@
 //! are reproduced verbatim for backward compatibility.
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::manager::{NetworkManagerService, NETWORK_STATUS_CACHE};
+use crate::manager::{NETWORK_STATUS_CACHE, NetworkManagerService};
 
 const LEGACY_DEVICE_KEY_TABLE: [(&str, &str); 5] = [
     ("Ip4Config", "ip4config"),
@@ -39,9 +39,11 @@ impl NetworkManagerService {
             return Ok(json!({}));
         };
 
-        Ok(Self::format_device_status_legacy(target_interface_name, raw_device, true)
-            .await
-            .unwrap_or_else(|| json!({})))
+        Ok(
+            Self::format_device_status_legacy(target_interface_name, raw_device, true)
+                .await
+                .unwrap_or_else(|| json!({})),
+        )
     }
 
     fn legacy_device_key(key: &str) -> &str {
@@ -88,21 +90,25 @@ impl NetworkManagerService {
         let nameserver_data = Self::map_array(props, "NameserverData");
         let _ = ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(nameserver_data
-                .iter()
-                .filter_map(Value::as_object)
-                .filter_map(|value| value.get("address"))
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()),
+            json!(
+                nameserver_data
+                    .iter()
+                    .filter_map(Value::as_object)
+                    .filter_map(|value| value.get("address"))
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         let wins_server_data = Self::map_array(props, "WinsServerData");
         let _ = ipconfig_properties.insert(
             "WinsServerData".to_string(),
-            json!(wins_server_data
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()),
+            json!(
+                wins_server_data
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         let is_empty = ipconfig_properties
@@ -158,10 +164,12 @@ impl NetworkManagerService {
         let nameservers = Self::map_array(props, "Nameservers");
         let _ = ipconfig_properties.insert(
             "NameserverData".to_string(),
-            json!(nameservers
-                .iter()
-                .filter_map(Self::ipv6_string_from_json)
-                .collect::<Vec<_>>()),
+            json!(
+                nameservers
+                    .iter()
+                    .filter_map(Self::ipv6_string_from_json)
+                    .collect::<Vec<_>>()
+            ),
         );
 
         let _ = ipconfig_properties.insert("WinsServerData".to_string(), json!([]));
@@ -232,27 +240,29 @@ impl NetworkManagerService {
         }
 
         let ip4_raw = Self::value_as_object(raw_device.get("Ip4Config"));
-        let ip4 = if !include_details && state != 100 && ip4_raw.is_none_or(serde_json::Map::is_empty)
-        {
-            serde_json::Map::new()
-        } else {
-            Self::get_ip4config_properties_legacy(ip4_raw.unwrap_or(&serde_json::Map::new()))
-        };
+        let ip4 =
+            if !include_details && state != 100 && ip4_raw.is_none_or(serde_json::Map::is_empty) {
+                serde_json::Map::new()
+            } else {
+                Self::get_ip4config_properties_legacy(ip4_raw.unwrap_or(&serde_json::Map::new()))
+            };
         if include_details || !ip4.is_empty() || state == 100 {
             let _ = device.insert("Ip4Config".to_string(), Value::Object(ip4));
         }
         let ip6_raw = Self::value_as_object(raw_device.get("Ip6Config"));
-        let ip6 = if !include_details && state != 100 && ip6_raw.is_none_or(serde_json::Map::is_empty)
-        {
-            serde_json::Map::new()
-        } else {
-            Self::get_ip6config_properties_legacy(ip6_raw.unwrap_or(&serde_json::Map::new()))
-        };
+        let ip6 =
+            if !include_details && state != 100 && ip6_raw.is_none_or(serde_json::Map::is_empty) {
+                serde_json::Map::new()
+            } else {
+                Self::get_ip6config_properties_legacy(ip6_raw.unwrap_or(&serde_json::Map::new()))
+            };
         if include_details || !ip6.is_empty() || state == 100 {
             let _ = device.insert("Ip6Config".to_string(), Value::Object(ip6));
         }
         let dhcp4_raw = Self::value_as_object(raw_device.get("Dhcp4Config"));
-        let dhcp4 = if !include_details && state != 100 && dhcp4_raw.is_none_or(serde_json::Map::is_empty)
+        let dhcp4 = if !include_details
+            && state != 100
+            && dhcp4_raw.is_none_or(serde_json::Map::is_empty)
         {
             serde_json::Map::new()
         } else {
@@ -262,7 +272,9 @@ impl NetworkManagerService {
             let _ = device.insert("Dhcp4Config".to_string(), Value::Object(dhcp4));
         }
         let dhcp6_raw = Self::value_as_object(raw_device.get("Dhcp6Config"));
-        let dhcp6 = if !include_details && state != 100 && dhcp6_raw.is_none_or(serde_json::Map::is_empty)
+        let dhcp6 = if !include_details
+            && state != 100
+            && dhcp6_raw.is_none_or(serde_json::Map::is_empty)
         {
             serde_json::Map::new()
         } else {
@@ -289,11 +301,11 @@ impl NetworkManagerService {
                 Value::Object(Self::get_wifi_properties(wireless).await),
             );
             if state == 100
-                && let Some(access_point) = Self::value_as_object(raw_device.get("ActiveAccessPoint"))
+                && let Some(access_point) =
+                    Self::value_as_object(raw_device.get("ActiveAccessPoint"))
             {
                 let mode = Self::map_i32(wireless, "Mode", 0);
-                let mut access_point =
-                    Self::get_ap_properties(mode, access_point);
+                let mut access_point = Self::get_ap_properties(mode, access_point);
                 let _ = access_point.remove("Bandwidth");
                 let _ = access_point.remove("Channel");
                 let _ = device.insert("ActiveAccessPoint".to_string(), Value::Object(access_point));

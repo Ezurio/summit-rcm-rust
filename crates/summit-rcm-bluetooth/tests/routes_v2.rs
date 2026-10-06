@@ -1,14 +1,14 @@
 #![cfg(feature = "api-v2")]
 
-use summit_rcm_bluetooth::routes::shared::BluetoothCommandRequest;
-use summit_rcm_bluetooth::routes::v2::put_bluetooth;
-use summit_rcm_web::axum::{Json, http::StatusCode, response::IntoResponse};
 use std::{
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Child, Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
+use summit_rcm_bluetooth::routes::shared::BluetoothCommandRequest;
+use summit_rcm_bluetooth::routes::v2::put_bluetooth;
+use summit_rcm_web::axum::{Json, http::StatusCode, response::IntoResponse};
 use zbus::{Connection, connection::Builder, fdo::ObjectManager};
 
 const BLUEZ_SERVICE: &str = "org.bluez";
@@ -43,7 +43,10 @@ impl TestBus {
             .stderr(Stdio::null())
             .spawn()?;
 
-        let stdout = daemon.stdout.take().expect("dbus-daemon stdout unavailable");
+        let stdout = daemon
+            .stdout
+            .take()
+            .expect("dbus-daemon stdout unavailable");
         let mut reader = BufReader::new(stdout);
         let mut printed_address = String::new();
         let _ = reader.read_line(&mut printed_address)?;
@@ -117,7 +120,9 @@ impl MockBluezHarness {
     }
 
     fn install_system_bus_address_override(&self) -> SystemBusAddressOverrideGuard {
-        summit_rcm_core::dbus::test_support::set_system_bus_address_override(self._bus.address.as_str());
+        summit_rcm_core::dbus::test_support::set_system_bus_address_override(
+            self._bus.address.as_str(),
+        );
         SystemBusAddressOverrideGuard
     }
 }

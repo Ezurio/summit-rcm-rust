@@ -21,9 +21,10 @@ impl CertificatesService {
         }
 
         if let Ok(certs) = X509::stack_from_pem(data)
-            && let Some(cert) = certs.into_iter().next() {
-                return Ok(cert);
-            }
+            && let Some(cert) = certs.into_iter().next()
+        {
+            return Ok(cert);
+        }
 
         let pkcs12 = Pkcs12::from_der(data)?;
         let parsed = pkcs12.parse2(password.unwrap_or(""))?;

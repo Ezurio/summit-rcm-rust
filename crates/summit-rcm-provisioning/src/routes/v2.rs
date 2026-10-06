@@ -4,22 +4,19 @@
 //
 
 use crate::routes::shared::{
-    create_csr_from_upload, save_uploaded_certificate, ProvisioningRouteError,
+    ProvisioningRouteError, create_csr_from_upload, save_uploaded_certificate,
 };
 use crate::service::{
     CertificateProvisioningService, ClientTlsInfo, ProvisioningSaveError, ProvisioningState,
 };
 use crate::state_machine::{Event, ProvisioningStateMachine};
-use summit_rcm_web::axum::{
-    extract::multipart::MultipartRejection,
-    extract::Multipart,
-    extract::Extension,
-    Json,
-};
 use log::error;
 use summit_rcm_core::dbus;
 use summit_rcm_date_time::routes::v2::DateTimeRequest;
 use summit_rcm_date_time::service::{DateTimeService, DateTimeSnapshot};
+use summit_rcm_web::axum::{
+    Json, extract::Extension, extract::Multipart, extract::multipart::MultipartRejection,
+};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::openapi_doc;
@@ -98,15 +95,21 @@ async fn invalid_timestamp_info(tls_info: &ClientTlsInfo) -> ProvisioningDateTim
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/certificateProvisioning",
-    tag = "provisioning",
-    responses(GetProvisioningResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/certificateProvisioning",
+        tag = "provisioning",
+        responses(GetProvisioningResponses)
+    )
+)]
 pub(crate) async fn get_provisioning() -> GetProvisioningResponses {
     let state = CertificateProvisioningService::get_provisioning_state_async().await;
-    ProvisioningStateResponse { state: state as i32 }.into()
+    ProvisioningStateResponse {
+        state: state as i32,
+    }
+    .into()
 }
 
 #[cfg_attr(feature = "api-docs", utoipa::path(
@@ -168,14 +171,15 @@ pub(crate) async fn put_datetime(
 ) -> ProvisioningSetDateTimeResponses {
     let zone = body.zone.or(body.timezone);
     if let Some(tz) = zone.clone()
-        && let Err(e) = DateTimeService::set_timezone(&tz).await {
-            error!("set_datetime timezone: {}", e);
-            return if dbus::is_timeout_error(&e) {
-                ProvisioningSetDateTimeResponses::Timeout
-            } else {
-                ProvisioningSetDateTimeResponses::InternalError
-            };
-        }
+        && let Err(e) = DateTimeService::set_timezone(&tz).await
+    {
+        error!("set_datetime timezone: {}", e);
+        return if dbus::is_timeout_error(&e) {
+            ProvisioningSetDateTimeResponses::Timeout
+        } else {
+            ProvisioningSetDateTimeResponses::InternalError
+        };
+    }
 
     let mut manual_time_set_request = false;
     if let Some(datetime) = body.datetime {
@@ -184,7 +188,9 @@ pub(crate) async fn put_datetime(
             if let Ok(parsed) = datetime.parse::<i64>()
                 && !CertificateProvisioningService::validate_new_timestamp(parsed, &tls_info).await
             {
-                return ProvisioningSetDateTimeResponses::BadRequest(invalid_timestamp_info(&tls_info).await);
+                return ProvisioningSetDateTimeResponses::BadRequest(
+                    invalid_timestamp_info(&tls_info).await,
+                );
             }
         }
 

@@ -3,12 +3,12 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::axum;
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::routes::shared::current_mode_value;
 use crate::service::{RadioSISOMode, RadioSISOModeService};
 use serde::{Deserialize, Serialize};
 use std::io::ErrorKind;
+use summit_rcm_web::axum;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -56,12 +56,15 @@ fn has_not_found_io_error(error: &anyhow::Error) -> bool {
         .any(|io_error| io_error.kind() == ErrorKind::NotFound)
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/radioSISOMode",
-    tag = "radio-siso-mode",
-    responses(GetRadioSisoLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/radioSISOMode",
+        tag = "radio-siso-mode",
+        responses(GetRadioSisoLegacyResponses)
+    )
+)]
 pub(crate) async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses {
     let (siso_mode, operation) = match RadioSISOModeService::get_current_siso_mode().await {
         Ok(m) => (m as i32, ok_response("")),
@@ -69,7 +72,9 @@ pub(crate) async fn get_radio_siso_mode_legacy() -> GetRadioSisoLegacyResponses 
             if has_not_found_io_error(&e) {
                 (
                     -1,
-                    fail_response("Unable to read SISO_mode parameter - [Errno 2] No such file or directory: '/sys/module/lrdmwl/parameters/SISO_mode'"),
+                    fail_response(
+                        "Unable to read SISO_mode parameter - [Errno 2] No such file or directory: '/sys/module/lrdmwl/parameters/SISO_mode'",
+                    ),
                 )
             } else {
                 (
@@ -106,9 +111,10 @@ pub(crate) async fn put_radio_siso_mode_legacy(
 
     let known_current = RadioSISOModeService::get_current_siso_mode().await.ok();
     if let Some(current) = known_current
-        && current == mode {
-            return legacy_siso_mode_response(ok_response(""), current as i32).into();
-        }
+        && current == mode
+    {
+        return legacy_siso_mode_response(ok_response(""), current as i32).into();
+    }
 
     let set_result = match known_current {
         Some(current) => RadioSISOModeService::set_siso_mode_with_current(mode, current).await,

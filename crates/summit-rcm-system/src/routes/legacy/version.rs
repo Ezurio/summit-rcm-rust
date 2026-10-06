@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
-use crate::{version_service::VersionInfo, VersionService};
+use crate::{VersionService, version_service::VersionInfo};
 use log::error;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,12 +40,15 @@ summit_rcm_web::define_ok_json_response_family! {
     pub enum GetVersionLegacyResponses(LegacyVersionResponse);
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/version",
-    tag = "legacy",
-    responses(GetVersionLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/version",
+        tag = "legacy",
+        responses(GetVersionLegacyResponses)
+    )
+)]
 pub(crate) async fn get_version_legacy() -> GetVersionLegacyResponses {
     match VersionService::get_version_info().await {
         Ok(VersionInfo {
@@ -79,7 +82,10 @@ pub(crate) async fn get_version_legacy() -> GetVersionLegacyResponses {
         Err(error) => {
             error!("Invalid version info shape: {}", error);
             let error_text = error.to_string();
-            let info_msg = format!("An exception occurred while trying to get versioning info: {}", error_text);
+            let info_msg = format!(
+                "An exception occurred while trying to get versioning info: {}",
+                error_text
+            );
             LegacyVersionResponse {
                 operation: fail_response(info_msg),
                 nm_version: String::new(),

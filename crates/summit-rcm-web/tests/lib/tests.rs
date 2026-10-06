@@ -26,10 +26,16 @@ fn web_connection_timeout_uses_a_positive_configured_value() {
 
     assert_eq!(web_connection_timeout(), Duration::from_secs(5));
 
-    assert!(config_test_support::set_system_setting("web_connection_timeout", "12"));
+    assert!(config_test_support::set_system_setting(
+        "web_connection_timeout",
+        "12"
+    ));
     assert_eq!(web_connection_timeout(), Duration::from_secs(12));
 
-    assert!(config_test_support::set_system_setting("web_connection_timeout", "0"));
+    assert!(config_test_support::set_system_setting(
+        "web_connection_timeout",
+        "0"
+    ));
     assert_eq!(web_connection_timeout(), Duration::from_secs(1));
 
     config_test_support::delete_system_setting("web_connection_timeout");

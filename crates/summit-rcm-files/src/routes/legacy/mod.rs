@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use summit_rcm_core::files_service::{FileDeleteError, FilesService};
 #[cfg(feature = "network-manager")]
 use summit_rcm_network_manager::service::NetworkService;
+use summit_rcm_web::axum;
 use summit_rcm_web::axum::{
+    Json,
     extract::{Multipart, Query},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
-use summit_rcm_web::axum;
-use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -75,11 +75,24 @@ pub(crate) struct UploadLegacyFileRequest {
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::IntoResponses))]
 pub(crate) enum GetFilesLegacyResponses {
-    #[cfg_attr(feature = "api-docs", response(status = 200, description = "Legacy files list response"))]
+    #[cfg_attr(
+        feature = "api-docs",
+        response(status = 200, description = "Legacy files list response")
+    )]
     Json(LegacyFilesListResponse),
-    #[cfg_attr(feature = "api-docs", response(status = 200, description = "Legacy network connections archive", content_type = "application/zip"))]
+    #[cfg_attr(
+        feature = "api-docs",
+        response(
+            status = 200,
+            description = "Legacy network connections archive",
+            content_type = "application/zip"
+        )
+    )]
     Zip(Vec<u8>),
-    #[cfg_attr(feature = "api-docs", response(status = 500, description = "Internal error"))]
+    #[cfg_attr(
+        feature = "api-docs",
+        response(status = 500, description = "Internal error")
+    )]
     InternalError,
 }
 
@@ -115,10 +128,14 @@ impl IntoResponse for GetFilesLegacyResponses {
     }
 }
 
-pub(crate) type DeleteFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub(crate) type PutFilesLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub(crate) type UploadFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub(crate) type DeleteSingleFileLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteFileLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PutFilesLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type UploadFileLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteSingleFileLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_text_response_family! {
     pub(crate) enum GetSingleFileLegacyResponses {
@@ -129,7 +146,9 @@ summit_rcm_web::define_text_response_family! {
     from Vec<u8> => Ok;
 }
 
-fn legacy_operation_result<E>(result: Result<(), E>) -> summit_rcm_web::legacy_response::LegacyOperationOkResponse
+fn legacy_operation_result<E>(
+    result: Result<(), E>,
+) -> summit_rcm_web::legacy_response::LegacyOperationOkResponse
 where
     E: Display,
 {
@@ -182,7 +201,12 @@ async fn parse_import_connections_request(
     let mut archive = Vec::new();
     while let Ok(Some(field)) = multipart.next_field().await {
         if field.name() == Some("archive") {
-            archive = field.bytes().await.map_err(|_| fail_response("Failed to read upload"))?.into_iter().collect();
+            archive = field
+                .bytes()
+                .await
+                .map_err(|_| fail_response("Failed to read upload"))?
+                .into_iter()
+                .collect();
             break;
         }
     }
@@ -209,7 +233,10 @@ async fn parse_upload_legacy_file_request(
     while let Ok(Some(field)) = multipart.next_field().await {
         let field_name = field.name().map(str::to_owned).unwrap_or_default();
         let fname = field.file_name().unwrap_or("upload").to_string();
-        let data = field.bytes().await.map_err(|_| fail_response("Failed to read upload"))?;
+        let data = field
+            .bytes()
+            .await
+            .map_err(|_| fail_response("Failed to read upload"))?;
         match field_name.as_str() {
             "type" => file_type = String::from_utf8_lossy(&data).trim().to_string(),
             "password" => {
@@ -224,7 +251,9 @@ async fn parse_upload_legacy_file_request(
         }
     }
 
-    if let Some(error) = validate_legacy_upload_request(&file_type, &file_name, !file_data.is_empty()) {
+    if let Some(error) =
+        validate_legacy_upload_request(&file_type, &file_name, !file_data.is_empty())
+    {
         return Err(error);
     }
 
@@ -248,7 +277,10 @@ fn validate_legacy_upload_request(
         return Some(fail_response("file POST - no filename specified"));
     }
     if !["cert", "pac", "config", "timezone"].contains(&file_type) {
-        return Some(fail_response(format!("file POST type {} unknown", file_type)));
+        return Some(fail_response(format!(
+            "file POST type {} unknown",
+            file_type
+        )));
     }
 
     if ["config", "timezone"].contains(&file_type) && !file_name.ends_with(".zip") {
@@ -259,12 +291,15 @@ fn validate_legacy_upload_request(
 
 // ── /api/v1/files (and /files) — list / delete multiple files ────────────────
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/files",
-    tag = "legacy",
-    responses(GetFilesLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/files",
+        tag = "legacy",
+        responses(GetFilesLegacyResponses)
+    )
+)]
 pub(crate) async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLegacyResponses {
     let valid = ["cert", "pac", "network"];
     let Some(file_type) = q.file_type.as_deref() else {
@@ -314,7 +349,9 @@ pub(crate) async fn get_files_legacy(Query(q): Query<FileQuery>) -> GetFilesLega
     }
 }
 
-pub(crate) async fn delete_file_legacy(Json(body): Json<FileDeleteBody>) -> DeleteFileLegacyResponses {
+pub(crate) async fn delete_file_legacy(
+    Json(body): Json<FileDeleteBody>,
+) -> DeleteFileLegacyResponses {
     let file_type = body.file_type.as_deref().unwrap_or("cert");
     let name = match body.file.as_deref().filter(|value| !value.is_empty()) {
         Some(value) => value,
@@ -345,12 +382,15 @@ pub(crate) async fn put_files_legacy(
 // ── /file (singular) — upload / download / delete a single named file ────────
 
 /// GET /file?type=cert&file=myfile.pem — download a single file
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/file",
-    tag = "legacy",
-    responses(GetSingleFileLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/file",
+        tag = "legacy",
+        responses(GetSingleFileLegacyResponses)
+    )
+)]
 pub(crate) async fn get_file_legacy(Query(q): Query<FileQuery>) -> GetSingleFileLegacyResponses {
     let Some(file_type) = q.file_type.as_deref() else {
         return GetSingleFileLegacyResponses::BadRequest;
@@ -410,7 +450,8 @@ pub(crate) async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacy
 
     if ["config", "timezone"].contains(&request.file_type.as_str()) {
         let password = request.password.as_deref().unwrap_or("");
-        return match summit_rcm_core::archive::zip_extract(&request.file_data, password, "/").await {
+        return match summit_rcm_core::archive::zip_extract(&request.file_data, password, "/").await
+        {
             Ok(()) => UploadFileLegacyResponses::Ok(ok_response("")),
             Err(error) => UploadFileLegacyResponses::Ok(fail_response(format!(
                 "unzip command failed to unzip provided file.  Error returned: {}",
@@ -419,7 +460,9 @@ pub(crate) async fn upload_file_legacy(multipart: Multipart) -> UploadFileLegacy
         };
     }
 
-    legacy_operation_result(FilesService::upload_file(&request.file_type, &request.file_name, &request.file_data).await)
+    legacy_operation_result(
+        FilesService::upload_file(&request.file_type, &request.file_name, &request.file_data).await,
+    )
 }
 
 #[cfg(test)]
@@ -458,14 +501,19 @@ pub(crate) async fn delete_single_file_legacy(
     let file_type = file_type.unwrap_or_default();
     let file = file.unwrap_or_default();
     if !["cert", "pac"].contains(&file_type.as_str()) {
-        return DeleteSingleFileLegacyResponses::Ok(fail_response(format!("type not one of {:?}", ["cert", "pac"])));
+        return DeleteSingleFileLegacyResponses::Ok(fail_response(format!(
+            "type not one of {:?}",
+            ["cert", "pac"]
+        )));
     }
 
     match FilesService::delete_file_typed(&file_type, &file).await {
-        Ok(()) => DeleteSingleFileLegacyResponses::Ok(ok_response(format!("file {} deleted", file))),
-        Err(FileDeleteError::NotFound) => {
-            DeleteSingleFileLegacyResponses::Ok(fail_response(format!("File: {} not present", file)))
+        Ok(()) => {
+            DeleteSingleFileLegacyResponses::Ok(ok_response(format!("file {} deleted", file)))
         }
+        Err(FileDeleteError::NotFound) => DeleteSingleFileLegacyResponses::Ok(fail_response(
+            format!("File: {} not present", file),
+        )),
         Err(error) => DeleteSingleFileLegacyResponses::Ok(fail_response(format!("{:?}", error))),
     }
 }

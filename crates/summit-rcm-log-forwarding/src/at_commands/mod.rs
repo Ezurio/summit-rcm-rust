@@ -4,10 +4,10 @@
 //
 //! Log forwarding AT command: at+logfwd
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use log::error;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_log_fwd(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     let svc = crate::service::LogForwardingService::new();
@@ -35,7 +35,10 @@ async fn execute_log_fwd(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOut
     }
 }
 
-pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+logfwd", "AT+LOGFWD[=<active|inactive>]", 0, &[], execute_log_fwd),
-];
-
+pub(crate) const COMMANDS: &[PublishedCommand] = &[summit_rcm_at::commands::command_spec!(
+    "at+logfwd",
+    "AT+LOGFWD[=<active|inactive>]",
+    0,
+    &[],
+    execute_log_fwd
+)];

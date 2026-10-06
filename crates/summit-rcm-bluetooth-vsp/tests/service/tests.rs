@@ -4,15 +4,17 @@ use super::test_support::{
 };
 use super::*;
 use std::sync::atomic::Ordering;
+use summit_rcm_bluetooth::service::BluetoothCommandContext;
+use summit_rcm_web::serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::{Duration, sleep, timeout};
-use summit_rcm_web::serde_json::json;
-use summit_rcm_bluetooth::service::BluetoothCommandContext;
 
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_vsp_connect_forwards_socket_bytes_and_disconnects() {
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
     let tcp_port = reserve_tcp_port();
     let objects = BluetoothService::get_managed_objects(&harness.client_conn)
         .await

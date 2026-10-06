@@ -10,9 +10,12 @@ use crate::service::{
     BluetoothCommandRouteError, BluetoothCommandRouteStatus, BluetoothDeviceStateError,
     BluetoothService,
 };
-use summit_rcm_web::axum::{extract::{Path, Query}, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use summit_rcm_web::axum::{
+    Json,
+    extract::{Path, Query},
+};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -50,7 +53,12 @@ define_bluetooth_v2_response_family! {
     pub enum PutBluetoothResponses(BluetoothControlResponse);
 }
 
-fn classify_get_error<R>(error: &anyhow::Error, not_found: R, bad_request: R, internal_error: R) -> R {
+fn classify_get_error<R>(
+    error: &anyhow::Error,
+    not_found: R,
+    bad_request: R,
+    internal_error: R,
+) -> R {
     let message = error.to_string();
     if message.contains("controller not found") {
         not_found
@@ -124,7 +132,9 @@ pub async fn get_bluetooth_controller(
     Path(controller): Path<String>,
     Query(query): Query<BluetoothQuery>,
 ) -> GetBluetoothResponses {
-    match BluetoothService::get_controller_state_v2_response(Some(&controller), query.filters()).await {
+    match BluetoothService::get_controller_state_v2_response(Some(&controller), query.filters())
+        .await
+    {
         Ok(state) => state.into(),
         Err(error) => get_error_response(&error),
     }
@@ -146,7 +156,11 @@ pub async fn put_bluetooth_controller(
         Ok(Ok((value, _info_msg))) => value.into(),
         Ok(Err(error)) => put_error_response(&error),
         Err(error) => {
-            log::error!("put_bluetooth_controller {} invalid request or response shape: {}", controller, error);
+            log::error!(
+                "put_bluetooth_controller {} invalid request or response shape: {}",
+                controller,
+                error
+            );
             PutBluetoothResponses::InternalError
         }
     }
@@ -194,7 +208,12 @@ pub async fn put_bluetooth_device(
         Ok(Ok((value, _info_msg))) => value.into(),
         Ok(Err(error)) => put_error_response(&error),
         Err(error) => {
-            log::error!("put_bluetooth_device {} {} invalid request or response shape: {}", controller, device, error);
+            log::error!(
+                "put_bluetooth_device {} {} invalid request or response shape: {}",
+                controller,
+                device,
+                error
+            );
             PutBluetoothResponses::InternalError
         }
     }
@@ -202,12 +221,15 @@ pub async fn put_bluetooth_device(
 
 /// `GET /api/v2/bluetooth/ws` — upgrade to the BLE notification websocket.
 #[cfg(feature = "bluetooth-websocket")]
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/bluetooth/ws",
-    tag = "bluetooth",
-    responses(summit_rcm_web::notifications::NotificationWebsocketResponse)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/bluetooth/ws",
+        tag = "bluetooth",
+        responses(summit_rcm_web::notifications::NotificationWebsocketResponse)
+    )
+)]
 pub async fn get_bluetooth_websocket(
     upgrade: Result<
         summit_rcm_web::axum::extract::ws::WebSocketUpgrade,

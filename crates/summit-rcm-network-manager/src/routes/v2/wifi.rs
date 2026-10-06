@@ -9,8 +9,8 @@
 
 use crate::routes::shared::WifiStatus;
 use crate::service::NetworkService;
-use summit_rcm_web::axum::Json;
 use serde::Deserialize;
+use summit_rcm_web::axum::Json;
 
 summit_rcm_web::define_ok_internal_json_response_family! {
     pub(crate) enum GetWifiResponses(WifiStatus);
@@ -33,12 +33,15 @@ pub(crate) struct WifiRequest {
     pub wifi_radio_hardware_enabled: Option<bool>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/wifi",
-    tag = "network",
-    responses(GetWifiResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/wifi",
+        tag = "network",
+        responses(GetWifiResponses)
+    )
+)]
 pub(crate) async fn get_wifi() -> GetWifiResponses {
     match NetworkService::get_wifi_status_model().await {
         Ok(value) => value.into(),
@@ -57,7 +60,11 @@ pub(crate) async fn get_wifi() -> GetWifiResponses {
     responses(SetWifiResponses)
 ))]
 pub(crate) async fn set_wifi(Json(body): Json<WifiRequest>) -> SetWifiResponses {
-    let _ = (&body.sdcerr, &body.info_msg, &body.wifi_radio_hardware_enabled);
+    let _ = (
+        &body.sdcerr,
+        &body.info_msg,
+        &body.wifi_radio_hardware_enabled,
+    );
     if let Err(e) = NetworkService::set_wifi_enabled(body.wifi_radio_software_enabled).await {
         log::error!("set_wifi: {}", e);
         return SetWifiResponses::InternalError;

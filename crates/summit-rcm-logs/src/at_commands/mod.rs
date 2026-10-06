@@ -4,12 +4,12 @@
 //
 //! Logs AT commands
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::{DriverLogLevel, JournalctlLogType, SupplicantLogLevel};
-use std::str::FromStr;
 use log::error;
+use std::str::FromStr;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
 async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
     // <hours> is optional, so accept either 3 or 4 comma-separated params.
@@ -21,7 +21,11 @@ async fn execute_log_get(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOut
     let priority: u8 = params.parse_or::<u8>(1, 6);
     // Default days to 0 when hours is present so an hours-only request isn't combined with the 1-day default.
     let days: u32 = params.parse_or::<u32>(2, if count == 4 { 0 } else { 1 });
-    let hours: u32 = if count == 4 { params.parse_or::<u32>(3, 0) } else { 0 };
+    let hours: u32 = if count == 4 {
+        params.parse_or::<u32>(3, 0)
+    } else {
+        0
+    };
 
     match crate::LogsService::get_journal_log_data(log_type, priority, days, hours).await {
         Ok(v) => match serde_json::to_string(&v) {
@@ -60,7 +64,12 @@ async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Co
                 DriverLogLevel::Disabled => 0,
                 DriverLogLevel::Enabled => 1,
             };
-            CommandOutcome::WithData(format!("+LOGDEBUG: {},{},{}", supplicant_level_str(sup), wifi_val, web))
+            CommandOutcome::WithData(format!(
+                "+LOGDEBUG: {},{},{}",
+                supplicant_level_str(sup),
+                wifi_val,
+                web
+            ))
         }
         3 => {
             let sup_level = match SupplicantLogLevel::from_str(params.trimmed(0)) {
@@ -88,6 +97,18 @@ async fn execute_log_debug_level(_fsm: &FsmHandle, params: &CsvParams<'_>) -> Co
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+logget", "AT+LOGGET=<type>,<priority>,<days>[,<hours>]", 0, &[], execute_log_get),
-    summit_rcm_at::commands::command_spec!("at+logdebug", "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]", 0, &[], execute_log_debug_level),
+    summit_rcm_at::commands::command_spec!(
+        "at+logget",
+        "AT+LOGGET=<type>,<priority>,<days>[,<hours>]",
+        0,
+        &[],
+        execute_log_get
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+logdebug",
+        "AT+LOGDEBUG[=<supplicant>,<wifi_driver>,<webserver>]",
+        0,
+        &[],
+        execute_log_debug_level
+    ),
 ];

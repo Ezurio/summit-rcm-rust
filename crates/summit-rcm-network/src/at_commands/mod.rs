@@ -5,14 +5,17 @@
 
 //! Raw network AT commands owned by the network plugin.
 
-use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
-use summit_rcm_at::commands::params::CsvParams;
-use summit_rcm_at::fsm::FsmHandle;
 use crate::service::NetworkService;
 use log::error;
 use serde_json::to_string;
+use summit_rcm_at::commands::params::CsvParams;
+use summit_rcm_at::commands::{CommandOutcome, PublishedCommand};
+use summit_rcm_at::fsm::FsmHandle;
 
-async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_interface_statistics(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let name = params.trimmed(0);
 
     match NetworkService::get_interface_stats(name).await {
@@ -30,14 +33,20 @@ async fn execute_network_interface_statistics(_fsm: &FsmHandle, params: &CsvPara
     }
 }
 
-async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_interface_driver_info(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let name = params.trimmed(0);
 
     match NetworkService::get_interface_driver_info(name).await {
         Ok(value) => match to_string(&value) {
             Ok(value) => CommandOutcome::WithData(format!("+NETIFDRVINF: {}", value)),
             Err(error) => {
-                error!("Network interface driver info serialization error: {}", error);
+                error!(
+                    "Network interface driver info serialization error: {}",
+                    error
+                );
                 CommandOutcome::Error
             }
         },
@@ -48,7 +57,10 @@ async fn execute_network_interface_driver_info(_fsm: &FsmHandle, params: &CsvPar
     }
 }
 
-async fn execute_network_virtual_interface(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOutcome {
+async fn execute_network_virtual_interface(
+    _fsm: &FsmHandle,
+    params: &CsvParams<'_>,
+) -> CommandOutcome {
     let name = params.trimmed(0);
     let action = params.trimmed(1);
 
@@ -73,7 +85,25 @@ async fn execute_network_virtual_interface(_fsm: &FsmHandle, params: &CsvParams<
 }
 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
-    summit_rcm_at::commands::command_spec!("at+netifstat", "AT+NETIFSTAT=<name>", 1, &[0], execute_network_interface_statistics),
-    summit_rcm_at::commands::command_spec!("at+netifdrvinf", "AT+NETIFDRVINF=<name>", 1, &[0], execute_network_interface_driver_info),
-    summit_rcm_at::commands::command_spec!("at+netifvirt", "AT+NETIFVIRT=<name>,<action>", 2, &[0, 1], execute_network_virtual_interface),
+    summit_rcm_at::commands::command_spec!(
+        "at+netifstat",
+        "AT+NETIFSTAT=<name>",
+        1,
+        &[0],
+        execute_network_interface_statistics
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+netifdrvinf",
+        "AT+NETIFDRVINF=<name>",
+        1,
+        &[0],
+        execute_network_interface_driver_info
+    ),
+    summit_rcm_at::commands::command_spec!(
+        "at+netifvirt",
+        "AT+NETIFVIRT=<name>,<action>",
+        2,
+        &[0, 1],
+        execute_network_virtual_interface
+    ),
 ];

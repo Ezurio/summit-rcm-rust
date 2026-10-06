@@ -1,4 +1,4 @@
- //
+//
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
@@ -50,7 +50,9 @@ impl BluetoothService {
                 }
             } else if paired == 0 {
                 Self::remove_device(conn, adapter_path, &device_path).await?;
-                return Ok(BluetoothCommandOutcome::success(Self::empty_control_response()));
+                return Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ));
             }
         }
 
@@ -77,7 +79,9 @@ impl BluetoothService {
 
         Self::refresh_managed_object_cache(conn).await?;
 
-        Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+        Ok(BluetoothCommandOutcome::success(
+            Self::empty_control_response(),
+        ))
     }
 
     /// Disconnect (if connected) and remove a device from its adapter, mirroring
@@ -189,7 +193,10 @@ impl BluetoothService {
 
     /// Issue a GATT `ReadValue` D-Bus call for a characteristic, returning the
     /// raw reply.
-    async fn read_characteristic(conn: &Connection, char_path: &str) -> anyhow::Result<zbus::Message> {
+    async fn read_characteristic(
+        conn: &Connection,
+        char_path: &str,
+    ) -> anyhow::Result<zbus::Message> {
         dbus::call_method(
             conn,
             Some(BLUEZ_SERVICE),
@@ -210,7 +217,10 @@ impl BluetoothService {
         char_uuid: &str,
     ) -> anyhow::Result<()> {
         let reply = Self::read_characteristic(conn, char_path).await?;
-        Self::send_char_value_notification(char_uuid, hex::encode(reply.body().deserialize::<Vec<u8>>()?));
+        Self::send_char_value_notification(
+            char_uuid,
+            hex::encode(reply.body().deserialize::<Vec<u8>>()?),
+        );
         Ok(())
     }
 
@@ -266,7 +276,8 @@ impl BluetoothService {
                 // mirrors the Python REST split between `set_device_properties`
                 // and `set_adapter_properties`.
                 if let Some(dev_addr) = device {
-                    return Self::apply_device_properties(conn, &adapter_path, dev_addr, body).await;
+                    return Self::apply_device_properties(conn, &adapter_path, dev_addr, body)
+                        .await;
                 }
 
                 let powering_off = body.powered.is_some_and(|powered| powered == 0);
@@ -285,8 +296,7 @@ impl BluetoothService {
                 // BlueZ rejects discovery-filter and discoverable changes while
                 // powering off, so skip them in that case (matches Python).
                 if !powering_off {
-                    let controller_name =
-                        Self::controller_name_for_path(&objects, &adapter_path);
+                    let controller_name = Self::controller_name_for_path(&objects, &adapter_path);
                     Self::apply_discovery_filters(
                         conn,
                         adapter_path.as_str(),
@@ -306,28 +316,46 @@ impl BluetoothService {
                     }
                 }
                 Self::refresh_managed_object_cache(conn).await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "bleStartDiscovery" => {
-                Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StartDiscovery")
-                    .await?;
+                Self::call_bluez_noargs(
+                    conn,
+                    adapter_path.as_str(),
+                    ADAPTER_IFACE,
+                    "StartDiscovery",
+                )
+                .await?;
                 Self::refresh_managed_object_cache(conn).await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "bleStopDiscovery" => {
-                Self::call_bluez_noargs(conn, adapter_path.as_str(), ADAPTER_IFACE, "StopDiscovery")
-                    .await?;
+                Self::call_bluez_noargs(
+                    conn,
+                    adapter_path.as_str(),
+                    ADAPTER_IFACE,
+                    "StopDiscovery",
+                )
+                .await?;
                 Self::refresh_managed_object_cache(conn).await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             #[cfg(feature = "bluetooth-websocket")]
             "bleEnableWebsockets" => {
                 Self::enable_websocket_notifications().await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "bleGatt" => {
-                let dev_addr = device
-                    .ok_or_else(|| anyhow::anyhow!("device address not specified"))?;
+                let dev_addr =
+                    device.ok_or_else(|| anyhow::anyhow!("device address not specified"))?;
                 let service_uuid = body
                     .svc_uuid
                     .as_deref()
@@ -341,20 +369,16 @@ impl BluetoothService {
                     .as_ref()
                     .ok_or_else(|| anyhow::anyhow!("operation param not specified"))?;
                 let device_path = Self::device_path(&adapter_path, dev_addr);
-                let char_path = Self::find_characteristic_path(
-                    &objects,
-                    &device_path,
-                    service_uuid,
-                    char_uuid,
-                )
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Characteristic UUID {} not found for service {} and device {}",
-                        char_uuid,
-                        service_uuid,
-                        dev_addr,
-                    )
-                })?;
+                let char_path =
+                    Self::find_characteristic_path(&objects, &device_path, service_uuid, char_uuid)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Characteristic UUID {} not found for service {} and device {}",
+                                char_uuid,
+                                service_uuid,
+                                dev_addr,
+                            )
+                        })?;
 
                 match operation {
                     BluetoothGattOperation::Read => {
@@ -402,7 +426,9 @@ impl BluetoothService {
                             .await?;
                     }
                 }
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "bleConnect" => {
                 if let Some(dev_addr) = device {
@@ -411,7 +437,9 @@ impl BluetoothService {
                         .await?;
                 }
                 Self::refresh_managed_object_cache(conn).await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "bleDisconnect" => {
                 if let Some(dev_addr) = device {
@@ -420,15 +448,17 @@ impl BluetoothService {
                         .await?;
                 }
                 Self::refresh_managed_object_cache(conn).await?;
-                Ok(BluetoothCommandOutcome::success(Self::empty_control_response()))
+                Ok(BluetoothCommandOutcome::success(
+                    Self::empty_control_response(),
+                ))
             }
             "getConnInfo" => {
-                let dev_addr = device
-                    .ok_or_else(|| anyhow::anyhow!("Device not found"))?;
+                let dev_addr = device.ok_or_else(|| anyhow::anyhow!("Device not found"))?;
                 let dev_path = Self::device_path(&adapter_path, dev_addr);
-                let connected: bool = dbus::get_property(conn, BLUEZ_SERVICE, &dev_path, DEVICE_IFACE, "Connected")
-                    .await
-                    .unwrap_or(false);
+                let connected: bool =
+                    dbus::get_property(conn, BLUEZ_SERVICE, &dev_path, DEVICE_IFACE, "Connected")
+                        .await
+                        .unwrap_or(false);
                 if !connected {
                     return Ok(BluetoothCommandOutcome::failure("Device not connected"));
                 }
@@ -453,12 +483,14 @@ impl BluetoothService {
                         response.max_tx_power = Some(i32::from(max_tx_power));
                         Ok(BluetoothCommandOutcome::success(response))
                     }
-                    Err(_) => Ok(BluetoothCommandOutcome::failure("Unable to get connection info")),
+                    Err(_) => Ok(BluetoothCommandOutcome::failure(
+                        "Unable to get connection info",
+                    )),
                 }
             }
-            _ => Err(anyhow::Error::new(BluetoothCommandRouteError::UnknownCommand(
-                command.to_string(),
-            ))),
+            _ => Err(anyhow::Error::new(
+                BluetoothCommandRouteError::UnknownCommand(command.to_string()),
+            )),
         }
     }
 }

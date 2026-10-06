@@ -7,8 +7,8 @@ use std::{fs::File, io::Read};
 use summit_rcm_bluetooth_hid::WEB_PUBLICATION;
 
 use support::{
-    compile_uhid_simulator, reserve_tcp_port, run_live_hid_connect_test,
-    spawn_uhid_simulator, wait_for_hidraw_by_uniq, MockBluezHarness, TEST_DEVICE_ADDRESS,
+    MockBluezHarness, TEST_DEVICE_ADDRESS, compile_uhid_simulator, reserve_tcp_port,
+    run_live_hid_connect_test, spawn_uhid_simulator, wait_for_hidraw_by_uniq,
 };
 
 #[test]
@@ -41,9 +41,15 @@ fn live_uhid_scanner_emits_expected_hid_reports() {
     assert_eq!(reports[7], [0x00; 8]);
     assert_eq!(reports[8], [0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00]);
     assert_eq!(reports[9], [0x00; 8]);
-    assert_eq!(reports[10], [0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(
+        reports[10],
+        [0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
     assert_eq!(reports[11], [0x00; 8]);
-    assert_eq!(reports[12], [0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(
+        reports[12],
+        [0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
     assert_eq!(reports[13], [0x00; 8]);
 }
 

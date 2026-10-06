@@ -3,14 +3,15 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use summit_rcm_web::legacy_response::{fail_response, ok_response, LegacyOperationResponse};
 use crate::service::{NetworkService, RawNetworkError};
 use crate::types::{AvailableApChannel, InterfaceDriverInfo, InterfaceStats, Station};
-use summit_rcm_web::axum::{extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use summit_rcm_web::axum::{Json, extract::Query};
+use summit_rcm_web::legacy_response::{LegacyOperationResponse, fail_response, ok_response};
 
-pub(crate) type LegacyOperationResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type LegacyOperationResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_ok_json_response_family! {
     pub(crate) enum LegacyAvailableApChannelsResponses(LegacyAvailableApChannelsResponse);
@@ -182,33 +183,58 @@ fn summit_status_response(
     request_body = InterfaceAddBody,
     responses(LegacyOperationResponses)
 ))]
-pub(crate) async fn post_interfaces_legacy(Json(body): Json<InterfaceAddBody>) -> LegacyOperationResponses {
+pub(crate) async fn post_interfaces_legacy(
+    Json(body): Json<InterfaceAddBody>,
+) -> LegacyOperationResponses {
     let interface = body.interface.as_deref().unwrap_or("");
     let interface_type = body.interface_type.as_deref().unwrap_or("");
 
     if interface != "wlan1" {
-        return fail_response(format!("Invalid interface {}. Supported interface wlan1", interface)).into();
+        return fail_response(format!(
+            "Invalid interface {}. Supported interface wlan1",
+            interface
+        ))
+        .into();
     }
 
-    let normalized_type = if interface_type == "STA" { "managed" } else { interface_type };
+    let normalized_type = if interface_type == "STA" {
+        "managed"
+    } else {
+        interface_type
+    };
     if normalized_type != "managed" {
-        return fail_response(format!("Invalid type {}. Supported type: STA", interface_type)).into();
+        return fail_response(format!(
+            "Invalid type {}. Supported type: STA",
+            interface_type
+        ))
+        .into();
     }
 
     match NetworkService::add_virtual_interface(interface).await {
         Ok(true) => ok_response(format!("Virtual interface {} added", interface)).into(),
-        Ok(false) => fail_response(format!("Unable to add virtual interface {}.", interface)).into(),
-        Err(error) => fail_response(format!("Unable to add virtual interface {} - {}", interface, error)).into(),
+        Ok(false) => {
+            fail_response(format!("Unable to add virtual interface {}.", interface)).into()
+        }
+        Err(error) => fail_response(format!(
+            "Unable to add virtual interface {} - {}",
+            interface, error
+        ))
+        .into(),
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/networkInterfaces",
-    tag = "legacy",
-    responses(LegacyOperationResponses)
-))]
-pub(crate) async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) -> LegacyOperationResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/networkInterfaces",
+        tag = "legacy",
+        responses(LegacyOperationResponses)
+    )
+)]
+pub(crate) async fn delete_interfaces_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacyOperationResponses {
     let interface = q.interface.as_deref().unwrap_or("");
 
     if interface != "wlan1" {
@@ -218,19 +244,29 @@ pub(crate) async fn delete_interfaces_legacy(Query(q): Query<InterfaceQuery>) ->
     match NetworkService::remove_virtual_interface(interface).await {
         Ok(true) => ok_response(format!("Virtual interface {} removed", interface)).into(),
         Ok(false) => fail_response(format!("Unable to remove interface {}", interface)).into(),
-        Err(error) => fail_response(format!("Unable to remove interface {} - {}", interface, error)).into(),
+        Err(error) => fail_response(format!(
+            "Unable to remove interface {} - {}",
+            interface, error
+        ))
+        .into(),
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceAvailableApChannels",
-    tag = "legacy",
-    responses(LegacyAvailableApChannelsResponses)
-))]
-pub(crate) async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>) -> LegacyAvailableApChannelsResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceAvailableApChannels",
+        tag = "legacy",
+        responses(LegacyAvailableApChannelsResponses)
+    )
+)]
+pub(crate) async fn get_available_ap_channels_legacy(
+    Query(q): Query<NameQuery>,
+) -> LegacyAvailableApChannelsResponses {
     let Some(name) = q.name.as_deref().filter(|value| !value.is_empty()) else {
-        return available_ap_channels_response(fail_response("Invalid interface name"), Vec::new()).into();
+        return available_ap_channels_response(fail_response("Invalid interface name"), Vec::new())
+            .into();
     };
 
     match NetworkService::get_interface_available_ap_channels(name).await {
@@ -243,13 +279,18 @@ pub(crate) async fn get_available_ap_channels_legacy(Query(q): Query<NameQuery>)
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceStatistics",
-    tag = "legacy",
-    responses(LegacyInterfaceStatisticsResponses)
-))]
-pub(crate) async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceStatisticsResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceStatistics",
+        tag = "legacy",
+        responses(LegacyInterfaceStatisticsResponses)
+    )
+)]
+pub(crate) async fn get_interface_statistics_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacyInterfaceStatisticsResponses {
     let default_statistics = LegacyInterfaceStats {
         rx_bytes: -1,
         rx_packets: -1,
@@ -261,74 +302,119 @@ pub(crate) async fn get_interface_statistics_legacy(Query(q): Query<InterfaceQue
         tx_errors: -1,
         tx_dropped: -1,
     };
-    let Some(iface) = q.interface.as_deref().or(q.name.as_deref()).filter(|value| !value.is_empty()) else {
-        return interface_statistics_response(fail_response("interface required"), default_statistics).into();
+    let Some(iface) = q
+        .interface
+        .as_deref()
+        .or(q.name.as_deref())
+        .filter(|value| !value.is_empty())
+    else {
+        return interface_statistics_response(
+            fail_response("interface required"),
+            default_statistics,
+        )
+        .into();
     };
 
     match NetworkService::get_interface_statistics(iface).await {
         Ok(stats) => interface_statistics_response(ok_response(""), stats.into()).into(),
-        Err(error) => interface_statistics_response(fail_response(error.to_string()), default_statistics).into(),
+        Err(error) => {
+            interface_statistics_response(fail_response(error.to_string()), default_statistics)
+                .into()
+        }
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceDriverInfo",
-    tag = "legacy",
-    responses(LegacyInterfaceDriverInfoResponses)
-))]
-pub(crate) async fn get_interface_driver_info_legacy(Query(q): Query<InterfaceQuery>) -> LegacyInterfaceDriverInfoResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceDriverInfo",
+        tag = "legacy",
+        responses(LegacyInterfaceDriverInfoResponses)
+    )
+)]
+pub(crate) async fn get_interface_driver_info_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacyInterfaceDriverInfoResponses {
     let default_driver_info = InterfaceDriverInfo {
         adopted_country_code: String::new(),
         otp_country_code: String::new(),
     };
     let Some(iface) = q.name.as_deref() else {
-        return interface_driver_info_response(fail_response("Invalid interface name"), default_driver_info).into();
+        return interface_driver_info_response(
+            fail_response("Invalid interface name"),
+            default_driver_info,
+        )
+        .into();
     };
 
     match NetworkService::get_interface_driver_info(iface).await {
         Ok(info) => interface_driver_info_response(ok_response(""), info).into(),
-        Err(RawNetworkError::InvalidInterfaceName) => {
-            interface_driver_info_response(fail_response("Invalid interface name"), default_driver_info).into()
-        }
+        Err(RawNetworkError::InvalidInterfaceName) => interface_driver_info_response(
+            fail_response("Invalid interface name"),
+            default_driver_info,
+        )
+        .into(),
         Err(error) => interface_driver_info_response(
-            fail_response(format!("Could not read interface driver info - {:?}", error)),
+            fail_response(format!(
+                "Could not read interface driver info - {:?}",
+                error
+            )),
             default_driver_info,
         )
         .into(),
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceStationDump",
-    tag = "legacy",
-    responses(LegacyStationDumpResponses)
-))]
-pub(crate) async fn get_station_dump_legacy(Query(q): Query<InterfaceQuery>) -> LegacyStationDumpResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceStationDump",
+        tag = "legacy",
+        responses(LegacyStationDumpResponses)
+    )
+)]
+pub(crate) async fn get_station_dump_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacyStationDumpResponses {
     let Some(iface) = q.name.as_deref() else {
-        return station_dump_response(fail_response("Invalid interface name"), BTreeMap::new()).into();
+        return station_dump_response(fail_response("Invalid interface name"), BTreeMap::new())
+            .into();
     };
 
     match NetworkService::get_station_dump(iface).await {
         Ok(stations) => station_dump_response(ok_response(""), stations).into(),
         Err(error) => station_dump_response(
-            fail_response(format!("Could not retrieve interface station dump - {}", error)),
+            fail_response(format!(
+                "Could not retrieve interface station dump - {}",
+                error
+            )),
             BTreeMap::new(),
         )
         .into(),
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/networkInterfaceSummitStatus",
-    tag = "legacy",
-    responses(LegacySummitStatusResponses)
-))]
-pub(crate) async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) -> LegacySummitStatusResponses {
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/networkInterfaceSummitStatus",
+        tag = "legacy",
+        responses(LegacySummitStatusResponses)
+    )
+)]
+pub(crate) async fn get_summit_status_legacy(
+    Query(q): Query<InterfaceQuery>,
+) -> LegacySummitStatusResponses {
     let Some(iface) = q.name.as_deref() else {
-        return summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into();
+        return summit_status_response(
+            fail_response("Invalid interface name"),
+            String::new(),
+            String::new(),
+        )
+        .into();
     };
 
     match NetworkService::get_summit_status(iface).await {
@@ -338,11 +424,17 @@ pub(crate) async fn get_summit_status_legacy(Query(q): Query<InterfaceQuery>) ->
             status.best.unwrap_or_default(),
         )
         .into(),
-        Err(RawNetworkError::InterfaceNotFound) => {
-            summit_status_response(fail_response("Invalid interface name"), String::new(), String::new()).into()
-        }
+        Err(RawNetworkError::InterfaceNotFound) => summit_status_response(
+            fail_response("Invalid interface name"),
+            String::new(),
+            String::new(),
+        )
+        .into(),
         Err(error) => summit_status_response(
-            fail_response(format!("Could not retrieve interface summit status - {:?}", error)),
+            fail_response(format!(
+                "Could not retrieve interface summit status - {:?}",
+                error
+            )),
             String::new(),
             String::new(),
         )

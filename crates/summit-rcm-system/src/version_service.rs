@@ -4,10 +4,13 @@
 //
 //! Version information service
 
-use anyhow::{anyhow, Result};
-use summit_rcm_core::utils::{command_stdout, get_boot_rootfs_info, get_boot_rootfs_next_side, path_exists, path_exists_sync, read_sysfs, read_text};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{future::Future, path::Path, sync::LazyLock};
+use summit_rcm_core::utils::{
+    command_stdout, get_boot_rootfs_info, get_boot_rootfs_next_side, path_exists, path_exists_sync,
+    read_sysfs, read_text,
+};
 use tokio::sync::OnceCell;
 
 const SUMMIT_RCM_VERSION: &str = env!("SUMMIT_RCM_PUBLIC_VERSION");
@@ -39,7 +42,8 @@ pub(crate) struct VersionInfo {
 
 impl VersionService {
     pub(crate) async fn get_version_info() -> Result<VersionInfo> {
-        let mut version_info = get_cached_result(&VERSION_INFO_CACHE, Self::build_cached_version_info).await?;
+        let mut version_info =
+            get_cached_result(&VERSION_INFO_CACHE, Self::build_cached_version_info).await?;
         if version_info.current_side == "sd" {
             version_info.next_side = "sd".to_string();
             return Ok(version_info);
@@ -58,7 +62,9 @@ impl VersionService {
         let kernel_vermagic = get_kernel_vermagic().await?;
         let build = get_os_release_info().await?;
         let supplicant = get_supplicant_version().await?;
-        let bluez = get_bluez_version().await.unwrap_or_else(|| "n/a".to_string());
+        let bluez = get_bluez_version()
+            .await
+            .unwrap_or_else(|| "n/a".to_string());
         let uboot = Self::get_uboot_version().await.unwrap_or_default();
         let (current_side, next_side, base_hw_part_number) = match get_boot_rootfs_info().await {
             Ok(info) if info.is_running_on_sd() => (
@@ -71,11 +77,7 @@ impl VersionService {
                 info.next_side_or_unknown().to_string(),
                 info.base_hw_part_number().to_string(),
             ),
-            Err(_) => (
-                "unknown".to_string(),
-                "unknown".to_string(),
-                String::new(),
-            ),
+            Err(_) => ("unknown".to_string(), "unknown".to_string(), String::new()),
         };
 
         Ok(VersionInfo {
@@ -97,7 +99,6 @@ impl VersionService {
     async fn get_uboot_version() -> Option<String> {
         command_stdout("fw_printenv", &["-n", "version"]).await.ok()
     }
-
 }
 
 async fn get_cached_result<T, F, Fut>(

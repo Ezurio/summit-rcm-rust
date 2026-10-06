@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rustix::process::{kill_process, Pid, Signal};
+use rustix::process::{Pid, Signal, kill_process};
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let unique = format!(
@@ -85,14 +85,21 @@ fn summit_rcm_binary() -> PathBuf {
         .current_dir(&manifest_dir)
         .status()
         .expect("cargo build should run for shutdown integration test");
-    assert!(status.success(), "cargo build should produce summit-rcm binary for shutdown integration test");
-    assert!(binary_path.is_file(), "summit-rcm binary should exist after cargo build at {}", binary_path.display());
+    assert!(
+        status.success(),
+        "cargo build should produce summit-rcm binary for shutdown integration test"
+    );
+    assert!(
+        binary_path.is_file(),
+        "summit-rcm binary should exist after cargo build at {}",
+        binary_path.display()
+    );
     binary_path
 }
 
 fn reserve_bind_addr() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .expect("test should reserve an ephemeral TCP port");
+    let listener =
+        TcpListener::bind("127.0.0.1:0").expect("test should reserve an ephemeral TCP port");
     let addr = listener
         .local_addr()
         .expect("reserved listener should expose a local address");

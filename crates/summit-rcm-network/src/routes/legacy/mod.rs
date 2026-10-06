@@ -17,4 +17,3 @@ pub(crate) mod network;
     crate::routes::legacy::network::get_summit_status_legacy,
 ))]
 pub(crate) struct ApiDoc;
-

@@ -14,9 +14,7 @@ pub(super) use nl80211_bindings::*;
 use anyhow::{Context, Result, anyhow};
 use neli::attr::{AttrHandle, Attribute};
 use neli::consts::genl::NlAttrType;
-use neli::genl::{
-    AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder,
-};
+use neli::genl::{AttrTypeBuilder, Genlmsghdr, GenlmsghdrBuilder, Nlattr, NlattrBuilder};
 use neli::types::{Buffer, GenlBuffer};
 
 pub(super) const NL_80211_GENL_NAME: &str = "nl80211";
@@ -175,7 +173,10 @@ where
 }
 
 pub(super) fn trim_c_string(value: Vec<u8>) -> Result<String> {
-    let value = value.into_iter().take_while(|byte| *byte != 0).collect::<Vec<_>>();
+    let value = value
+        .into_iter()
+        .take_while(|byte| *byte != 0)
+        .collect::<Vec<_>>();
     String::from_utf8(value).map_err(|error| anyhow!(error))
 }
 

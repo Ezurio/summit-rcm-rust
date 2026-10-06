@@ -4,10 +4,10 @@
 //
 
 use crate::service::DateTimeService;
+use log::error;
+use serde::{Deserialize, Serialize};
 use summit_rcm_core::dbus;
 use summit_rcm_web::axum::Json;
-use serde::{Deserialize, Serialize};
-use log::error;
 
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -55,12 +55,15 @@ summit_rcm_web::define_json_response_family! {
     from DateTimeInfo => Ok;
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/datetime",
-    tag = "system",
-    responses(GetDateTimeResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/datetime",
+        tag = "system",
+        responses(GetDateTimeResponses)
+    )
+)]
 pub async fn get_datetime() -> GetDateTimeResponses {
     match DateTimeService::list_timezones().await {
         Ok(zones) => {
@@ -89,24 +92,26 @@ pub async fn get_datetime() -> GetDateTimeResponses {
 pub async fn set_datetime(Json(body): Json<DateTimeRequest>) -> SetDateTimeResponses {
     let zone = body.zone.or(body.timezone);
     if let Some(tz) = zone.clone()
-        && let Err(e) = DateTimeService::set_timezone(&tz).await {
-            error!("set_datetime timezone: {}", e);
-            return if dbus::is_timeout_error(&e) {
-                SetDateTimeResponses::Timeout
-            } else {
-                SetDateTimeResponses::InternalError
-            };
-        }
+        && let Err(e) = DateTimeService::set_timezone(&tz).await
+    {
+        error!("set_datetime timezone: {}", e);
+        return if dbus::is_timeout_error(&e) {
+            SetDateTimeResponses::Timeout
+        } else {
+            SetDateTimeResponses::InternalError
+        };
+    }
 
     if let Some(datetime) = body.datetime
-        && let Err(e) = DateTimeService::set_time_manual(&datetime).await {
-            error!("set_datetime manual: {}", e);
-            return if dbus::is_timeout_error(&e) {
-                SetDateTimeResponses::Timeout
-            } else {
-                SetDateTimeResponses::InternalError
-            };
-        }
+        && let Err(e) = DateTimeService::set_time_manual(&datetime).await
+    {
+        error!("set_datetime manual: {}", e);
+        return if dbus::is_timeout_error(&e) {
+            SetDateTimeResponses::Timeout
+        } else {
+            SetDateTimeResponses::InternalError
+        };
+    }
 
     match DateTimeService::list_timezones().await {
         Ok(zones) => {

@@ -1,8 +1,8 @@
 use super::test_support::{MockBluezHarness, TEST_DEVICE_ADDRESS};
 use super::*;
-use summit_rcm_web::serde_json::json;
 use std::sync::atomic::Ordering;
 use summit_rcm_web::serde_json;
+use summit_rcm_web::serde_json::json;
 
 /// Build a typed command request from a JSON literal, mirroring how the route
 /// layer deserializes the request body.
@@ -16,7 +16,9 @@ async fn simulated_bluez_discovery_updates_controller_state() {
     summit_rcm_core::config::test_support::set_server_override("/", "tools.sessions.on", "true");
     summit_rcm_core::config::test_support::clear_server_overrides();
 
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     let before = BluetoothService::get_controller_state(Some("controller0"), None)
         .await
@@ -51,7 +53,9 @@ async fn simulated_bluez_discovery_updates_controller_state() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_bluez_pair_and_connect_flow_updates_device_payload() {
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     let paired = BluetoothService::handle_command_inner(
         Some("controller0"),
@@ -73,12 +77,9 @@ async fn simulated_bluez_pair_and_connect_flow_updates_device_payload() {
     assert!(connected.succeeded, "{}", connected.info_msg);
     assert!(harness.state.device_connected());
 
-    let device = BluetoothService::get_device_state_typed(
-        "controller0",
-        TEST_DEVICE_ADDRESS,
-    )
-    .await
-    .expect("device state should load");
+    let device = BluetoothService::get_device_state_typed("controller0", TEST_DEVICE_ADDRESS)
+        .await
+        .expect("device state should load");
 
     assert_eq!(device.address.as_deref(), Some(TEST_DEVICE_ADDRESS));
     assert_eq!(device.adapter.as_deref(), Some("/org/bluez/hci0"));
@@ -98,7 +99,9 @@ async fn simulated_bluez_pair_and_connect_flow_updates_device_payload() {
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_bluez_controller_filters_hide_device_list() {
     // Harness stays bound so its mock bus remains installed for `get_conn`.
-    let _harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let _harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     let filtered = BluetoothService::get_controller_state_v2_response(
         Some("controller0"),
@@ -107,7 +110,10 @@ async fn simulated_bluez_controller_filters_hide_device_list() {
     .await
     .expect("filtered controller state should load");
 
-    let controller = filtered.0.get("controller0").expect("controller should be present");
+    let controller = filtered
+        .0
+        .get("controller0")
+        .expect("controller should be present");
     assert_eq!(controller.powered, Some(1));
     assert_eq!(controller.discovering, Some(0));
     assert!(controller.bluetooth_devices.is_none());
@@ -117,7 +123,9 @@ async fn simulated_bluez_controller_filters_hide_device_list() {
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_bluez_invalid_controller_filters_fail() {
     // Harness stays bound so its mock bus remains installed for `get_conn`.
-    let _harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let _harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     let error = BluetoothService::get_controller_state(
         Some("controller0"),
@@ -127,12 +135,18 @@ async fn simulated_bluez_invalid_controller_filters_fail() {
     .err()
     .expect("invalid filters should fail");
 
-    assert!(error.to_string().contains("filters [\"notARealFilter\"] not matched"));
+    assert!(
+        error
+            .to_string()
+            .contains("filters [\"notARealFilter\"] not matched")
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     // Set RSSI/Transport/Pattern discovery filters via an adapter PUT.
     let applied = BluetoothService::handle_command_inner(
@@ -149,7 +163,11 @@ async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
             .discovery_filters
             .lock()
             .expect("discovery filters mutex poisoned"),
-        vec!["Pattern".to_string(), "RSSI".to_string(), "Transport".to_string()],
+        vec![
+            "Pattern".to_string(),
+            "RSSI".to_string(),
+            "Transport".to_string()
+        ],
     );
 
     #[cfg(feature = "api-v2")]
@@ -158,7 +176,9 @@ async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
         let v2 = BluetoothService::get_controller_state_v2_response(Some("controller0"), None)
             .await
             .expect("controller state should load");
-        let controller = v2.0.get("controller0").expect("controller should be present");
+        let controller =
+            v2.0.get("controller0")
+                .expect("controller should be present");
         assert_eq!(controller.rssi, Some(-70));
         assert_eq!(controller.transport.as_deref(), Some("le"));
         assert_eq!(controller.pattern.as_deref(), Some("cafe"));
@@ -167,21 +187,21 @@ async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
     #[cfg(feature = "api-legacy")]
     {
         // legacy mirrors WebLCM and exposes only the cached transport filter.
-        let legacy = BluetoothService::get_controller_state_legacy_response(Some("controller0"), None)
-            .await
-            .expect("controller state should load");
-        let legacy_controller = legacy.get("controller0").expect("controller should be present");
+        let legacy =
+            BluetoothService::get_controller_state_legacy_response(Some("controller0"), None)
+                .await
+                .expect("controller state should load");
+        let legacy_controller = legacy
+            .get("controller0")
+            .expect("controller should be present");
         assert_eq!(legacy_controller.transport_filter.as_deref(), Some("le"));
     }
 
     // An adapter PUT with no filters clears the previously cached filters.
-    let cleared = BluetoothService::handle_command_inner(
-        Some("controller0"),
-        None,
-        &request(json!({})),
-    )
-    .await
-    .expect("clearing discovery filters should succeed");
+    let cleared =
+        BluetoothService::handle_command_inner(Some("controller0"), None, &request(json!({})))
+            .await
+            .expect("clearing discovery filters should succeed");
     assert!(cleared.succeeded, "{}", cleared.info_msg);
     assert!(
         harness
@@ -194,10 +214,14 @@ async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
 
     #[cfg(feature = "api-v2")]
     {
-        let after_clear = BluetoothService::get_controller_state_v2_response(Some("controller0"), None)
-            .await
-            .expect("controller state should load");
-        let controller = after_clear.0.get("controller0").expect("controller should be present");
+        let after_clear =
+            BluetoothService::get_controller_state_v2_response(Some("controller0"), None)
+                .await
+                .expect("controller state should load");
+        let controller = after_clear
+            .0
+            .get("controller0")
+            .expect("controller should be present");
         assert_eq!(controller.rssi, None);
         assert_eq!(controller.transport, None);
         assert_eq!(controller.pattern, None);
@@ -206,7 +230,9 @@ async fn simulated_bluez_discovery_filters_are_set_cached_and_cleared() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_device_put_sets_trusted_and_auto_connect_properties() {
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     let applied = BluetoothService::handle_command_inner(
         Some("controller0"),
@@ -222,7 +248,9 @@ async fn simulated_device_put_sets_trusted_and_auto_connect_properties() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn simulated_device_put_paired_zero_removes_device() {
-    let harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     // Connect first so removal must also disconnect.
     let connected = BluetoothService::handle_command_inner(
@@ -251,7 +279,9 @@ async fn simulated_device_put_paired_zero_removes_device() {
 async fn simulated_get_conn_info_returns_radio_metrics_when_connected() {
     // The harness must stay bound so its mock bus remains installed for
     // `get_conn`; this test asserts on responses rather than harness state.
-    let _harness = MockBluezHarness::start().await.expect("mock bluez harness should start");
+    let _harness = MockBluezHarness::start()
+        .await
+        .expect("mock bluez harness should start");
 
     // Not connected → failure with the Python-matching message.
     let not_connected = BluetoothService::handle_command_inner(

@@ -1,12 +1,12 @@
 #![cfg(feature = "api-legacy")]
 
+use summit_rcm_web::legacy_response::{SdcerrCode, fail_response, ok_response, summit_rcm_errors};
 use summit_rcm_web::serde_json::{self, json};
-use summit_rcm_web::legacy_response::{fail_response, ok_response, summit_rcm_errors, SdcerrCode};
 
 #[test]
 fn ok_response_matches_legacy_python_envelope() {
-    let payload = serde_json::to_value(ok_response(""))
-        .expect("legacy ok response should serialize");
+    let payload =
+        serde_json::to_value(ok_response("")).expect("legacy ok response should serialize");
 
     assert_eq!(payload["SDCERR"], 0);
     assert_eq!(payload["InfoMsg"], "");

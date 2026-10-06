@@ -11,11 +11,8 @@
 //! DELETE /api/v2/login/users/{username}  – delete user
 
 use crate::UserService;
-use summit_rcm_web::axum::{
-    extract::Path,
-    Json,
-};
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum::{Json, extract::Path};
 
 summit_rcm_web::define_ok_json_response_family! {
     pub enum ListUsersResponses(Vec<UserResponse>);
@@ -84,12 +81,15 @@ pub(crate) struct UserPatchRequest {
 }
 
 /// GET /api/v2/login/users
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/login/users",
-    tag = "auth",
-    responses(ListUsersResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/login/users",
+        tag = "auth",
+        responses(ListUsersResponses)
+    )
+)]
 pub(crate) async fn list_users() -> ListUsersResponses {
     let mut users: Vec<_> = UserService::get_users_dict()
         .into_iter()
@@ -163,7 +163,8 @@ pub(crate) async fn patch_user(
     Json(body): Json<UserPatchRequest>,
 ) -> PatchUserResponses {
     if body.current_password.is_empty()
-        || (body.new_password.as_deref().unwrap_or_default().is_empty() && body.permissions.is_none())
+        || (body.new_password.as_deref().unwrap_or_default().is_empty()
+            && body.permissions.is_none())
     {
         return PatchUserResponses::BadRequest;
     }
@@ -172,21 +173,29 @@ pub(crate) async fn patch_user(
         return PatchUserResponses::NotFound;
     }
 
-    if body.new_password.as_deref().is_some_and(|value| !value.is_empty())
+    if body
+        .new_password
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
         && !UserService::verify(&name, &body.current_password)
     {
         return PatchUserResponses::Forbidden;
     }
 
-    if let Some(new_password) = body.new_password.as_deref().filter(|value| !value.is_empty())
-        && !UserService::update_password(&name, new_password) {
-            return PatchUserResponses::InternalError;
-        }
+    if let Some(new_password) = body
+        .new_password
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        && !UserService::update_password(&name, new_password)
+    {
+        return PatchUserResponses::InternalError;
+    }
 
     if let Some(permissions) = body.permissions.as_deref()
-        && !UserService::update_permission(&name, permissions) {
-            return PatchUserResponses::InternalError;
-        }
+        && !UserService::update_permission(&name, permissions)
+    {
+        return PatchUserResponses::InternalError;
+    }
 
     PatchUserResponses::Ok(UserResponse {
         permissions: UserService::get_permission(&name).unwrap_or_default(),

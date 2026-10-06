@@ -19,7 +19,8 @@ use std::pin::Pin;
 use std::sync::LazyLock;
 
 pub type CommandExecFuture<'a> = Pin<Box<dyn Future<Output = CommandOutcome> + Send + 'a>>;
-pub type CommandExecutor = for<'a> fn(&'a FsmHandle, &'a params::CsvParams<'a>) -> CommandExecFuture<'a>;
+pub type CommandExecutor =
+    for<'a> fn(&'a FsmHandle, &'a params::CsvParams<'a>) -> CommandExecFuture<'a>;
 
 pub enum CommandOutcome {
     Ok,
@@ -72,29 +73,27 @@ macro_rules! command_spec {
 
 pub use command_spec;
 
-pub(crate) static CORE_COMMANDS: &[&[PublishedCommand]] = &[
-    basic::COMMANDS,
-    cip::COMMANDS,
-    http::COMMANDS,
-];
+pub(crate) static CORE_COMMANDS: &[&[PublishedCommand]] =
+    &[basic::COMMANDS, cip::COMMANDS, http::COMMANDS];
 
-static COMMAND_REGISTRY: LazyLock<HashMap<&'static str, &'static CommandHandler>> = LazyLock::new(|| {
-    let mut by_signature = HashMap::new();
+static COMMAND_REGISTRY: LazyLock<HashMap<&'static str, &'static CommandHandler>> =
+    LazyLock::new(|| {
+        let mut by_signature = HashMap::new();
 
-    for published in CORE_COMMANDS {
-        for (candidate, command) in *published {
-            by_signature.entry(*candidate).or_insert(*command);
+        for published in CORE_COMMANDS {
+            for (candidate, command) in *published {
+                by_signature.entry(*candidate).or_insert(*command);
+            }
         }
-    }
 
-    for publication in inventory::iter::<AtCommandSetRegistration>() {
-        for (candidate, command) in publication.0 {
-            by_signature.entry(*candidate).or_insert(*command);
+        for publication in inventory::iter::<AtCommandSetRegistration>() {
+            for (candidate, command) in publication.0 {
+                by_signature.entry(*candidate).or_insert(*command);
+            }
         }
-    }
 
-    by_signature
-});
+        by_signature
+    });
 
 pub fn parse_command_params<'a>(
     cmd: &CommandHandler,
@@ -115,9 +114,7 @@ pub fn parse_command_params<'a>(
     }
 }
 
-pub fn lookup_command_in_registry(
-    input: &str,
-) -> Option<(&'static CommandHandler, &str, bool)> {
+pub fn lookup_command_in_registry(input: &str) -> Option<(&'static CommandHandler, &str, bool)> {
     if input.is_empty() {
         let cmd = *COMMAND_REGISTRY.get("")?;
         return Some((cmd, "", false));

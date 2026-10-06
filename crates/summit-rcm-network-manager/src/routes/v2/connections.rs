@@ -13,9 +13,12 @@
 use crate::routes::connection_profile::ConnectionProfile;
 use crate::routes::shared::parse_route_model;
 use crate::service::NetworkService;
-use summit_rcm_web::axum::{extract::{multipart::MultipartRejection, Multipart, Path}, Json};
-use summit_rcm_web::axum;
 use serde::{Deserialize, Serialize};
+use summit_rcm_web::axum;
+use summit_rcm_web::axum::{
+    Json,
+    extract::{Multipart, Path, multipart::MultipartRejection},
+};
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
@@ -75,12 +78,15 @@ summit_rcm_web::define_json_response_family! {
     from ConnectionProfile => Ok;
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/connections",
-    tag = "network",
-    responses(ListConnectionsResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/connections",
+        tag = "network",
+        responses(ListConnectionsResponses)
+    )
+)]
 pub(crate) async fn list_connections() -> ListConnectionsResponses {
     match NetworkService::get_connections().await {
         Ok(value) => match parse_route_model::<Vec<ConnectionSummary>>(value) {
@@ -104,7 +110,9 @@ pub(crate) async fn list_connections() -> ListConnectionsResponses {
     request_body = ConnectionProfile,
     responses(UpsertConnectionResponses)
 ))]
-pub(crate) async fn create_connection(Json(body): Json<ConnectionProfile>) -> UpsertConnectionResponses {
+pub(crate) async fn create_connection(
+    Json(body): Json<ConnectionProfile>,
+) -> UpsertConnectionResponses {
     match NetworkService::create_connection_profile_typed(body).await {
         Ok((value, created)) => {
             if created {
@@ -116,7 +124,9 @@ pub(crate) async fn create_connection(Json(body): Json<ConnectionProfile>) -> Up
         Err(error) => {
             let message = error.to_string();
             log::error!("create_connection: {}", message);
-            if message.contains("Missing connection section") || message.contains("must have an id element") {
+            if message.contains("Missing connection section")
+                || message.contains("must have an id element")
+            {
                 UpsertConnectionResponses::BadRequest
             } else {
                 UpsertConnectionResponses::InternalError
@@ -154,7 +164,9 @@ pub(crate) async fn replace_connection_by_uuid(
     Path(uuid): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let created = NetworkService::get_connection_profile_by_uuid(&uuid).await.is_err();
+    let created = NetworkService::get_connection_profile_by_uuid(&uuid)
+        .await
+        .is_err();
     match NetworkService::update_connection_profile_typed(&uuid, body).await {
         Ok(value) => {
             if created {
@@ -166,7 +178,9 @@ pub(crate) async fn replace_connection_by_uuid(
         Err(error) => {
             let message = error.to_string();
             log::error!("replace_connection_by_uuid {}: {}", uuid, message);
-            if message.contains("Missing connection section") || message.contains("must have an id element") {
+            if message.contains("Missing connection section")
+                || message.contains("must have an id element")
+            {
                 UpsertConnectionResponses::BadRequest
             } else {
                 UpsertConnectionResponses::InternalError
@@ -209,7 +223,9 @@ pub(crate) async fn patch_connection_by_uuid(
     params(("uuid" = String, Path, description = "Connection UUID")),
     responses(DeleteConnectionResponses)
 ))]
-pub(crate) async fn delete_connection_by_uuid(Path(uuid): Path<String>) -> DeleteConnectionResponses {
+pub(crate) async fn delete_connection_by_uuid(
+    Path(uuid): Path<String>,
+) -> DeleteConnectionResponses {
     match NetworkService::get_connection_profile_by_uuid(&uuid).await {
         Ok(_) => match NetworkService::delete_connection_profile(&uuid).await {
             Ok(()) => DeleteConnectionResponses::Ok,
@@ -254,7 +270,9 @@ pub(crate) async fn replace_connection_by_id(
     Path(id): Path<String>,
     Json(body): Json<ConnectionProfile>,
 ) -> UpsertConnectionResponses {
-    let created = NetworkService::get_connection_profile_by_id(&id).await.is_err();
+    let created = NetworkService::get_connection_profile_by_id(&id)
+        .await
+        .is_err();
     match NetworkService::update_connection_profile_typed(&id, body).await {
         Ok(value) => {
             if created {
@@ -266,7 +284,9 @@ pub(crate) async fn replace_connection_by_id(
         Err(error) => {
             let message = error.to_string();
             log::error!("replace_connection_by_id {}: {}", id, message);
-            if message.contains("Missing connection section") || message.contains("must have an id element") {
+            if message.contains("Missing connection section")
+                || message.contains("must have an id element")
+            {
                 UpsertConnectionResponses::BadRequest
             } else {
                 UpsertConnectionResponses::InternalError

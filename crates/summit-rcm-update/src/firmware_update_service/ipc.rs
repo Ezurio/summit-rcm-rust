@@ -5,13 +5,13 @@
 //! Direct SWUpdate IPC mode: opens a swclient connection and streams raw image
 //! data into it through a bounded write queue.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use swupdate_ipc::r#async::inst_start_request;
 use swupdate_ipc::{InstallMode, InstallRequest, InstallSource};
 
-use super::stream;
 use super::STATE;
+use super::stream;
 
 fn swupdate_running_mode(image_mode: &str, inactive_side: Option<&str>) -> String {
     match inactive_side {

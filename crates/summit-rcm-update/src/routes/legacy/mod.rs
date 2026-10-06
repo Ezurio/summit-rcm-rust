@@ -2,17 +2,13 @@
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
 //
-use summit_rcm_web::legacy_response::LegacyOperationResponse;
-use summit_rcm_web::legacy_response::SdcerrCode;
 use crate::FirmwareUpdateService;
 use crate::firmware_update_service::{SummitRcmUpdateStatus, UpdateStreamError};
 use crate::routes::shared::upload_update_stream;
-use summit_rcm_web::axum::{
-    body::Body,
-    http::Request,
-    Json,
-};
 use serde::Deserialize;
+use summit_rcm_web::axum::{Json, body::Body, http::Request};
+use summit_rcm_web::legacy_response::LegacyOperationResponse;
+use summit_rcm_web::legacy_response::SdcerrCode;
 #[cfg(feature = "api-docs")]
 #[derive(utoipa::OpenApi)]
 #[openapi(paths(
@@ -30,8 +26,10 @@ fn legacy_operation_response(sdcerr: i32, info_msg: impl Into<String>) -> Legacy
     }
 }
 
-pub(crate) type GetSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
-pub(crate) type PostSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type GetSwupdateLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type PostSwupdateLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 summit_rcm_web::define_json_response_family! {
     pub enum PutSwupdateLegacyResponses {
@@ -43,7 +41,8 @@ summit_rcm_web::define_json_response_family! {
     from LegacyOperationResponse => Ok;
 }
 
-pub(crate) type DeleteSwupdateLegacyResponses = summit_rcm_web::legacy_response::LegacyOperationOkResponse;
+pub(crate) type DeleteSwupdateLegacyResponses =
+    summit_rcm_web::legacy_response::LegacyOperationOkResponse;
 
 #[cfg_attr(feature = "api-docs", derive(utoipa::ToSchema))]
 #[derive(Deserialize)]
@@ -52,22 +51,26 @@ pub(crate) struct LegacySwupdateRequest {
     pub image: Option<String>,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/firmware",
-    tag = "legacy",
-    responses(GetSwupdateLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/firmware",
+        tag = "legacy",
+        responses(GetSwupdateLegacyResponses)
+    )
+)]
 pub(crate) async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
     let snap = FirmwareUpdateService::snapshot();
     LegacyOperationResponse {
         sdcerr: snap.status as i32,
         info_msg: match snap.status {
-            SummitRcmUpdateStatus::Updated     => "Updated",
-            SummitRcmUpdateStatus::Fail        => "Failed",
+            SummitRcmUpdateStatus::Updated => "Updated",
+            SummitRcmUpdateStatus::Fail => "Failed",
             SummitRcmUpdateStatus::NotUpdating => "No update in progress",
-            SummitRcmUpdateStatus::Updating    => "Updating...",
-        }.to_string(),
+            SummitRcmUpdateStatus::Updating => "Updating...",
+        }
+        .to_string(),
     }
     .into()
 }
@@ -79,13 +82,12 @@ pub(crate) async fn get_swupdate_legacy() -> GetSwupdateLegacyResponses {
     request_body = LegacySwupdateRequest,
     responses(PostSwupdateLegacyResponses)
 ))]
-pub(crate) async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>) -> PostSwupdateLegacyResponses {
+pub(crate) async fn post_swupdate_legacy(
+    Json(body): Json<LegacySwupdateRequest>,
+) -> PostSwupdateLegacyResponses {
     if FirmwareUpdateService::is_update_in_progress() {
-        return legacy_operation_response(
-            SdcerrCode::Fail.as_i32(),
-            "Device is busy updating.",
-        )
-        .into();
+        return legacy_operation_response(SdcerrCode::Fail.as_i32(), "Device is busy updating.")
+            .into();
     }
 
     let url = body.url.unwrap_or_default();
@@ -97,7 +99,9 @@ pub(crate) async fn post_swupdate_legacy(Json(body): Json<LegacySwupdateRequest>
 
     match FirmwareUpdateService::start_update(&url, &image).await {
         Ok(_) => legacy_operation_response(SdcerrCode::Success.as_i32(), "").into(),
-        Err(error) => legacy_operation_response(SdcerrCode::Fail.as_i32(), error.to_string()).into()
+        Err(error) => {
+            legacy_operation_response(SdcerrCode::Fail.as_i32(), error.to_string()).into()
+        }
     }
 }
 
@@ -128,12 +132,15 @@ pub(crate) async fn put_swupdate_legacy(req: Request<Body>) -> PutSwupdateLegacy
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/firmware",
-    tag = "legacy",
-    responses(DeleteSwupdateLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/firmware",
+        tag = "legacy",
+        responses(DeleteSwupdateLegacyResponses)
+    )
+)]
 pub(crate) async fn delete_swupdate_legacy() -> DeleteSwupdateLegacyResponses {
     FirmwareUpdateService::cancel();
     legacy_operation_response(SdcerrCode::Success.as_i32(), "").into()

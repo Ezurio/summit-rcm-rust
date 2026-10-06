@@ -4,16 +4,15 @@
 //
 
 use anyhow::Result;
+use std::collections::HashSet;
 use summit_rcm_core::dbus;
 use summit_rcm_core::dbus::DBUS_PROP_IFACE;
-use std::collections::HashSet;
 use zbus::Connection;
 use zbus::zvariant::OwnedObjectPath;
 
 use super::{
-    NetworkManagerService, NmConnectionSettings, NmProperties, NM_BUS_NAME,
-    NM_CONNECTION_ACTIVE_IFACE, NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE,
-    NM_SETTINGS_IFACE, NM_SETTINGS_OBJ,
+    NM_BUS_NAME, NM_CONNECTION_ACTIVE_IFACE, NM_IFACE, NM_MAIN_OBJ, NM_SETTINGS_CONNECTION_IFACE,
+    NM_SETTINGS_IFACE, NM_SETTINGS_OBJ, NetworkManagerService, NmConnectionSettings, NmProperties,
 };
 
 impl NetworkManagerService {
@@ -39,7 +38,9 @@ impl NetworkManagerService {
         .await
     }
 
-    pub(crate) async fn get_raw_connection_settings(connection_obj_path: &str) -> Result<NmConnectionSettings> {
+    pub(crate) async fn get_raw_connection_settings(
+        connection_obj_path: &str,
+    ) -> Result<NmConnectionSettings> {
         let conn = Self::system_bus().await?;
         Self::get_raw_connection_settings_with_conn(conn.as_ref(), connection_obj_path).await
     }
@@ -81,20 +82,27 @@ impl NetworkManagerService {
         .await
     }
 
-    pub(super) async fn get_active_connection_paths_with_conn(conn: &Connection) -> Result<Vec<OwnedObjectPath>> {
+    pub(super) async fn get_active_connection_paths_with_conn(
+        conn: &Connection,
+    ) -> Result<Vec<OwnedObjectPath>> {
         let props = Self::get_properties_with_conn(conn, NM_MAIN_OBJ, NM_IFACE).await?;
         let paths = props
             .get("ActiveConnections")
             .ok_or_else(|| anyhow::anyhow!("ActiveConnections property missing"))?;
-        dbus::clone_owned_value(paths)?.try_into().map_err(Into::into)
+        dbus::clone_owned_value(paths)?
+            .try_into()
+            .map_err(Into::into)
     }
 
-    pub(crate) async fn get_active_connection_path_by_uuid(uuid: &str) -> Result<Option<OwnedObjectPath>> {
+    pub(crate) async fn get_active_connection_path_by_uuid(
+        uuid: &str,
+    ) -> Result<Option<OwnedObjectPath>> {
         let conn = Self::system_bus().await?;
-        let connection_path = match Self::get_connection_path_by_uuid_with_conn(conn.as_ref(), uuid).await {
-            Ok(path) => path,
-            Err(_) => return Ok(None),
-        };
+        let connection_path =
+            match Self::get_connection_path_by_uuid_with_conn(conn.as_ref(), uuid).await {
+                Ok(path) => path,
+                Err(_) => return Ok(None),
+            };
 
         for active_path in Self::get_active_connection_paths_with_conn(conn.as_ref()).await? {
             let props = Self::get_properties_with_conn(
@@ -106,7 +114,8 @@ impl NetworkManagerService {
             let Some(connection_value) = props.get("Connection") else {
                 continue;
             };
-            let active_connection: OwnedObjectPath = dbus::clone_owned_value(connection_value)?.try_into()?;
+            let active_connection: OwnedObjectPath =
+                dbus::clone_owned_value(connection_value)?.try_into()?;
             if active_connection == connection_path {
                 return Ok(Some(active_path));
             }
@@ -130,14 +139,17 @@ impl NetworkManagerService {
             let Some(connection_value) = props.get("Connection") else {
                 continue;
             };
-            let connection_path: OwnedObjectPath = dbus::clone_owned_value(connection_value)?.try_into()?;
+            let connection_path: OwnedObjectPath =
+                dbus::clone_owned_value(connection_value)?.try_into()?;
             let _ = active_connections.insert(connection_path);
         }
 
         Ok(active_connections)
     }
 
-    pub(crate) async fn add_connection_dbus(connection: NmConnectionSettings) -> Result<OwnedObjectPath> {
+    pub(crate) async fn add_connection_dbus(
+        connection: NmConnectionSettings,
+    ) -> Result<OwnedObjectPath> {
         dbus::call_method_deserialize_with_timeout(
             Self::system_bus().await?,
             Some(NM_BUS_NAME),
@@ -242,6 +254,4 @@ impl NetworkManagerService {
         drop(response);
         Ok(())
     }
-
-
 }

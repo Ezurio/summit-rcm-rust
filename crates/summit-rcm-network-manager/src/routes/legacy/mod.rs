@@ -26,4 +26,3 @@ pub(crate) mod types;
     crate::routes::legacy::network_status::get_network_status_legacy,
 ))]
 pub(crate) struct ApiDoc;
-

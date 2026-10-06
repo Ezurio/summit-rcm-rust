@@ -11,22 +11,34 @@ mod status;
 mod transitions;
 
 use anyhow::Result;
+use serde_json::{Value, json};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, atomic::AtomicBool},
+    time::Duration,
+};
 use summit_rcm_core::dbus;
-use serde_json::{json, Value};
-use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, LazyLock}, time::Duration};
-use tokio::{sync::{Mutex, OnceCell, RwLock}, task::JoinHandle};
-use zbus::{zvariant::{OwnedValue, Value as DbusValue}, Connection};
+use tokio::{
+    sync::{Mutex, OnceCell, RwLock},
+    task::JoinHandle,
+};
+use zbus::{
+    Connection,
+    zvariant::{OwnedValue, Value as DbusValue},
+};
 
 pub(crate) const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
 pub(crate) const NM_MAIN_OBJ: &str = "/org/freedesktop/NetworkManager";
 pub(crate) const NM_IFACE: &str = "org.freedesktop.NetworkManager";
 pub(crate) const NM_SETTINGS_OBJ: &str = "/org/freedesktop/NetworkManager/Settings";
 pub(crate) const NM_SETTINGS_IFACE: &str = "org.freedesktop.NetworkManager.Settings";
-pub(crate) const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Settings.Connection";
+pub(crate) const NM_SETTINGS_CONNECTION_IFACE: &str =
+    "org.freedesktop.NetworkManager.Settings.Connection";
 pub(crate) const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
 pub(crate) const NM_DEVICE_WIRED_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wired";
 pub(crate) const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
-pub(crate) const NM_CONNECTION_ACTIVE_IFACE: &str = "org.freedesktop.NetworkManager.Connection.Active";
+pub(crate) const NM_CONNECTION_ACTIVE_IFACE: &str =
+    "org.freedesktop.NetworkManager.Connection.Active";
 pub(crate) const NM_IP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP4Config";
 pub(crate) const NM_IP6_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.IP6Config";
 pub(crate) const NM_DHCP4_CONFIG_IFACE: &str = "org.freedesktop.NetworkManager.DHCP4Config";

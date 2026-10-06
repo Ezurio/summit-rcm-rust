@@ -48,7 +48,11 @@ pub(super) async fn ensure_agent_registered(conn: &Connection) {
     }
 
     // Exporting is idempotent; `Ok(false)` means it was already present.
-    if let Err(error) = conn.object_server().at(AGENT_PATH, AuthenticationAgent).await {
+    if let Err(error) = conn
+        .object_server()
+        .at(AGENT_PATH, AuthenticationAgent)
+        .await
+    {
         log::debug!("bluetooth agent: export failed: {error}");
         return;
     }

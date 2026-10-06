@@ -4,19 +4,21 @@
 //
 //! Log management service (journalctl / supplicant / Wi-Fi driver)
 
-use summit_rcm_core::config::SystemSettingsManage;
-use crate::{CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalctlLogType, SupplicantLogLevel};
-use summit_rcm_network::service::NetworkService;
+use crate::{
+    CURRENT_PROCESS_LOG_IDENTIFIER, DriverLogLevel, JournalctlLogType, SupplicantLogLevel,
+};
 use anyhow::Result;
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 #[cfg(any(feature = "api-v2", feature = "at-interface"))]
 use std::sync::Mutex;
+use summit_rcm_core::config::SystemSettingsManage;
+use summit_rcm_network::service::NetworkService;
 use time::format_description::FormatItem;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
 use tokio::process::Command;
-use log::error;
 
 #[cfg(any(feature = "api-v2", feature = "at-interface"))]
 pub(crate) const VALID_WEBSERVER_LOG_LEVELS: &[&str] =
@@ -93,7 +95,10 @@ impl LogsService {
             anyhow::bail!("Priority must be an int between 0-7");
         }
 
-        let mut args = vec![format!("--priority={priority}"), "--output=json".to_string()];
+        let mut args = vec![
+            format!("--priority={priority}"),
+            "--output=json".to_string(),
+        ];
 
         if let Some(identifier) = Self::journalctl_identifier(log_type) {
             args.push(format!("--identifier={identifier}"));
@@ -115,7 +120,9 @@ impl LogsService {
         }
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let mut logs = Vec::with_capacity(SystemSettingsManage::get_int("log_data_streaming_size", 100).max(1) as usize);
+        let mut logs = Vec::with_capacity(
+            SystemSettingsManage::get_int("log_data_streaming_size", 100).max(1) as usize,
+        );
         for line in stdout_str.lines() {
             if line.trim().is_empty() {
                 break;

@@ -4,11 +4,11 @@
 //
 //! Service for file management: certificates, config archives, firmware updates
 
-use anyhow::{Context, Result};
 use crate::{
     config::{SummitRcmConfigManage, SystemSettingsManage},
     utils::{command_output_checked, path_exists},
 };
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 pub const CERT_DIR: &str = crate::definition::NETWORKMANAGER_CERT_DIR;
@@ -38,11 +38,12 @@ impl FilesService {
     // -------------------------------------------------------------------------
 
     async fn get_log_path() -> &'static str {
-        let volatile_has_entries = if let Ok(mut entries) = tokio::fs::read_dir(VOLATILE_LOG_PATH).await {
-            entries.next_entry().await.ok().flatten().is_some()
-        } else {
-            false
-        };
+        let volatile_has_entries =
+            if let Ok(mut entries) = tokio::fs::read_dir(VOLATILE_LOG_PATH).await {
+                entries.next_entry().await.ok().flatten().is_some()
+            } else {
+                false
+            };
 
         if !path_exists(PERSISTENT_LOG_PATH).await || volatile_has_entries {
             VOLATILE_LOG_PATH
@@ -66,7 +67,9 @@ impl FilesService {
 
     fn extensions_for_type(file_type: &str) -> Option<&'static [&'static str]> {
         match file_type {
-            "cert" => Some(&[".crt", ".key", ".pem", ".bin", ".der", ".p12", ".pfx", ".cer"]),
+            "cert" => Some(&[
+                ".crt", ".key", ".pem", ".bin", ".der", ".p12", ".pfx", ".cer",
+            ]),
             "pac" => Some(&[".pac"]),
             _ => None,
         }
@@ -189,24 +192,15 @@ impl FilesService {
     pub async fn export_system_config(password: &str) -> Result<Vec<u8>> {
         let sources = Self::system_config_export_sources().await?;
         let source_refs: Vec<&str> = sources.iter().map(String::as_str).collect();
-        crate::archive::zip_create(
-            password,
-            &["--symlinks", "-9", "-r"],
-            &source_refs,
-            "/",
-        ).await
+        crate::archive::zip_create(password, &["--symlinks", "-9", "-r"], &source_refs, "/").await
     }
 
     async fn system_config_export_sources() -> Result<Vec<String>> {
         let mut sources = Vec::new();
 
         Self::push_path_if_exists(&mut sources, SUMMIT_RCM_SETTINGS_FILE).await?;
-        Self::push_directory_entries(
-            &mut sources,
-            NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
-            true,
-        )
-        .await?;
+        Self::push_directory_entries(&mut sources, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR, true)
+            .await?;
         Self::push_directory_entries(&mut sources, NETWORKMANAGER_CERTS_DIR, true).await?;
 
         for path in Self::timezone_file_paths().await? {
@@ -233,7 +227,12 @@ impl FilesService {
             }
             let metadata = tokio::fs::symlink_metadata(path_buf).await?;
             if metadata.file_type().is_symlink() {
-                timezone_files.push(tokio::fs::read_link(path_buf).await?.to_string_lossy().into_owned());
+                timezone_files.push(
+                    tokio::fs::read_link(path_buf)
+                        .await?
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             } else {
                 timezone_files.push((*path).to_string());
             }

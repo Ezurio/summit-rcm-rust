@@ -5,8 +5,8 @@
 
 //! Basic AT commands: communication check, empty, ping, echo
 
-use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::commands::params::CsvParams;
+use crate::commands::{CommandOutcome, PublishedCommand};
 use crate::fsm::FsmHandle;
 use anyhow::{Context, anyhow};
 use log::error;
@@ -32,7 +32,11 @@ impl PingProtocol {
     }
 }
 
-async fn ping_target(target: &str, timeout_secs: u64, protocol: PingProtocol) -> anyhow::Result<Duration> {
+async fn ping_target(
+    target: &str,
+    timeout_secs: u64,
+    protocol: PingProtocol,
+) -> anyhow::Result<Duration> {
     let address = tokio::net::lookup_host((target, 0))
         .await
         .with_context(|| format!("Failed to resolve ping target {target}"))?
@@ -67,7 +71,10 @@ fn format_ping_millis(duration: Duration) -> String {
     }
 }
 
-pub async fn execute_communication_check(_fsm: &FsmHandle, _params: &CsvParams<'_>) -> CommandOutcome {
+pub async fn execute_communication_check(
+    _fsm: &FsmHandle,
+    _params: &CsvParams<'_>,
+) -> CommandOutcome {
     CommandOutcome::Ok
 }
 
@@ -110,7 +117,9 @@ pub async fn execute_ping(_fsm: &FsmHandle, params: &CsvParams<'_>) -> CommandOu
             };
 
             match ping_target(target, timeout_secs, protocol).await {
-                Ok(duration) => CommandOutcome::WithData(format!("+PING: {}", format_ping_millis(duration))),
+                Ok(duration) => {
+                    CommandOutcome::WithData(format!("+PING: {}", format_ping_millis(duration)))
+                }
                 Err(error) => {
                     error!("Ping error: {error}");
                     CommandOutcome::Error
@@ -134,7 +143,13 @@ pub async fn execute_at_echo_disable(_fsm: &FsmHandle, _params: &CsvParams<'_>) 
 pub(crate) const COMMANDS: &[PublishedCommand] = &[
     crate::commands::command_spec!("at", "AT", 0, &[], execute_communication_check),
     crate::commands::command_spec!("", "", 0, &[], execute_empty),
-    crate::commands::command_spec!("at+ping", "AT+PING=<target>[,<timeout>[,<protocol>]]", 0, &[], execute_ping),
+    crate::commands::command_spec!(
+        "at+ping",
+        "AT+PING=<target>[,<timeout>[,<protocol>]]",
+        0,
+        &[],
+        execute_ping
+    ),
     crate::commands::command_spec!("ate1", "ATE1", 0, &[], execute_at_echo_enable),
     crate::commands::command_spec!("ate0", "ATE0", 0, &[], execute_at_echo_disable),
 ];

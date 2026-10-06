@@ -4,11 +4,11 @@
 //
 //! iptables-based firewall port forwarding service
 
-use summit_rcm_core::utils::command_output;
 use log::error;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex as AsyncMutex, OnceCell, RwLock};
+use summit_rcm_core::utils::command_output;
 use summit_rcm_web::serde_json;
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, RwLock};
 
 const IPTABLES: &str = "/usr/sbin/iptables";
 const IP6TABLES: &str = "/usr/sbin/ip6tables";
@@ -68,7 +68,10 @@ impl FirewallService {
         with_ports_read(|ports| ports.clone()).await
     }
 
-    pub(crate) async fn configure_forwarded_port(command: &str, fp: ForwardedPort) -> (bool, String) {
+    pub(crate) async fn configure_forwarded_port(
+        command: &str,
+        fp: ForwardedPort,
+    ) -> (bool, String) {
         ensure_ports_loaded().await;
         let _interlock = PORTS_INTERLOCK.lock().await;
         let present = with_ports_read(|ports| ports.contains(&fp)).await;
@@ -80,7 +83,11 @@ impl FirewallService {
             return (true, "Forwarded port doesn't exist".into());
         }
 
-        let ipt = if fp.ip_version == IPV4 { IPTABLES } else { IP6TABLES };
+        let ipt = if fp.ip_version == IPV4 {
+            IPTABLES
+        } else {
+            IP6TABLES
+        };
         let action = if command == ADD_PORT { "-A" } else { "-D" };
 
         let to_dest = if fp.ip_version == IPV4 {
@@ -114,11 +121,16 @@ impl FirewallService {
         match prerouting {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
-                let msg = format!("Error in PREROUTING rule: {}", String::from_utf8_lossy(&out.stderr));
+                let msg = format!(
+                    "Error in PREROUTING rule: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
                 error!("{}", msg);
                 return (false, msg);
             }
-            Err(e) => { return (false, e.to_string()); }
+            Err(e) => {
+                return (false, e.to_string());
+            }
         }
 
         let forward = command_output(
@@ -145,11 +157,16 @@ impl FirewallService {
         match forward {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
-                let msg = format!("Error in FORWARD rule: {}", String::from_utf8_lossy(&out.stderr));
+                let msg = format!(
+                    "Error in FORWARD rule: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
                 error!("{}", msg);
                 return (false, msg);
             }
-            Err(e) => { return (false, e.to_string()); }
+            Err(e) => {
+                return (false, e.to_string());
+            }
         }
 
         let snapshot = with_ports(|ports| {
@@ -159,11 +176,11 @@ impl FirewallService {
                 ports.retain(|p| p != &fp);
             }
             serde_json::to_string(ports.as_slice()).ok()
-        }).await;
+        })
+        .await;
         if let Some(data) = snapshot {
             let _ = tokio::fs::write(FORWARDED_PORTS_FILE, data).await;
         }
         (true, String::new())
     }
-
 }

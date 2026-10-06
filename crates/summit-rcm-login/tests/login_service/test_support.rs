@@ -41,5 +41,8 @@ pub fn set_boottime_secs(value: u64) {
 
 pub fn set_boottime(value_secs: u64, value_nsecs: i64) {
     BOOTTIME_OVERRIDE_SECS.store(value_secs, Ordering::Relaxed);
-    BOOTTIME_OVERRIDE_NSECS.store(value_nsecs.try_into().unwrap_or(u64::MAX), Ordering::Relaxed);
+    BOOTTIME_OVERRIDE_NSECS.store(
+        value_nsecs.try_into().unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
 }

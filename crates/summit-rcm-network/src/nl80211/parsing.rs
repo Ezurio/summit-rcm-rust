@@ -9,17 +9,16 @@ use neli::types::{Buffer, GenlBuffer};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 use std::collections::BTreeSet;
 
-use super::{StationInfo, StationRateInfo};
+#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
+use super::protocol::{
+    Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr, Nl80211RegRuleAttr, get_required_attr,
+    nl80211_attrs, nl80211_band_attr, nl80211_frequency_attr, nl80211_reg_rule_attr,
+};
 use super::protocol::{
     Nl80211RateInfo, Nl80211StaBssParam, Nl80211StaInfo, get_optional_attr, has_attr, nl80211_attr,
     nl80211_rate_info, nl80211_sta_bss_param, nl80211_sta_info,
 };
-#[cfg(any(feature = "api-v2", feature = "api-legacy"))]
-use super::protocol::{
-    Nl80211Attr, Nl80211BandAttr, Nl80211FrequencyAttr, Nl80211RegRuleAttr,
-    get_required_attr, nl80211_attrs, nl80211_band_attr, nl80211_frequency_attr,
-    nl80211_reg_rule_attr,
-};
+use super::{StationInfo, StationRateInfo};
 
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,17 +32,23 @@ pub(super) fn parse_station_info(
     handle: &AttrHandle<'_, GenlBuffer<Nl80211StaInfo, Buffer>, Nlattr<Nl80211StaInfo, Buffer>>,
 ) -> Result<StationInfo> {
     let bss_param = handle
-        .get_attribute(nl80211_attr::<Nl80211StaInfo>(nl80211_sta_info::NL80211_STA_INFO_BSS_PARAM))
+        .get_attribute(nl80211_attr::<Nl80211StaInfo>(
+            nl80211_sta_info::NL80211_STA_INFO_BSS_PARAM,
+        ))
         .map(|attr| attr.get_attr_handle())
         .transpose()
         .map_err(|error| anyhow!(error))?;
     let rx_rate = handle
-        .get_attribute(nl80211_attr::<Nl80211StaInfo>(nl80211_sta_info::NL80211_STA_INFO_RX_BITRATE))
+        .get_attribute(nl80211_attr::<Nl80211StaInfo>(
+            nl80211_sta_info::NL80211_STA_INFO_RX_BITRATE,
+        ))
         .map(|attr| attr.get_attr_handle())
         .transpose()
         .map_err(|error| anyhow!(error))?;
     let tx_rate = handle
-        .get_attribute(nl80211_attr::<Nl80211StaInfo>(nl80211_sta_info::NL80211_STA_INFO_TX_BITRATE))
+        .get_attribute(nl80211_attr::<Nl80211StaInfo>(
+            nl80211_sta_info::NL80211_STA_INFO_TX_BITRATE,
+        ))
         .map(|attr| attr.get_attr_handle())
         .transpose()
         .map_err(|error| anyhow!(error))?;
@@ -174,8 +179,11 @@ pub(super) fn parse_supported_frequencies(
         let band_handle: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
             attr.get_attr_handle().map_err(|error| anyhow!(error))?;
         for band in band_handle.get_attrs() {
-            let nested: AttrHandle<'_, GenlBuffer<Nl80211BandAttr, Buffer>, Nlattr<Nl80211BandAttr, Buffer>> =
-                band.get_attr_handle().map_err(|error| anyhow!(error))?;
+            let nested: AttrHandle<
+                '_,
+                GenlBuffer<Nl80211BandAttr, Buffer>,
+                Nlattr<Nl80211BandAttr, Buffer>,
+            > = band.get_attr_handle().map_err(|error| anyhow!(error))?;
             for band_attr in nested.get_attrs() {
                 if *band_attr.nla_type().nla_type()
                     != nl80211_attr::<Nl80211BandAttr>(nl80211_band_attr::NL80211_BAND_ATTR_FREQS)
@@ -184,7 +192,9 @@ pub(super) fn parse_supported_frequencies(
                 }
 
                 let freq_list: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
-                    band_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+                    band_attr
+                        .get_attr_handle()
+                        .map_err(|error| anyhow!(error))?;
                 for freq in freq_list.get_attrs() {
                     let freq_handle: AttrHandle<
                         '_,
@@ -219,14 +229,15 @@ pub(super) fn parse_supported_frequencies(
 pub(super) fn parse_regulatory_rules(
     handle: &AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>>,
 ) -> Result<Vec<RegulatoryRule>> {
-    let Some(reg_rules_attr) = handle.get_attribute(
-        nl80211_attr::<Nl80211Attr>(nl80211_attrs::NL80211_ATTR_REG_RULES),
-    ) else {
+    let Some(reg_rules_attr) = handle.get_attribute(nl80211_attr::<Nl80211Attr>(
+        nl80211_attrs::NL80211_ATTR_REG_RULES,
+    )) else {
         return Ok(Vec::new());
     };
 
-    let reg_rules: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> =
-        reg_rules_attr.get_attr_handle().map_err(|error| anyhow!(error))?;
+    let reg_rules: AttrHandle<'_, GenlBuffer<u16, Buffer>, Nlattr<u16, Buffer>> = reg_rules_attr
+        .get_attr_handle()
+        .map_err(|error| anyhow!(error))?;
     let mut rules = Vec::new();
     for reg_rule in reg_rules.get_attrs() {
         let rule_handle: AttrHandle<
@@ -236,7 +247,9 @@ pub(super) fn parse_regulatory_rules(
         > = reg_rule.get_attr_handle().map_err(|error| anyhow!(error))?;
         let start_khz = get_required_attr::<u32, _>(
             &rule_handle,
-            nl80211_attr::<Nl80211RegRuleAttr>(nl80211_reg_rule_attr::NL80211_ATTR_FREQ_RANGE_START),
+            nl80211_attr::<Nl80211RegRuleAttr>(
+                nl80211_reg_rule_attr::NL80211_ATTR_FREQ_RANGE_START,
+            ),
         )?;
         let end_khz = get_required_attr::<u32, _>(
             &rule_handle,
@@ -297,14 +310,16 @@ fn parse_rate_info(
     ) || has_attr(
         handle,
         nl80211_attr::<Nl80211RateInfo>(nl80211_rate_info::NL80211_RATE_INFO_160_MHZ_WIDTH),
-    )
-    {
+    ) {
         Some(160)
     } else {
         Some(20)
     };
 
-    Ok(StationRateInfo { rate, channel_width })
+    Ok(StationRateInfo {
+        rate,
+        channel_width,
+    })
 }
 
 fn optional_i64_from_u64(value: Option<u64>) -> Result<Option<i64>> {

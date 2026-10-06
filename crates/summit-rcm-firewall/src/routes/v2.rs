@@ -3,12 +3,10 @@
 // Copyright (C) 2026 Ezurio LLC.
 //
 
-use crate::service::{
-    ADD_PORT, REMOVE_PORT, FirewallService, ForwardedPort, IP_VERSIONS,
-};
-use summit_rcm_web::axum::Json;
+use crate::service::{ADD_PORT, FirewallService, ForwardedPort, IP_VERSIONS, REMOVE_PORT};
 use log::error;
 use std::collections::HashSet;
+use summit_rcm_web::axum::Json;
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::v2_openapi::ApiDoc;
@@ -21,22 +19,28 @@ summit_rcm_web::define_ok_internal_json_response_family! {
     pub(crate) enum PutFirewallResponses(Vec<ForwardedPort>);
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/network/firewall/forwardedPorts",
-    tag = "firewall",
-    responses(GetFirewallResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/network/firewall/forwardedPorts",
+        tag = "firewall",
+        responses(GetFirewallResponses)
+    )
+)]
 pub(crate) async fn get_firewall() -> GetFirewallResponses {
     FirewallService::get_forwarded_ports().await.into()
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/network/firewall/forwardedPorts",
-    tag = "firewall",
-    responses(PutFirewallResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/network/firewall/forwardedPorts",
+        tag = "firewall",
+        responses(PutFirewallResponses)
+    )
+)]
 pub(crate) async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> PutFirewallResponses {
     for fp in &desired {
         if !IP_VERSIONS.contains(&fp.ip_version.as_str()) {
@@ -47,7 +51,10 @@ pub(crate) async fn put_firewall(Json(desired): Json<Vec<ForwardedPort>>) -> Put
         }
     }
     let desired_set: HashSet<ForwardedPort> = desired.iter().cloned().collect();
-    let current_set: HashSet<ForwardedPort> = FirewallService::get_forwarded_ports().await.into_iter().collect();
+    let current_set: HashSet<ForwardedPort> = FirewallService::get_forwarded_ports()
+        .await
+        .into_iter()
+        .collect();
 
     for fp in &desired {
         if !current_set.contains(fp) {

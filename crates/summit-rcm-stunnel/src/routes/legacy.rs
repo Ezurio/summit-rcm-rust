@@ -4,11 +4,11 @@
 //
 
 use crate::service::StunnelService;
-use summit_rcm_web::systemd_state::{
-    legacy_state_error_response, legacy_state_model, legacy_state_with_message,
-    validate_requested_state, LegacyStateResponses, StatePut,
-};
 use summit_rcm_web::axum::Json;
+use summit_rcm_web::systemd_state::{
+    LegacyStateResponses, StatePut, legacy_state_error_response, legacy_state_model,
+    legacy_state_with_message, validate_requested_state,
+};
 
 #[cfg(feature = "api-docs")]
 pub(crate) use super::legacy_openapi::ApiDoc;
@@ -37,7 +37,10 @@ pub(crate) async fn put_stunnel_legacy(Json(body): Json<StatePut>) -> PutStunnel
     };
 
     let svc = StunnelService::new();
-    let active_state = svc.try_get_active_state_legacy().await.unwrap_or_else(|_| "unknown".to_string());
+    let active_state = svc
+        .try_get_active_state_legacy()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
     let result = svc.set_state(&requested).await;
 
     if let Err(error) = result {
@@ -52,12 +55,15 @@ pub(crate) async fn put_stunnel_legacy(Json(body): Json<StatePut>) -> PutStunnel
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/stunnel",
-    tag = "stunnel",
-    responses(GetStunnelLegacyResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/stunnel",
+        tag = "stunnel",
+        responses(GetStunnelLegacyResponses)
+    )
+)]
 pub(crate) async fn get_stunnel_legacy() -> GetStunnelLegacyResponses {
     let svc = StunnelService::new();
     match svc.try_get_active_state_legacy().await {

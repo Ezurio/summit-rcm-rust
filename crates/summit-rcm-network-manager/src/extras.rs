@@ -6,11 +6,11 @@
 //! NetworkManager-specific extra helpers.
 
 use anyhow::Result;
+use serde_json::{Value, json};
 use summit_rcm_core::definition::{
-    relative_system_path, NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR,
+    NETWORKMANAGER_CERT_DIR, NETWORKMANAGER_SYSTEM_CONNECTIONS_DIR, relative_system_path,
 };
 use summit_rcm_core::utils::{path_exists, read_text};
-use serde_json::{json, Value};
 
 use super::service::{InterfaceError, NetworkService};
 #[cfg(any(feature = "api-v2", feature = "api-legacy"))]

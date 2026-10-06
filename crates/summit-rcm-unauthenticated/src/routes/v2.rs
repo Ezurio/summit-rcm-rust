@@ -29,25 +29,32 @@ pub(crate) struct AllowUnauthenticatedState {
     pub allow_unauthenticated_reboot_reset: bool,
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    get,
-    path = "/api/v2/system/allowUnauthenticatedResetReboot",
-    tag = "unauthenticated",
-    responses(GetUnauthenticatedResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        get,
+        path = "/api/v2/system/allowUnauthenticatedResetReboot",
+        tag = "unauthenticated",
+        responses(GetUnauthenticatedResponses)
+    )
+)]
 pub(crate) async fn get_unauthenticated() -> GetUnauthenticatedResponses {
     AllowUnauthenticatedState {
-        allow_unauthenticated_reboot_reset: UnauthenticatedService::get_allow_unauthenticated_enabled(),
+        allow_unauthenticated_reboot_reset:
+            UnauthenticatedService::get_allow_unauthenticated_enabled(),
     }
     .into()
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    put,
-    path = "/api/v2/system/allowUnauthenticatedResetReboot",
-    tag = "unauthenticated",
-    responses(PutUnauthenticatedResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        put,
+        path = "/api/v2/system/allowUnauthenticatedResetReboot",
+        tag = "unauthenticated",
+        responses(PutUnauthenticatedResponses)
+    )
+)]
 pub(crate) async fn put_unauthenticated() -> PutUnauthenticatedResponses {
     if UnauthenticatedService::set_allow_unauthenticated_enabled(true) {
         UnauthenticatedWriteResponses::Ok
@@ -56,12 +63,15 @@ pub(crate) async fn put_unauthenticated() -> PutUnauthenticatedResponses {
     }
 }
 
-#[cfg_attr(feature = "api-docs", utoipa::path(
-    delete,
-    path = "/api/v2/system/allowUnauthenticatedResetReboot",
-    tag = "unauthenticated",
-    responses(DeleteUnauthenticatedResponses)
-))]
+#[cfg_attr(
+    feature = "api-docs",
+    utoipa::path(
+        delete,
+        path = "/api/v2/system/allowUnauthenticatedResetReboot",
+        tag = "unauthenticated",
+        responses(DeleteUnauthenticatedResponses)
+    )
+)]
 pub(crate) async fn delete_unauthenticated() -> DeleteUnauthenticatedResponses {
     if UnauthenticatedService::set_allow_unauthenticated_enabled(false) {
         UnauthenticatedWriteResponses::Ok

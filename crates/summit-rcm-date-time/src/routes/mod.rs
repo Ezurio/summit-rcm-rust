@@ -11,8 +11,8 @@ pub mod legacy;
 #[cfg(all(feature = "api-docs", feature = "api-v2"))]
 pub(crate) mod v2_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(
+    #[derive(utoipa::OpenApi)]
+    #[openapi(
 		tags((name = "date-time", description = "Date/time management")),
 		paths(
 			crate::routes::v2::get_datetime,
@@ -20,16 +20,16 @@ pub(crate) mod v2_openapi {
 		),
 		components(schemas(crate::routes::v2::DateTimeRequest))
 	)]
-	pub(crate) struct ApiDoc;
+    pub(crate) struct ApiDoc;
 }
 
 #[cfg(all(feature = "api-docs", feature = "api-legacy"))]
 pub(crate) mod legacy_openapi {
 
-	#[derive(utoipa::OpenApi)]
-	#[openapi(paths(
-		crate::routes::legacy::get_datetime_legacy,
-		crate::routes::legacy::put_datetime_legacy,
-	))]
-	pub(crate) struct ApiDoc;
+    #[derive(utoipa::OpenApi)]
+    #[openapi(paths(
+        crate::routes::legacy::get_datetime_legacy,
+        crate::routes::legacy::put_datetime_legacy,
+    ))]
+    pub(crate) struct ApiDoc;
 }

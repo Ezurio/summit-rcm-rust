@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use swupdate_ipc::r#async as swupdate;
 
-use super::{STATE, SummitRcmUpdateStatus};
-use super::update_url;
 use super::stream;
+use super::update_url;
+use super::{STATE, SummitRcmUpdateStatus};
 
 /// Upper bound on how long a whole update (transfer + install) may take
 /// before being treated as failed.

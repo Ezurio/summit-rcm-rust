@@ -1,5 +1,4 @@
 #![cfg(all(feature = "login", feature = "test-support"))]
-
 //
 // SPDX-License-Identifier: LicenseRef-Ezurio-Clause
 // Copyright (C) 2026 Ezurio LLC.
@@ -11,18 +10,18 @@
 //! crate, so the test target must call `summit_rcm::web::build_router()` and
 //! rely on the root crate's `plugin_links.rs` link-retention shim.
 
-use summit_rcm_core::config::test_support as config_test_support;
-use summit_rcm_login::test_support as login_test_support;
-use summit_rcm::web::build_router;
-#[cfg(feature = "provisioning")]
-use summit_rcm_provisioning::ProvisioningState;
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode, header},
+};
 #[cfg(feature = "provisioning")]
 use std::time::{SystemTime, UNIX_EPOCH};
-use axum::{
-    body::Body,
-    http::{header, Request, StatusCode},
-    Router,
-};
+use summit_rcm::web::build_router;
+use summit_rcm_core::config::test_support as config_test_support;
+use summit_rcm_login::test_support as login_test_support;
+#[cfg(feature = "provisioning")]
+use summit_rcm_provisioning::ProvisioningState;
 use tower::ServiceExt;
 
 macro_rules! test_env {
@@ -45,11 +44,15 @@ impl Drop for ServerConfigTestCleanup {
         config_test_support::clear_server_overrides();
         config_test_support::delete_system_setting("session_timeout");
         #[cfg(feature = "provisioning")]
-        if let Some(state_path) = config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE") {
+        if let Some(state_path) =
+            config_test_support::env_override("SUMMIT_RCM_PROVISIONING_STATE_FILE")
+        {
             let _ = std::fs::remove_file(&state_path);
         }
         #[cfg(feature = "provisioning")]
-        if let Some(device_cert_path) = config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT") {
+        if let Some(device_cert_path) =
+            config_test_support::env_override("SUMMIT_RCM_DEVICE_SERVER_CERT")
+        {
             let _ = std::fs::remove_file(&device_cert_path);
         }
         #[cfg(feature = "provisioning")]
@@ -131,7 +134,10 @@ async fn generate_test_device_certificate(cert_path: &std::path::Path) {
         .status()
         .await
         .expect("openssl should run for app provisioning test");
-    assert!(status.success(), "openssl should generate a test certificate");
+    assert!(
+        status.success(),
+        "openssl should generate a test certificate"
+    );
     let _ = tokio::fs::remove_file(key_path).await;
 }
 
@@ -210,7 +216,10 @@ async fn session_flow_requires_login_and_revokes_on_logout() {
 async fn expired_session_loses_access_to_protected_route() {
     let _settings_guard = config_test_support::SETTINGS_LOCK.lock();
     test_env!();
-    assert!(config_test_support::set_system_setting("session_timeout", "1"));
+    assert!(config_test_support::set_system_setting(
+        "session_timeout",
+        "1"
+    ));
     login_test_support::set_boottime_secs(100);
 
     let app: Router = build_router().layer(axum::Extension(
@@ -311,7 +320,9 @@ async fn sessions_disabled_create_duplicate_user_returns_conflict() {
         .method("POST")
         .uri("/api/v2/login/users")
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"username":"root","password":"ignored","permissions":"system_user"}"#))
+        .body(Body::from(
+            r#"{"username":"root","password":"ignored","permissions":"system_user"}"#,
+        ))
         .unwrap();
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
@@ -334,7 +345,10 @@ async fn sessions_disabled_missing_bluetooth_device_returns_bad_request() {
 
 #[tokio::test]
 async fn session_cookie_uses_configured_secure_and_httponly_flags() {
-    test_env!(("/", "tools.sessions.secure", "false"), ("/", "tools.sessions.httponly", "false"));
+    test_env!(
+        ("/", "tools.sessions.secure", "false"),
+        ("/", "tools.sessions.httponly", "false")
+    );
 
     let app: Router = build_router();
 
@@ -347,8 +361,7 @@ async fn session_cookie_uses_configured_secure_and_httponly_flags() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let cookie = session_cookie_set_cookie_header(&response)
-        .expect("session cookie should be set");
+    let cookie = session_cookie_set_cookie_header(&response).expect("session cookie should be set");
     assert!(!cookie.contains("Secure"));
     assert!(!cookie.contains("HttpOnly"));
 }
@@ -368,8 +381,7 @@ async fn session_cookie_defaults_to_secure_and_httponly() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let cookie = session_cookie_set_cookie_header(&response)
-        .expect("session cookie should be set");
+    let cookie = session_cookie_set_cookie_header(&response).expect("session cookie should be set");
     assert!(cookie.contains("Secure"));
     assert!(cookie.contains("HttpOnly"));
 }
@@ -535,7 +547,10 @@ async fn legacy_version_keeps_standard_response_envelope() {
 
     let app: Router = build_router();
 
-    let request = Request::builder().uri("/version").body(Body::empty()).unwrap();
+    let request = Request::builder()
+        .uri("/version")
+        .body(Body::empty())
+        .unwrap();
     let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -624,8 +639,8 @@ async fn legacy_log_data_rejects_out_of_range_priority_with_python_message() {
 #[cfg(feature = "at-interface")]
 #[test]
 fn at_lookup_resolves_core_and_plugin_usage_commands() {
-    let (_, params, print_usage) = summit_rcm_at::commands::lookup_command_in_registry("ATE1?")
-        .expect("ATE1? should resolve");
+    let (_, params, print_usage) =
+        summit_rcm_at::commands::lookup_command_in_registry("ATE1?").expect("ATE1? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 
@@ -634,8 +649,9 @@ fn at_lookup_resolves_core_and_plugin_usage_commands() {
     assert!(params.is_empty());
     assert!(print_usage);
 
-    let (_, params, print_usage) = summit_rcm_at::commands::lookup_command_in_registry("AT+DATETIME?")
-        .expect("AT+DATETIME? should resolve");
+    let (_, params, print_usage) =
+        summit_rcm_at::commands::lookup_command_in_registry("AT+DATETIME?")
+            .expect("AT+DATETIME? should resolve");
     assert!(params.is_empty());
     assert!(print_usage);
 }
