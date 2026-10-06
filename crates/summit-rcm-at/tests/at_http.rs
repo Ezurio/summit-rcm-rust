@@ -32,7 +32,9 @@ async fn serve_one(
     headers: Vec<(&'static str, &'static str)>,
     body: &'static [u8],
 ) -> (u16, tokio::task::JoinHandle<(String, Vec<u8>)>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind loopback listener");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind loopback listener");
     let port = listener.local_addr().expect("resolve listener addr").port();
 
     let (captured_tx, captured_rx) = oneshot::channel::<(String, Vec<u8>)>();
@@ -40,7 +42,10 @@ async fn serve_one(
     let body_bytes = Bytes::copy_from_slice(body);
 
     let task = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept test HTTP connection");
+        let (stream, _) = listener
+            .accept()
+            .await
+            .expect("accept test HTTP connection");
         let io = TokioIo::new(stream);
 
         let service = {
@@ -65,11 +70,7 @@ async fn serve_one(
 
                     assert_eq!(body.len(), content_length, "request body length mismatch");
 
-                    if let Some(tx) = captured_tx
-                        .lock()
-                        .expect("capture mutex poisoned")
-                        .take()
-                    {
+                    if let Some(tx) = captured_tx.lock().expect("capture mutex poisoned").take() {
                         let _ = tx.send((request_line, body));
                     }
 
@@ -78,9 +79,7 @@ async fn serve_one(
                         builder = builder.header(name, value);
                     }
 
-                    let response = builder
-                        .body(Full::new(body_bytes))
-                        .expect("build response");
+                    let response = builder.body(Full::new(body_bytes)).expect("build response");
                     Ok::<_, Infallible>(response)
                 }
             })
@@ -121,7 +120,10 @@ async fn get_request_returns_response_body() {
     harness.shutdown().await;
 
     let (request_line, _body) = server.await.expect("HTTP server task join");
-    assert!(request_line.starts_with("GET /test "), "request line: {request_line}");
+    assert!(
+        request_line.starts_with("GET /test "),
+        "request line: {request_line}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -166,19 +168,24 @@ async fn post_streams_body_and_returns_response() {
     harness.shutdown().await;
 
     let (request_line, body) = server.await.expect("HTTP server task join");
-    assert!(request_line.starts_with("POST /submit "), "request line: {request_line}");
+    assert!(
+        request_line.starts_with("POST /submit "),
+        "request line: {request_line}"
+    );
     assert_eq!(body, BODY, "request body");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_without_content_type_is_rejected() {
+async fn post_without_content_type_is_allowed() {
     let _guard = lock_test().await;
 
-    let (port, _server) = serve_one(
-        0,
+    const BODY: &[u8] = b"hello";
+
+    let (port, server) = serve_one(
+        BODY.len(),
         StatusCode::OK,
-        vec![("content-length", "0"), ("connection", "close")],
-        b"",
+        vec![("content-length", "2"), ("connection", "close")],
+        b"ok",
     )
     .await;
 
@@ -189,9 +196,19 @@ async fn post_without_content_type_is_rejected() {
     );
     assert!(conf_resp.contains("OK"), "HTTPCONF response: {conf_resp}");
 
-    harness.send_command("AT+HTTPEXE=5");
-    let response = harness.read_until_contains(b"\r\nERROR\r\n", Duration::from_secs(2));
+    harness.send_command(&format!("AT+HTTPEXE={}", BODY.len()));
+    let prompt = harness.read_until_contains(b"> ", Duration::from_secs(2));
+    assert!(String::from_utf8_lossy(&prompt).contains("> "));
+    harness.send_bytes(BODY);
+    let response = harness.read_until_contains(b"\r\nOK\r\n", Duration::from_secs(3));
     let response = String::from_utf8_lossy(&response);
-    assert!(response.contains("ERROR"), "response: {response}");
+    assert!(response.contains("ok"), "response: {response}");
     harness.shutdown().await;
+
+    let (request_line, body) = server.await.expect("HTTP server task join");
+    assert!(
+        request_line.starts_with("POST /submit "),
+        "request line: {request_line}"
+    );
+    assert_eq!(body, BODY, "request body");
 }
